@@ -1,0 +1,19 @@
+# iOS / Xcode
+ios/build/
+ios/DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+ios/**/xcuserdata/
+ios/FitnessTracker/Config.xcconfig
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+
+# Secrets
+.env
+*.env
+!.env.example
+
+# macOS
+.DS_Store

@@ -1,0 +1,4 @@
+// Note: "//" starts a comment in .xcconfig files, so URLs need the slashes
+// broken up with an empty macro expansion ($()) or they get truncated.
+SUPABASE_URL = https:/$()/your-project.supabase.co
+SUPABASE_ANON_KEY = your-anon-key
