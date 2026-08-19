@@ -8,6 +8,7 @@ struct StartWorkoutView: View {
     @State private var errorMessage: String?
     @State private var startedWorkout: Workout?
     @State private var isStarting = false
+    @State private var deloadSignal: DeloadSignal?
     @ObservedObject private var cardioMonitor = CardioSessionMonitor.shared
     private let routineRepository = RoutineRepository()
     private let workoutRepository = WorkoutRepository()
@@ -19,6 +20,10 @@ struct StartWorkoutView: View {
                 VStack(spacing: 20) {
                     if let errorMessage {
                         Text(errorMessage).foregroundStyle(.red)
+                    }
+
+                    if let deloadSignal, deloadSignal.severity != .none {
+                        DeloadBanner(signal: deloadSignal)
                     }
 
                     if routine == nil {
@@ -155,6 +160,17 @@ struct StartWorkoutView: View {
             errorMessage = error.localizedDescription
         }
         await CardioSessionMonitor.shared.refresh()
+        await loadDeloadSignal()
+    }
+
+    private func loadDeloadSignal() async {
+        do {
+            let recentCheckins = try await checkinRepository.fetchRecent(days: 10)
+            let recentWorkouts = try await workoutRepository.fetchHistory(limit: 5)
+            deloadSignal = DeloadAdvisor.evaluate(recentCheckins: recentCheckins, recentWorkouts: recentWorkouts)
+        } catch {
+            // Advisory only - don't block the Train tab on this failing.
+        }
     }
 
     private func startWorkout() async {
@@ -165,6 +181,32 @@ struct StartWorkoutView: View {
             startedWorkout = try await workoutRepository.startWorkout(routineDayId: todayDay.id)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct DeloadBanner: View {
+    let signal: DeloadSignal
+
+    private var title: String {
+        signal.severity == .recommended ? "Deload recommended" : "Consider a deload"
+    }
+
+    var body: some View {
+        DashboardCard {
+            VStack(alignment: .leading, spacing: 6) {
+                Label(title, systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.orange)
+                ForEach(signal.reasons, id: \.self) { reason in
+                    Text("\u{2022} \(reason)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("Consider cutting volume and intensity back for a week before your next session.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

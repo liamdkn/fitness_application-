@@ -49,8 +49,8 @@ struct ActiveWorkoutView: View {
 
                     SetLogGridView(
                         activeExercise: activeExercise,
-                        onLogSet: { reps, weight in
-                            Task { await viewModel.logSet(for: activeExercise.id, reps: reps, weightKg: weight) }
+                        onLogSet: { reps, weight, rpe in
+                            Task { await viewModel.logSet(for: activeExercise.id, reps: reps, weightKg: weight, rpe: rpe) }
                         },
                         onAddSet: {
                             viewModel.addExtraSetRow(for: activeExercise.id)

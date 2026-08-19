@@ -63,7 +63,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
         activeExercises.append(active)
     }
 
-    func logSet(for exerciseId: UUID, reps: Int, weightKg: Double) async {
+    func logSet(for exerciseId: UUID, reps: Int, weightKg: Double, rpe: Double?) async {
         guard let index = activeExercises.firstIndex(where: { $0.id == exerciseId }) else { return }
         let nextSetIndex = activeExercises[index].loggedSets.count + 1
         do {
@@ -73,7 +73,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
                 setIndex: nextSetIndex,
                 reps: reps,
                 weightKg: weightKg,
-                rpe: nil,
+                rpe: rpe,
                 isWarmup: false
             )
             activeExercises[index].loggedSets.append(set)

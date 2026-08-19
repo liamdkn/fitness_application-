@@ -35,6 +35,13 @@ enum DateFormatting {
         isoDateFormatter.string(from: date)
     }
 
+    /// Parses a "yyyy-MM-dd" string as produced by `isoDate(_:)` back into
+    /// a Date at local midnight. Used when comparing a `date`-column value
+    /// (stored as a plain string on the model) against a Date range.
+    static func date(fromISODate string: String) -> Date? {
+        isoDateFormatter.date(from: string)
+    }
+
     private static let isoDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"

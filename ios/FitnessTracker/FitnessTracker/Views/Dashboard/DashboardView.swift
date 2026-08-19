@@ -35,6 +35,15 @@ struct DashboardView: View {
                         onTapWeekly: { activeSheet = .weeklyCheckin }
                     )
 
+                    if let insight = viewModel.nutritionInsight {
+                        NutritionInsightCard(
+                            insight: insight,
+                            isApplying: viewModel.isApplyingNutritionInsight,
+                            onAccept: { Task { await viewModel.acceptNutritionInsight() } },
+                            onDismiss: { Task { await viewModel.dismissNutritionInsight() } }
+                        )
+                    }
+
                     DashboardCard {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
@@ -255,6 +264,48 @@ private struct CheckInsCard: View {
             } else {
                 Image(systemName: "chevron.right")
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct NutritionInsightCard: View {
+    let insight: TDEEEstimate
+    let isApplying: Bool
+    let onAccept: () -> Void
+    let onDismiss: () -> Void
+
+    private var direction: String {
+        insight.recommendedCalorieTarget > insight.currentCalorieTarget ? "up" : "down"
+    }
+
+    var body: some View {
+        DashboardCard(title: "Nutrition Insight") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Based on the last \(insight.windowDays) days, your calorie target looks like it should move \(direction), from \(Int(insight.currentCalorieTarget)) to \(Int(insight.recommendedCalorieTarget)) kcal.")
+                    .font(.subheadline)
+
+                Text("Estimated maintenance: ~\(Int(insight.estimatedTDEE)) kcal/day, from \(insight.loggedDaysInWindow) logged days and a trend weight change of \(String(format: "%.2f", insight.trendWeightChangeKgPerWeek)) kg/week.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Button(action: onDismiss) {
+                        Text("Dismiss")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isApplying)
+
+                    Button(action: onAccept) {
+                        if isApplying {
+                            ProgressView()
+                        } else {
+                            Text("Apply New Target")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isApplying)
+                }
             }
         }
     }

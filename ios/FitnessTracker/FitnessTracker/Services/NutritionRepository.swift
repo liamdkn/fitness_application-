@@ -36,6 +36,21 @@ struct NutritionRepository {
             .value
     }
 
+    /// All logged days within an inclusive calendar range (as opposed to
+    /// `fetchRecent`'s row-count limit), used where the caller needs the
+    /// window to line up with a date range from another source - e.g.
+    /// matching the adaptive TDEE engine's weight-log window.
+    func fetchRange(from: Date, to: Date) async throws -> [NutritionLog] {
+        try await client
+            .from("nutrition_logs")
+            .select()
+            .gte("date", value: DateFormatting.isoDate(from))
+            .lte("date", value: DateFormatting.isoDate(to))
+            .order("date")
+            .execute()
+            .value
+    }
+
     @discardableResult
     func upsertLog(date: Date, calories: Double, proteinG: Double, carbsG: Double, fatG: Double) async throws -> NutritionLog {
         let userId = try await client.auth.session.user.id

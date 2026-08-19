@@ -56,6 +56,21 @@ struct DailyCheckinRepository {
         return checkins.first
     }
 
+    /// Check-ins from the trailing `days` calendar days, oldest first - used
+    /// to look at energy/soreness trends (e.g. DeloadAdvisor) rather than a
+    /// single day's reading.
+    func fetchRecent(days: Int) async throws -> [DailyCheckin] {
+        let calendar = Calendar.current
+        let since = calendar.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        return try await client
+            .from("daily_checkins")
+            .select()
+            .gte("checkin_date", value: DateFormatting.isoDate(since))
+            .order("checkin_date")
+            .execute()
+            .value
+    }
+
     @discardableResult
     func save(
         date: Date,

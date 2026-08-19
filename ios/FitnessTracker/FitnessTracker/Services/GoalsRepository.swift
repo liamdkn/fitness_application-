@@ -159,6 +159,31 @@ struct GoalsRepository {
         }
     }
 
+    /// Applies an adaptive-TDEE calorie recommendation to the current goal:
+    /// writes a new phase row effective today with every field carried over
+    /// unchanged except the calorie target - the same "start a phase" shape
+    /// `StartNewPhaseView` writes, so the change shows up in phase history
+    /// rather than silently mutating an existing row.
+    @discardableResult
+    func applyCalorieAdjustment(to goal: UserGoal, newCalorieTarget: Double) async throws -> UserGoal {
+        try await saveGoal(
+            effectiveFrom: Date(),
+            phaseType: goal.phaseType,
+            startingWeightKg: goal.startingWeightKg,
+            durationWeeks: goal.durationWeeks,
+            dailyCalorieTarget: newCalorieTarget,
+            proteinGTarget: goal.proteinGTarget,
+            carbsGTarget: goal.carbsGTarget,
+            fatGTarget: goal.fatGTarget,
+            targetWeightKg: goal.targetWeightKg,
+            weeklyWeightChangeKg: goal.weeklyWeightChangeKg,
+            stepTarget: goal.stepTarget,
+            sleepTargetMinutes: goal.sleepTargetMinutes,
+            cardioSessionsPerWeek: goal.cardioSessionsPerWeek,
+            cardioMinutesPerSession: goal.cardioMinutesPerSession
+        )
+    }
+
     func fetchCurrentGoal() async throws -> UserGoal? {
         let result: UserGoalRPCResult = try await client
             .rpc("current_user_goal")
