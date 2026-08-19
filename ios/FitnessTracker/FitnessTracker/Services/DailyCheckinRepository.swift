@@ -4,6 +4,12 @@ import Supabase
 struct DailyCheckinRepository {
     let client = SupabaseService.shared.client
 
+    // Manually implements `encode(to:)` because the auto-synthesized conformance
+    // uses `encodeIfPresent` for Optional properties, which OMITS the JSON key
+    // entirely when a value is nil. Supabase's upsert only touches columns present
+    // in the request body, so an omitted key leaves the existing row's value
+    // untouched instead of clearing it (e.g. picking "Rest" wouldn't null out a
+    // previously-saved routine_day_id). Encoding explicit `null`s fixes that.
     private struct NewDailyCheckin: Encodable {
         let user_id: UUID
         let checkin_date: String
@@ -16,6 +22,27 @@ struct DailyCheckinRepository {
         let yesterday_water_ml: Int?
         let yesterday_off_plan: Bool?
         let yesterday_off_plan_notes: String?
+
+        enum CodingKeys: String, CodingKey {
+            case user_id, checkin_date, weight_kg, routine_day_id, workout_choice_label,
+                 is_rest_day, energy_level, soreness_level, yesterday_water_ml,
+                 yesterday_off_plan, yesterday_off_plan_notes
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(user_id, forKey: .user_id)
+            try container.encode(checkin_date, forKey: .checkin_date)
+            try container.encode(weight_kg, forKey: .weight_kg)
+            try container.encode(routine_day_id, forKey: .routine_day_id)
+            try container.encode(workout_choice_label, forKey: .workout_choice_label)
+            try container.encode(is_rest_day, forKey: .is_rest_day)
+            try container.encode(energy_level, forKey: .energy_level)
+            try container.encode(soreness_level, forKey: .soreness_level)
+            try container.encode(yesterday_water_ml, forKey: .yesterday_water_ml)
+            try container.encode(yesterday_off_plan, forKey: .yesterday_off_plan)
+            try container.encode(yesterday_off_plan_notes, forKey: .yesterday_off_plan_notes)
+        }
     }
 
     func fetch(date: Date) async throws -> DailyCheckin? {

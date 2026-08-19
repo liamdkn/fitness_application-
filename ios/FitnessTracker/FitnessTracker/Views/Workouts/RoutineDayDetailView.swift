@@ -19,7 +19,7 @@ struct RoutineDayDetailView: View {
             }
 
             if dayExercises.isEmpty {
-                Text("Rest day")
+                Text("No exercises planned for this day yet - you can still start and add them during your workout.")
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(dayExercises) { dayExercise in
@@ -43,7 +43,7 @@ struct RoutineDayDetailView: View {
                         Text("Start This Workout")
                     }
                 }
-                .disabled(isStarting || dayExercises.isEmpty)
+                .disabled(isStarting)
             }
         }
         .navigationTitle(day.label)

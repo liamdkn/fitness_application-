@@ -151,13 +151,6 @@ struct StartWorkoutView: View {
                 todayDay = try await workoutRepository.nextRoutineDay(routineId: activeRoutine.id)
                 isRestDay = false
             }
-
-            if let todayDay {
-                let exercises = try await routineRepository.fetchDayExercises(routineDayId: todayDay.id)
-                if exercises.isEmpty {
-                    isRestDay = true
-                }
-            }
         } catch {
             errorMessage = error.localizedDescription
         }
