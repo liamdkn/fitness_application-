@@ -4,7 +4,8 @@ import SwiftUI
 struct ActiveWorkoutView: View {
     @StateObject private var viewModel: ActiveWorkoutViewModel
     @State private var showingAddExercise = false
-    @State private var showingEndDialog = false
+    @State private var showingCancelDialog = false
+    @State private var showingRatingSheet = false
     @State private var elapsed: TimeInterval = 0
     @Environment(\.dismiss) private var dismiss
 
@@ -77,17 +78,29 @@ struct ActiveWorkoutView: View {
                     Label("Add Exercise", systemImage: "plus")
                 }
             }
+
+            Section {
+                Button {
+                    showingRatingSheet = true
+                } label: {
+                    Text("Finish Workout")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    showingCancelDialog = true
+                } label: {
+                    Text("Cancel Workout")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+            }
+            .listRowBackground(Color.clear)
         }
         .navigationTitle("Workout")
         .navigationBarBackButtonHidden()
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Finish") {
-                    showingEndDialog = true
-                }
-                .fontWeight(.semibold)
-            }
-        }
         .task { await viewModel.loadTemplate() }
         .onReceive(timer) { _ in
             elapsed = Date().timeIntervalSince(viewModel.workout.startedAt)
@@ -97,11 +110,13 @@ struct ActiveWorkoutView: View {
                 Task { await viewModel.addAdHocExercise(exercise) }
             }
         }
-        .confirmationDialog("End Workout?", isPresented: $showingEndDialog) {
-            Button("Finish Workout") {
-                Task { await viewModel.finish() }
+        .sheet(isPresented: $showingRatingSheet) {
+            WorkoutRatingSheet { rating in
+                await viewModel.finish(rating: rating)
             }
-            Button("Cancel Workout", role: .destructive) {
+        }
+        .confirmationDialog("Delete this workout? This can't be undone.", isPresented: $showingCancelDialog) {
+            Button("Delete Workout", role: .destructive) {
                 Task { await viewModel.cancel() }
             }
         }

@@ -4,11 +4,24 @@ import SwiftUI
 struct DashboardView: View {
     @StateObject private var viewModel = DashboardViewModel()
     @State private var activeSheet: DashboardSheet?
+    @State private var selectedDate = Date()
+    @State private var showGoalLine = true
     @ObservedObject private var checkinAvailability = CheckinAvailabilityService.shared
 
     private enum DashboardSheet: String, Identifiable {
-        case logWeight, dailyCheckin, weeklyCheckin, cardioSteps
+        case dailyCheckin, weeklyCheckin
         var id: String { rawValue }
+    }
+
+    private var isToday: Bool {
+        Calendar.current.isDateInToday(selectedDate)
+    }
+
+    private var dayTitle: String {
+        if isToday { return "Today" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE, MMM d"
+        return formatter.string(from: selectedDate)
     }
 
     var body: some View {
@@ -22,8 +35,26 @@ struct DashboardView: View {
                         onTapWeekly: { activeSheet = .weeklyCheckin }
                     )
 
-                    DashboardCard(title: "Today") {
+                    DashboardCard {
                         VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Button {
+                                    changeDay(by: -1)
+                                } label: {
+                                    Image(systemName: "chevron.left")
+                                }
+                                Text(dayTitle)
+                                    .font(.headline)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Button {
+                                    changeDay(by: 1)
+                                } label: {
+                                    Image(systemName: "chevron.right")
+                                }
+                                .disabled(isToday)
+                            }
+
                             CalorieRow(nutrition: viewModel.todayNutrition, goal: viewModel.goal)
                             if viewModel.todayNutrition != nil || viewModel.goal != nil {
                                 MacroBarsRow(nutrition: viewModel.todayNutrition, goal: viewModel.goal)
@@ -35,13 +66,10 @@ struct DashboardView: View {
                                 value: displaySteps.map { "\($0)" } ?? "-",
                                 target: viewModel.goal?.stepTarget.map { "\($0)" }
                             )
-                            if viewModel.cardioExclusionEnabled {
-                                if viewModel.cardioStepsExcludedToday > 0 {
-                                    Text("\(viewModel.cardioStepsExcludedToday) cardio steps excluded")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Button("Log Cardio Steps") { activeSheet = .cardioSteps }
+                            if viewModel.cardioExclusionEnabled, viewModel.cardioStepsExcludedToday > 0 {
+                                Text("\(viewModel.cardioStepsExcludedToday) cardio steps excluded")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                             StatRow(
                                 icon: "bed.double.fill",
@@ -67,20 +95,43 @@ struct DashboardView: View {
                                 Text("No weigh-ins yet.")
                                     .foregroundStyle(.secondary)
                             } else {
-                                Chart(viewModel.recentWeights) { log in
-                                    LineMark(
-                                        x: .value("Date", log.loggedAt),
-                                        y: .value("Weight (kg)", log.weightKg)
-                                    )
-                                    PointMark(
-                                        x: .value("Date", log.loggedAt),
-                                        y: .value("Weight (kg)", log.weightKg)
-                                    )
+                                Chart {
+                                    ForEach(viewModel.recentWeights) { log in
+                                        LineMark(
+                                            x: .value("Date", log.loggedAt),
+                                            y: .value("Weight (kg)", log.weightKg),
+                                            series: .value("Series", "Actual")
+                                        )
+                                        .foregroundStyle(by: .value("Series", "Actual"))
+                                        PointMark(
+                                            x: .value("Date", log.loggedAt),
+                                            y: .value("Weight (kg)", log.weightKg)
+                                        )
+                                        .foregroundStyle(by: .value("Series", "Actual"))
+                                    }
+                                    if showGoalLine {
+                                        ForEach(goalLinePoints) { point in
+                                            LineMark(
+                                                x: .value("Date", point.date),
+                                                y: .value("Weight (kg)", point.weightKg),
+                                                series: .value("Series", "Goal")
+                                            )
+                                            .foregroundStyle(by: .value("Series", "Goal"))
+                                            .lineStyle(StrokeStyle(dash: [5, 3]))
+                                        }
+                                    }
                                 }
+                                .chartForegroundStyleScale([
+                                    "Actual": Color.blue,
+                                    "Goal": Color.red.opacity(0.6)
+                                ])
                                 .chartYScale(domain: weightChartDomain)
                                 .frame(height: 140)
                             }
-                            Button("Log Weight") { activeSheet = .logWeight }
+                            if canShowGoalLine {
+                                Toggle("Show goal line", isOn: $showGoalLine)
+                                    .font(.caption)
+                            }
                         }
                     }
 
@@ -92,36 +143,32 @@ struct DashboardView: View {
             }
             .navigationTitle("Dashboard")
             .task {
-                await viewModel.load()
+                await viewModel.load(date: selectedDate)
                 await checkinAvailability.refresh()
             }
             .refreshable {
-                await viewModel.load()
+                await viewModel.load(date: selectedDate)
                 await checkinAvailability.refresh()
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
-                case .logWeight:
-                    LogWeightSheet { kg in
-                        await viewModel.logWeight(kg: kg)
-                    }
                 case .dailyCheckin:
                     DailyCheckinSheet {
-                        await viewModel.load()
+                        await viewModel.load(date: selectedDate)
                     }
                 case .weeklyCheckin:
                     WeeklyCheckinFlow {
-                        await viewModel.load()
+                        await viewModel.load(date: selectedDate)
                     }
-                case .cardioSteps:
-                    CardioStepsSheet(
-                        sessions: viewModel.todayCardioSessions,
-                        onSave: { before, after in await viewModel.logCardioStepSession(before: before, after: after) },
-                        onDelete: { id in await viewModel.deleteCardioStepSession(id: id) }
-                    )
                 }
             }
         }
+    }
+
+    private func changeDay(by offset: Int) {
+        guard let newDate = Calendar.current.date(byAdding: .day, value: offset, to: selectedDate) else { return }
+        selectedDate = newDate
+        Task { await viewModel.load(date: selectedDate) }
     }
 
     private func formattedDuration(_ minutes: Int) -> String {
@@ -135,10 +182,40 @@ struct DashboardView: View {
     }
 
     private var weightChartDomain: ClosedRange<Double> {
-        let weights = viewModel.recentWeights.map(\.weightKg)
+        var weights = viewModel.recentWeights.map(\.weightKg)
+        if showGoalLine {
+            weights.append(contentsOf: goalLinePoints.map(\.weightKg))
+        }
         guard let min = weights.min(), let max = weights.max() else { return 0...1 }
         let padding = Swift.max((max - min) * 0.2, 1)
         return (min - padding)...(max + padding)
+    }
+
+    private struct GoalLinePoint: Identifiable {
+        let date: Date
+        let weightKg: Double
+        var id: Date { date }
+    }
+
+    private var canShowGoalLine: Bool {
+        guard let goal = viewModel.goal else { return false }
+        return goal.startingWeightKg != nil && goal.weeklyWeightChangeKg != nil
+    }
+
+    private var goalLinePoints: [GoalLinePoint] {
+        guard let goal = viewModel.goal,
+              let startingWeightKg = goal.startingWeightKg,
+              let weeklyRate = goal.weeklyWeightChangeKg,
+              let startDate = ISO8601DateFormatter().date(from: goal.effectiveFrom + "T00:00:00Z")
+        else { return [] }
+
+        let today = Date()
+        let daysSince = Calendar.current.dateComponents([.day], from: startDate, to: today).day ?? 0
+        let projectedToday = startingWeightKg + weeklyRate / 7 * Double(daysSince)
+        return [
+            GoalLinePoint(date: startDate, weightKg: startingWeightKg),
+            GoalLinePoint(date: today, weightKg: projectedToday)
+        ]
     }
 }
 
@@ -265,38 +342,6 @@ private struct StatRow: View {
                 Text("\(value) / \(target)")
             } else {
                 Text(value)
-            }
-        }
-    }
-}
-
-private struct LogWeightSheet: View {
-    let onSave: (Double) async -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var weightText = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("Weight (kg)", text: $weightText)
-                    .keyboardType(.decimalPad)
-            }
-            .navigationTitle("Log Weight")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") {
-                        guard let kg = Double(weightText) else { return }
-                        Task {
-                            await onSave(kg)
-                            dismiss()
-                        }
-                    }
-                    .disabled(Double(weightText) == nil)
-                }
             }
         }
     }

@@ -1,3 +1,4 @@
+import Supabase
 import SwiftUI
 
 struct DailyCheckinSheet: View {
@@ -13,12 +14,19 @@ struct DailyCheckinSheet: View {
     @State private var yesterdayWaterText = ""
     @State private var yesterdayOffPlan = false
     @State private var yesterdayOffPlanNotes = ""
+    @State private var yesterdaySleepHoursText = ""
+    @State private var hasExistingSleepLog = false
     @State private var errorMessage: String?
     @State private var isSaving = false
 
     private let routineRepository = RoutineRepository()
     private let checkinRepository = DailyCheckinRepository()
     private let bodyWeightRepository = BodyWeightRepository()
+    private let healthRepository = HealthRepository()
+
+    private var yesterday: Date {
+        Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+    }
 
     private enum WorkoutChoice: Hashable {
         case day(UUID)
@@ -48,6 +56,23 @@ struct DailyCheckinSheet: View {
 
                     ratingPicker(label: "Energy", selection: $energyLevel)
                     ratingPicker(label: "Soreness (DOMS)", selection: $sorenessLevel)
+
+                    HStack {
+                        Text("Sleep")
+                        Spacer()
+                        TextField("-", text: $yesterdaySleepHoursText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
+                            .disabled(hasExistingSleepLog)
+                            .foregroundStyle(hasExistingSleepLog ? .secondary : .primary)
+                        Text("hrs").foregroundStyle(.secondary).font(.caption)
+                    }
+                    if !hasExistingSleepLog {
+                        Text("No sleep data synced for last night - add it manually if you know it.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("Yesterday") {
@@ -99,12 +124,17 @@ struct DailyCheckinSheet: View {
 
     @ViewBuilder
     private func ratingPicker(label: String, selection: Binding<Int>) -> some View {
-        Picker(label, selection: selection) {
-            ForEach(1...5, id: \.self) { value in
-                Text("\(value)").tag(value)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.subheadline)
+            Picker(label, selection: selection) {
+                ForEach(1...5, id: \.self) { value in
+                    Text("\(value)").tag(value)
+                }
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
         }
-        .pickerStyle(.segmented)
     }
 
     private func load() async {
@@ -124,6 +154,13 @@ struct DailyCheckinSheet: View {
                 } else {
                     selectedWorkoutChoice = .rest
                 }
+            }
+            if let sleepLog = try await healthRepository.fetchSleepLog(date: Date()) {
+                hasExistingSleepLog = true
+                yesterdaySleepHoursText = String(format: "%.1f", Double(sleepLog.totalSleepMinutes) / 60.0)
+            } else {
+                hasExistingSleepLog = false
+                yesterdaySleepHoursText = ""
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -164,6 +201,22 @@ struct DailyCheckinSheet: View {
 
             if let weightKg, try await !bodyWeightRepository.hasLoggedToday() {
                 try? await bodyWeightRepository.logWeight(kg: weightKg)
+            }
+
+            if let sleepHours = Double(yesterdaySleepHoursText) {
+                let alreadyLogged = try await healthRepository.fetchSleepLog(date: Date()) != nil
+                if !alreadyLogged {
+                    let minutes = Int(sleepHours * 60)
+                    try? await healthRepository.upsertSleep([
+                        SleepLog(
+                            userId: try await SupabaseService.shared.client.auth.session.user.id,
+                            date: DateFormatting.isoDate(Date()),
+                            totalSleepMinutes: minutes,
+                            inBedMinutes: minutes,
+                            source: "manual"
+                        )
+                    ])
+                }
             }
 
             CheckinAvailabilityService.shared.checkinCompleted(.daily)

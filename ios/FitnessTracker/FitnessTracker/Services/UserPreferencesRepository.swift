@@ -14,6 +14,11 @@ struct UserPreferencesRepository {
         let cardio_step_exclusion_enabled: Bool
     }
 
+    private struct UpsertStepSource: Encodable {
+        let user_id: UUID
+        let step_source: String
+    }
+
     func fetch() async throws -> UserPreferences {
         let userId = try await client.auth.session.user.id
         let rows: [UserPreferences] = try await client
@@ -23,7 +28,7 @@ struct UserPreferencesRepository {
             .limit(1)
             .execute()
             .value
-        return rows.first ?? UserPreferences(weeklyCheckinWeekday: 2, cardioStepExclusionEnabled: false)
+        return rows.first ?? UserPreferences(weeklyCheckinWeekday: 2, cardioStepExclusionEnabled: false, stepSource: .merged)
     }
 
     @discardableResult
@@ -47,6 +52,21 @@ struct UserPreferencesRepository {
         let saved: [UserPreferences] = try await client
             .from("user_preferences")
             .upsert(UpsertCardioStepExclusion(user_id: userId, cardio_step_exclusion_enabled: enabled), onConflict: "user_id")
+            .select()
+            .execute()
+            .value
+        guard let preferences = saved.first else {
+            throw RepositoryError.insertFailed
+        }
+        return preferences
+    }
+
+    @discardableResult
+    func setStepSource(_ source: StepSource) async throws -> UserPreferences {
+        let userId = try await client.auth.session.user.id
+        let saved: [UserPreferences] = try await client
+            .from("user_preferences")
+            .upsert(UpsertStepSource(user_id: userId, step_source: source.rawValue), onConflict: "user_id")
             .select()
             .execute()
             .value

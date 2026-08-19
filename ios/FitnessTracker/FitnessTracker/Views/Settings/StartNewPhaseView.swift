@@ -5,11 +5,11 @@ struct StartNewPhaseView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var phaseType: GoalPhaseType = .cut
+    @State private var startDate = Date()
     @State private var startingWeightKg = ""
     @State private var durationWeeks = "12"
     @State private var dailyCalorieTarget = ""
     @State private var proteinGTarget = ""
-    @State private var carbsGTarget = ""
     @State private var fatGTarget = ""
     @State private var weeklyRateKg = ""
     @State private var stepTarget = ""
@@ -25,6 +25,24 @@ struct StartNewPhaseView: View {
 
     private var isValid: Bool {
         Double(dailyCalorieTarget) != nil && Double(proteinGTarget) != nil && Int(durationWeeks) != nil
+    }
+
+    private var derivedCarbsG: Double? {
+        guard let cal = Double(dailyCalorieTarget), let p = Double(proteinGTarget), let f = Double(fatGTarget) else { return nil }
+        return max(0, (cal - p * 4 - f * 9) / 4)
+    }
+
+    private var proteinFatExceedsCalories: Bool {
+        guard let cal = Double(dailyCalorieTarget), let p = Double(proteinGTarget), let f = Double(fatGTarget) else { return false }
+        return p * 4 + f * 9 > cal
+    }
+
+    private var weeklyRateLabel: String {
+        switch phaseType {
+        case .cut: return "Weekly Weight Loss"
+        case .bulk: return "Weekly Weight Gain"
+        case .maintain: return "Weekly Rate"
+        }
     }
 
     var body: some View {
@@ -68,18 +86,29 @@ struct StartNewPhaseView: View {
                     }
 
                     Section("Details") {
+                        DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
                         LabeledField(label: "Starting Weight", text: $startingWeightKg, unit: "kg")
                         LabeledField(label: "Duration", text: $durationWeeks, unit: "weeks")
                         if phaseType != .maintain {
-                            LabeledField(label: "Weekly Rate", text: $weeklyRateKg, unit: "kg")
+                            LabeledField(label: weeklyRateLabel, text: $weeklyRateKg, unit: "kg")
                         }
                     }
 
                     Section("Nutrition Targets") {
                         LabeledField(label: "Daily Calories", text: $dailyCalorieTarget, unit: "kcal")
                         LabeledField(label: "Protein", text: $proteinGTarget, unit: "g")
-                        LabeledField(label: "Carbs", text: $carbsGTarget, unit: "g")
                         LabeledField(label: "Fat", text: $fatGTarget, unit: "g")
+                        HStack {
+                            Text("Carbs")
+                            Spacer()
+                            Text(derivedCarbsG.map { String(format: "%.0f g", $0) } ?? "-")
+                                .foregroundStyle(.secondary)
+                        }
+                        if proteinFatExceedsCalories {
+                            Text("Protein + fat already exceed calorie target.")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
                     }
 
                     Section("Other Targets") {
@@ -138,12 +167,13 @@ struct StartNewPhaseView: View {
 
         do {
             let goal = try await repository.saveGoal(
+                effectiveFrom: startDate,
                 phaseType: phaseType,
                 startingWeightKg: Double(startingWeightKg),
                 durationWeeks: weeks,
                 dailyCalorieTarget: calories,
                 proteinGTarget: protein,
-                carbsGTarget: Double(carbsGTarget),
+                carbsGTarget: derivedCarbsG,
                 fatGTarget: Double(fatGTarget),
                 targetWeightKg: nil,
                 weeklyWeightChangeKg: signedRate,
@@ -161,7 +191,7 @@ struct StartNewPhaseView: View {
     }
 }
 
-private struct LabeledField: View {
+struct LabeledField: View {
     let label: String
     @Binding var text: String
     let unit: String

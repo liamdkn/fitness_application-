@@ -8,6 +8,7 @@ struct Workout: Codable, Identifiable, Hashable {
     let endedAt: Date?
     let name: String?
     let notes: String?
+    let rating: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -15,7 +16,7 @@ struct Workout: Codable, Identifiable, Hashable {
         case performedAt = "performed_at"
         case startedAt = "started_at"
         case endedAt = "ended_at"
-        case name, notes
+        case name, notes, rating
     }
 
     var duration: TimeInterval? {

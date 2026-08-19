@@ -21,19 +21,24 @@ struct WorkoutHistoryView: View {
             } else {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(workouts) { workout in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(workout.routineDayId.flatMap { dayLabels[$0] } ?? workout.name ?? "Workout")
-                                .font(.subheadline.bold())
-                            HStack {
-                                Text(workout.performedAt, style: .date)
-                                if let duration = workout.duration {
-                                    Text(formattedDuration(duration))
-                                } else {
-                                    Text("in progress")
+                        NavigationLink {
+                            WorkoutDetailView(workout: workout)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(workout.routineDayId.flatMap { dayLabels[$0] } ?? workout.name ?? "Workout")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.primary)
+                                HStack {
+                                    Text(workout.performedAt, style: .date)
+                                    if let duration = workout.duration {
+                                        Text(formattedDuration(duration))
+                                    } else {
+                                        Text("in progress")
+                                    }
                                 }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                         }
                         Divider()
                     }

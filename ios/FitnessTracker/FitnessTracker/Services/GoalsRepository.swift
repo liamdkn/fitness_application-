@@ -86,6 +86,23 @@ struct GoalsRepository {
         let cardio_minutes_per_session: Int?
     }
 
+    private struct UpdateGoal: Encodable {
+        let effective_from: String
+        let phase_type: GoalPhaseType
+        let starting_weight_kg: Double?
+        let duration_weeks: Int
+        let daily_calorie_target: Double
+        let protein_g_target: Double
+        let carbs_g_target: Double?
+        let fat_g_target: Double?
+        let target_weight_kg: Double?
+        let weekly_weight_change_kg: Double?
+        let step_target: Int?
+        let sleep_target_minutes: Int?
+        let cardio_sessions_per_week: Int?
+        let cardio_minutes_per_session: Int?
+    }
+
     private struct FetchedUserGoal: Decodable {
         let id: UUID
         let effectiveFrom: String
@@ -163,6 +180,7 @@ struct GoalsRepository {
 
     @discardableResult
     func saveGoal(
+        effectiveFrom: Date,
         phaseType: GoalPhaseType,
         startingWeightKg: Double?,
         durationWeeks: Int,
@@ -180,7 +198,7 @@ struct GoalsRepository {
         let userId = try await client.auth.session.user.id
         let payload = UpsertGoal(
             user_id: userId,
-            effective_from: DateFormatting.isoDate(Date()),
+            effective_from: DateFormatting.isoDate(effectiveFrom),
             phase_type: phaseType,
             starting_weight_kg: startingWeightKg,
             duration_weeks: durationWeeks,
@@ -198,6 +216,53 @@ struct GoalsRepository {
         let saved: [FetchedUserGoal] = try await client
             .from("user_goals")
             .upsert(payload, onConflict: "user_id,effective_from")
+            .select()
+            .execute()
+            .value
+        guard let goal = saved.first else {
+            throw RepositoryError.insertFailed
+        }
+        return goal.goal
+    }
+
+    @discardableResult
+    func updateGoal(
+        goalId: UUID,
+        effectiveFrom: Date,
+        phaseType: GoalPhaseType,
+        startingWeightKg: Double?,
+        durationWeeks: Int,
+        dailyCalorieTarget: Double,
+        proteinGTarget: Double,
+        carbsGTarget: Double?,
+        fatGTarget: Double?,
+        targetWeightKg: Double?,
+        weeklyWeightChangeKg: Double?,
+        stepTarget: Int?,
+        sleepTargetMinutes: Int?,
+        cardioSessionsPerWeek: Int?,
+        cardioMinutesPerSession: Int?
+    ) async throws -> UserGoal {
+        let payload = UpdateGoal(
+            effective_from: DateFormatting.isoDate(effectiveFrom),
+            phase_type: phaseType,
+            starting_weight_kg: startingWeightKg,
+            duration_weeks: durationWeeks,
+            daily_calorie_target: dailyCalorieTarget,
+            protein_g_target: proteinGTarget,
+            carbs_g_target: carbsGTarget,
+            fat_g_target: fatGTarget,
+            target_weight_kg: targetWeightKg,
+            weekly_weight_change_kg: weeklyWeightChangeKg,
+            step_target: stepTarget,
+            sleep_target_minutes: sleepTargetMinutes,
+            cardio_sessions_per_week: cardioSessionsPerWeek,
+            cardio_minutes_per_session: cardioMinutesPerSession
+        )
+        let saved: [FetchedUserGoal] = try await client
+            .from("user_goals")
+            .update(payload)
+            .eq("id", value: goalId)
             .select()
             .execute()
             .value

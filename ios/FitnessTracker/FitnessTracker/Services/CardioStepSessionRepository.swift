@@ -40,12 +40,4 @@ struct CardioStepSessionRepository {
         }
         return session
     }
-
-    func deleteSession(id: UUID) async throws {
-        try await client
-            .from("cardio_step_sessions")
-            .delete()
-            .eq("id", value: id)
-            .execute()
-    }
 }

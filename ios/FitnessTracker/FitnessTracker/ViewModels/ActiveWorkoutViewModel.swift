@@ -87,9 +87,9 @@ final class ActiveWorkoutViewModel: ObservableObject {
         activeExercises[index].plannedSetCount += 1
     }
 
-    func finish() async {
+    func finish(rating: Int?) async {
         do {
-            try await workoutRepository.finishWorkout(workoutId: workout.id)
+            try await workoutRepository.finishWorkout(workoutId: workout.id, rating: rating)
             isFinished = true
         } catch {
             errorMessage = error.localizedDescription

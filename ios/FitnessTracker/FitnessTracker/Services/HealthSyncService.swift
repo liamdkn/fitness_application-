@@ -12,6 +12,7 @@ final class HealthSyncService: ObservableObject {
 
     private let healthKit = HealthKitManager()
     private let repository = HealthRepository()
+    private let preferencesRepository = UserPreferencesRepository()
     private let daysBack = 14
 
     private init() {}
@@ -24,8 +25,9 @@ final class HealthSyncService: ObservableObject {
         do {
             try await healthKit.requestAuthorization()
             let userId = try await SupabaseService.shared.client.auth.session.user.id
+            let stepSource = try await preferencesRepository.fetch().stepSource
 
-            async let steps = healthKit.fetchDailySteps(daysBack: daysBack)
+            async let steps = healthKit.fetchDailySteps(daysBack: daysBack, source: stepSource)
             async let sleep = healthKit.fetchDailySleep(daysBack: daysBack)
 
             let stepLogs = try await steps.map { date, count in

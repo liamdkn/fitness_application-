@@ -1,14 +1,21 @@
 import SwiftUI
 
 struct DashboardCard<Content: View>: View {
-    let title: String
+    let title: String?
     @ViewBuilder let content: Content
+
+    init(title: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.secondary)
+            if let title {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            }
             content
         }
         .padding()

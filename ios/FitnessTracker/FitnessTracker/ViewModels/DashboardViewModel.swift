@@ -11,7 +11,6 @@ final class DashboardViewModel: ObservableObject {
     @Published var recentWeights: [BodyWeightLog] = []
     @Published var cardioExclusionEnabled = false
     @Published var cardioStepsExcludedToday = 0
-    @Published var todayCardioSessions: [CardioStepSession] = []
     @Published var errorMessage: String?
     @Published var isLoading = false
 
@@ -23,18 +22,18 @@ final class DashboardViewModel: ObservableObject {
     private let preferencesRepository = UserPreferencesRepository()
     private let cardioStepSessionRepository = CardioStepSessionRepository()
 
-    func load() async {
+    func load(date: Date = Date()) async {
         isLoading = true
         defer { isLoading = false }
 
         async let goalResult = try? goalsRepository.fetchCurrentGoal()
-        async let nutritionResult = try? nutritionRepository.fetchLog(date: Date())
-        async let stepsResult = try? healthRepository.fetchStepLog(date: Date())
-        async let sleepResult = try? healthRepository.fetchSleepLog(date: Date())
+        async let nutritionResult = try? nutritionRepository.fetchLog(date: date)
+        async let stepsResult = try? healthRepository.fetchStepLog(date: date)
+        async let sleepResult = try? healthRepository.fetchSleepLog(date: date)
         async let volumeResult = try? workoutRepository.fetchWeeklyVolumeKg()
         async let weightsResult = try? bodyWeightRepository.fetchRecent(days: 30)
         async let preferencesResult = try? preferencesRepository.fetch()
-        async let cardioSessionsResult = try? cardioStepSessionRepository.fetchSessions(date: Date())
+        async let cardioSessionsResult = try? cardioStepSessionRepository.fetchSessions(date: date)
 
         goal = await goalResult ?? nil
         todayNutrition = await nutritionResult ?? nil
@@ -43,36 +42,7 @@ final class DashboardViewModel: ObservableObject {
         weeklyVolumeKg = await volumeResult ?? nil
         recentWeights = await weightsResult ?? []
         cardioExclusionEnabled = (await preferencesResult ?? nil)?.cardioStepExclusionEnabled ?? false
-        todayCardioSessions = await cardioSessionsResult ?? []
-        cardioStepsExcludedToday = todayCardioSessions.reduce(0) { $0 + $1.stepsDelta }
-    }
-
-    func logCardioStepSession(before: Int, after: Int) async {
-        do {
-            _ = try await cardioStepSessionRepository.logSession(date: Date(), stepsBefore: before, stepsAfter: after)
-            todayCardioSessions = try await cardioStepSessionRepository.fetchSessions(date: Date())
-            cardioStepsExcludedToday = todayCardioSessions.reduce(0) { $0 + $1.stepsDelta }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func deleteCardioStepSession(id: UUID) async {
-        do {
-            try await cardioStepSessionRepository.deleteSession(id: id)
-            todayCardioSessions.removeAll { $0.id == id }
-            cardioStepsExcludedToday = todayCardioSessions.reduce(0) { $0 + $1.stepsDelta }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func logWeight(kg: Double) async {
-        do {
-            _ = try await bodyWeightRepository.logWeight(kg: kg)
-            recentWeights = try await bodyWeightRepository.fetchRecent(days: 30)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        let cardioSessions = await cardioSessionsResult ?? []
+        cardioStepsExcludedToday = cardioSessions.reduce(0) { $0 + $1.stepsDelta }
     }
 }

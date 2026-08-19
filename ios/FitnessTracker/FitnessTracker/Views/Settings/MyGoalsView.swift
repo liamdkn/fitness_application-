@@ -5,6 +5,7 @@ struct MyGoalsView: View {
     @State private var pastGoals: [UserGoal] = []
     @State private var errorMessage: String?
     @State private var showingNewPhase = false
+    @State private var showingEditPhase = false
     private let repository = GoalsRepository()
 
     var body: some View {
@@ -14,6 +15,7 @@ struct MyGoalsView: View {
                     Text(errorMessage).foregroundStyle(.red)
                 } else if let currentGoal {
                     currentPhaseCard(currentGoal)
+                    Button("Edit Phase") { showingEditPhase = true }
                 } else {
                     Text("No active phase.")
                         .foregroundStyle(.secondary)
@@ -40,6 +42,13 @@ struct MyGoalsView: View {
         .sheet(isPresented: $showingNewPhase) {
             StartNewPhaseView { _ in
                 Task { await load() }
+            }
+        }
+        .sheet(isPresented: $showingEditPhase) {
+            if let currentGoal {
+                EditPhaseView(goal: currentGoal) { _ in
+                    Task { await load() }
+                }
             }
         }
     }

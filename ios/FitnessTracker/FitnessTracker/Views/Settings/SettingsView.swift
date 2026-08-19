@@ -9,6 +9,7 @@ struct SettingsView: View {
     @ObservedObject private var healthSync = HealthSyncService.shared
     @State private var weeklyCheckinWeekday = 2
     @State private var cardioStepExclusionEnabled = false
+    @State private var stepSource: StepSource = .merged
     @State private var preferencesError: String?
     private let preferencesRepository = UserPreferencesRepository()
 
@@ -41,6 +42,22 @@ struct SettingsView: View {
                             Task { await saveCardioStepExclusion(newValue) }
                         }
                     Text("When on, the Dashboard subtracts steps logged during a cardio session (e.g. treadmill) from today's total, so machine-counted steps don't inflate your real walking count.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Step Source") {
+                    Picker("Step Source", selection: $stepSource) {
+                        ForEach(StepSource.allCases) { source in
+                            Text(source.displayName).tag(source)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .onChange(of: stepSource) { _, newValue in
+                        Task { await saveStepSource(newValue) }
+                    }
+                    Text("Merged matches the Health app's total. Apple Watch Only counts just Watch-recorded steps, which undercounts on days the Watch isn't worn.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -85,6 +102,7 @@ struct SettingsView: View {
             let preferences = try await preferencesRepository.fetch()
             weeklyCheckinWeekday = preferences.weeklyCheckinWeekday
             cardioStepExclusionEnabled = preferences.cardioStepExclusionEnabled
+            stepSource = preferences.stepSource
         } catch {
             preferencesError = error.localizedDescription
         }
@@ -106,5 +124,15 @@ struct SettingsView: View {
         } catch {
             preferencesError = error.localizedDescription
         }
+    }
+
+    private func saveStepSource(_ source: StepSource) async {
+        do {
+            try await preferencesRepository.setStepSource(source)
+            preferencesError = nil
+        } catch {
+            preferencesError = error.localizedDescription
+        }
+        await healthSync.requestAuthorizationAndSync()
     }
 }

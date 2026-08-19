@@ -22,6 +22,7 @@ struct WorkoutRepository {
 
     private struct EndWorkoutUpdate: Encodable {
         let ended_at: Date
+        let rating: Int?
     }
 
     private struct RoutineIdParam: Encodable {
@@ -83,10 +84,10 @@ struct WorkoutRepository {
         return workout
     }
 
-    func finishWorkout(workoutId: UUID) async throws {
+    func finishWorkout(workoutId: UUID, rating: Int?) async throws {
         try await client
             .from("workouts")
-            .update(EndWorkoutUpdate(ended_at: Date()))
+            .update(EndWorkoutUpdate(ended_at: Date(), rating: rating))
             .eq("id", value: workoutId)
             .execute()
     }

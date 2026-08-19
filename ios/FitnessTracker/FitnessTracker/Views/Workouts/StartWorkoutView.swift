@@ -2,17 +2,16 @@ import SwiftUI
 
 struct StartWorkoutView: View {
     @State private var routine: Routine?
-    @State private var nextDay: RoutineDay?
+    @State private var todayDay: RoutineDay?
+    @State private var isRestDay = false
     @State private var days: [RoutineDay] = []
     @State private var errorMessage: String?
     @State private var startedWorkout: Workout?
     @State private var isStarting = false
-    @State private var exercises: [Exercise] = []
-    @State private var exercisesError: String?
     @ObservedObject private var cardioMonitor = CardioSessionMonitor.shared
     private let routineRepository = RoutineRepository()
     private let workoutRepository = WorkoutRepository()
-    private let exerciseRepository = ExerciseRepository()
+    private let checkinRepository = DailyCheckinRepository()
 
     var body: some View {
         NavigationStack {
@@ -30,28 +29,33 @@ struct StartWorkoutView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     } else {
-                        Text("Start Today's Workout")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        if let nextDay {
-                            Text(nextDay.label)
+                        if let todayDay {
+                            Text(todayDay.label)
+                                .font(.largeTitle.bold())
+                        } else if isRestDay {
+                            Text("Rest")
                                 .font(.largeTitle.bold())
                         } else {
                             Text("Add a day to your split first.")
                                 .foregroundStyle(.secondary)
                         }
 
-                        Button {
-                            Task { await startWorkout() }
-                        } label: {
-                            if isStarting {
-                                ProgressView()
-                            } else {
-                                Text("Start Today's Workout")
+                        if isRestDay {
+                            Text("Rest day - no workout scheduled.")
+                                .foregroundStyle(.secondary)
+                        } else if todayDay != nil {
+                            Button {
+                                Task { await startWorkout() }
+                            } label: {
+                                if isStarting {
+                                    ProgressView()
+                                } else {
+                                    Text("Start Today's Workout")
+                                }
                             }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isStarting)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(nextDay == nil || isStarting)
 
                         if !days.isEmpty {
                             Divider()
@@ -67,8 +71,8 @@ struct StartWorkoutView: View {
                                         HStack {
                                             Text(day.label)
                                             Spacer()
-                                            if nextDay?.id == day.id {
-                                                Text("Next")
+                                            if todayDay?.id == day.id {
+                                                Text("Today")
                                                     .font(.caption)
                                                     .foregroundStyle(.secondary)
                                             }
@@ -83,20 +87,6 @@ struct StartWorkoutView: View {
                             RoutineEditorView()
                         }
                         .font(.footnote)
-                    }
-
-                    if let exercisesError {
-                        Text(exercisesError).foregroundStyle(.red)
-                    } else if !exercises.isEmpty {
-                        DashboardCard(title: "Exercise Progress") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                ForEach(exercises) { exercise in
-                                    NavigationLink(exercise.name) {
-                                        ExerciseProgressionView(exercise: exercise)
-                                    }
-                                }
-                            }
-                        }
                     }
 
                     DashboardCard(title: "Cardio") {
@@ -146,27 +136,40 @@ struct StartWorkoutView: View {
         do {
             let activeRoutine = try await routineRepository.fetchActiveRoutine()
             routine = activeRoutine
-            if let activeRoutine {
-                nextDay = try await workoutRepository.nextRoutineDay(routineId: activeRoutine.id)
-                days = try await routineRepository.fetchDays(routineId: activeRoutine.id)
+            guard let activeRoutine else { return }
+            days = try await routineRepository.fetchDays(routineId: activeRoutine.id)
+
+            if let checkin = try await checkinRepository.fetch(date: Date()) {
+                if let routineDayId = checkin.routineDayId {
+                    todayDay = days.first { $0.id == routineDayId }
+                    isRestDay = false
+                } else {
+                    todayDay = nil
+                    isRestDay = true
+                }
+            } else {
+                todayDay = try await workoutRepository.nextRoutineDay(routineId: activeRoutine.id)
+                isRestDay = false
+            }
+
+            if let todayDay {
+                let exercises = try await routineRepository.fetchDayExercises(routineDayId: todayDay.id)
+                if exercises.isEmpty {
+                    isRestDay = true
+                }
             }
         } catch {
             errorMessage = error.localizedDescription
-        }
-        do {
-            exercises = try await exerciseRepository.fetchAll()
-        } catch {
-            exercisesError = error.localizedDescription
         }
         await CardioSessionMonitor.shared.refresh()
     }
 
     private func startWorkout() async {
-        guard let nextDay else { return }
+        guard let todayDay else { return }
         isStarting = true
         defer { isStarting = false }
         do {
-            startedWorkout = try await workoutRepository.startWorkout(routineDayId: nextDay.id)
+            startedWorkout = try await workoutRepository.startWorkout(routineDayId: todayDay.id)
         } catch {
             errorMessage = error.localizedDescription
         }
