@@ -22,6 +22,18 @@ struct BodyWeightRepository {
             .value
     }
 
+    func hasLoggedToday() async throws -> Bool {
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        let logs: [BodyWeightLog] = try await client
+            .from("body_weight_logs")
+            .select()
+            .gte("logged_at", value: startOfToday.ISO8601Format())
+            .limit(1)
+            .execute()
+            .value
+        return !logs.isEmpty
+    }
+
     @discardableResult
     func logWeight(kg: Double) async throws -> BodyWeightLog {
         let userId = try await client.auth.session.user.id

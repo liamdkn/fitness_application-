@@ -4,10 +4,15 @@ import SwiftUI
 struct ActiveWorkoutView: View {
     @StateObject private var viewModel: ActiveWorkoutViewModel
     @State private var showingAddExercise = false
+    @State private var showingEndDialog = false
     @State private var elapsed: TimeInterval = 0
     @Environment(\.dismiss) private var dismiss
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var supersetLabels: [UUID: String] {
+        SupersetLabeling.labels(for: viewModel.activeExercises.compactMap(\.target))
+    }
 
     init(workout: Workout) {
         _viewModel = StateObject(wrappedValue: ActiveWorkoutViewModel(workout: workout))
@@ -26,7 +31,7 @@ struct ActiveWorkoutView: View {
             }
 
             ForEach(viewModel.activeExercises) { activeExercise in
-                Section(activeExercise.exercise.name) {
+                Section {
                     if let suggestion = activeExercise.suggestion {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(suggestionHeadline(suggestion))
@@ -41,17 +46,26 @@ struct ActiveWorkoutView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    ForEach(activeExercise.loggedSets) { set in
-                        HStack {
-                            Text("Set \(set.setIndex)")
-                            Spacer()
-                            Text("\(set.reps) reps \u{00d7} \(set.weightKg, specifier: "%.1f") kg")
+                    SetLogGridView(
+                        activeExercise: activeExercise,
+                        onLogSet: { reps, weight in
+                            Task { await viewModel.logSet(for: activeExercise.id, reps: reps, weightKg: weight) }
+                        },
+                        onAddSet: {
+                            viewModel.addExtraSetRow(for: activeExercise.id)
                         }
-                        .foregroundStyle(.secondary)
-                    }
-
-                    SetEntryRow { reps, weight in
-                        Task { await viewModel.logSet(for: activeExercise.id, reps: reps, weightKg: weight) }
+                    )
+                } header: {
+                    HStack {
+                        Text(activeExercise.exercise.name)
+                        if let groupId = activeExercise.target?.supersetGroupId, let label = supersetLabels[groupId] {
+                            Text(label)
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(.blue.opacity(0.15), in: Capsule())
+                                .foregroundStyle(.blue)
+                        }
                     }
                 }
             }
@@ -69,7 +83,7 @@ struct ActiveWorkoutView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Finish") {
-                    Task { await viewModel.finish() }
+                    showingEndDialog = true
                 }
                 .fontWeight(.semibold)
             }
@@ -83,8 +97,19 @@ struct ActiveWorkoutView: View {
                 Task { await viewModel.addAdHocExercise(exercise) }
             }
         }
+        .confirmationDialog("End Workout?", isPresented: $showingEndDialog) {
+            Button("Finish Workout") {
+                Task { await viewModel.finish() }
+            }
+            Button("Cancel Workout", role: .destructive) {
+                Task { await viewModel.cancel() }
+            }
+        }
         .onChange(of: viewModel.isFinished) { _, finished in
             if finished { dismiss() }
+        }
+        .onChange(of: viewModel.isCancelled) { _, cancelled in
+            if cancelled { dismiss() }
         }
     }
 
@@ -104,31 +129,5 @@ struct ActiveWorkoutView: View {
 
     private func previousSetsSummary(_ sets: [WorkoutSet]) -> String {
         sets.map { "\($0.reps)\u{00d7}\(String(format: "%.1f", $0.weightKg))kg" }.joined(separator: ", ")
-    }
-}
-
-private struct SetEntryRow: View {
-    let onAdd: (Int, Double) -> Void
-
-    @State private var reps = ""
-    @State private var weight = ""
-
-    var body: some View {
-        HStack {
-            TextField("Reps", text: $reps)
-                .keyboardType(.numberPad)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 70)
-            TextField("Weight (kg)", text: $weight)
-                .keyboardType(.decimalPad)
-                .textFieldStyle(.roundedBorder)
-            Button("Add") {
-                guard let repsValue = Int(reps), let weightValue = Double(weight) else { return }
-                onAdd(repsValue, weightValue)
-                reps = ""
-                weight = ""
-            }
-            .disabled(Int(reps) == nil || Double(weight) == nil)
-        }
     }
 }

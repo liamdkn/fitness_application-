@@ -91,6 +91,14 @@ struct WorkoutRepository {
             .execute()
     }
 
+    func deleteWorkout(workoutId: UUID) async throws {
+        try await client
+            .from("workouts")
+            .delete()
+            .eq("id", value: workoutId)
+            .execute()
+    }
+
     func addSet(
         workoutId: UUID,
         exerciseId: UUID,

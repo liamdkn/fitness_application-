@@ -8,35 +8,39 @@ struct WorkoutHistoryView: View {
     private let routineRepository = RoutineRepository()
 
     var body: some View {
-        NavigationStack {
-            List {
-                if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
-                } else if workouts.isEmpty {
-                    Text("No workouts logged yet.")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(workouts) { workout in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(workout.routineDayId.flatMap { dayLabels[$0] } ?? workout.name ?? "Workout")
-                            .font(.headline)
-                        HStack {
-                            Text(workout.performedAt, style: .date)
-                            if let duration = workout.duration {
-                                Text(formattedDuration(duration))
-                            } else {
-                                Text("in progress")
+        VStack(alignment: .leading, spacing: 12) {
+            Text("History")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            if let errorMessage {
+                Text(errorMessage).foregroundStyle(.red)
+            } else if workouts.isEmpty {
+                Text("No workouts logged yet.")
+                    .foregroundStyle(.secondary)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(workouts) { workout in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(workout.routineDayId.flatMap { dayLabels[$0] } ?? workout.name ?? "Workout")
+                                .font(.subheadline.bold())
+                            HStack {
+                                Text(workout.performedAt, style: .date)
+                                if let duration = workout.duration {
+                                    Text(formattedDuration(duration))
+                                } else {
+                                    Text("in progress")
+                                }
                             }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        Divider()
                     }
                 }
             }
-            .navigationTitle("History")
-            .task { await load() }
-            .refreshable { await load() }
         }
+        .task { await load() }
     }
 
     private func load() async {

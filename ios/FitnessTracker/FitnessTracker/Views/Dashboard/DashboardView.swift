@@ -3,19 +3,24 @@ import SwiftUI
 
 struct DashboardView: View {
     @StateObject private var viewModel = DashboardViewModel()
-    @State private var exercises: [Exercise] = []
-    @State private var exercisesError: String?
-    @State private var showingLogWeight = false
-    @ObservedObject private var healthSync = HealthSyncService.shared
-    private let exerciseRepository = ExerciseRepository()
+    @State private var activeSheet: DashboardSheet?
+    @ObservedObject private var checkinAvailability = CheckinAvailabilityService.shared
+
+    private enum DashboardSheet: String, Identifiable {
+        case logWeight, dailyCheckin, weeklyCheckin, cardioSteps
+        var id: String { rawValue }
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    DashboardCard(title: "Apple Health") {
-                        healthStatusRow
-                    }
+                    CheckInsCard(
+                        dailyCompleted: checkinAvailability.dailyCompletedToday,
+                        weeklyDue: checkinAvailability.weeklyDue,
+                        onTapDaily: { activeSheet = .dailyCheckin },
+                        onTapWeekly: { activeSheet = .weeklyCheckin }
+                    )
 
                     DashboardCard(title: "Today") {
                         VStack(alignment: .leading, spacing: 12) {
@@ -27,9 +32,17 @@ struct DashboardView: View {
                             StatRow(
                                 icon: "figure.walk",
                                 label: "Steps",
-                                value: viewModel.todaySteps.map { "\($0)" } ?? "-",
+                                value: displaySteps.map { "\($0)" } ?? "-",
                                 target: viewModel.goal?.stepTarget.map { "\($0)" }
                             )
+                            if viewModel.cardioExclusionEnabled {
+                                if viewModel.cardioStepsExcludedToday > 0 {
+                                    Text("\(viewModel.cardioStepsExcludedToday) cardio steps excluded")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Button("Log Cardio Steps") { activeSheet = .cardioSteps }
+                            }
                             StatRow(
                                 icon: "bed.double.fill",
                                 label: "Sleep last night",
@@ -67,26 +80,12 @@ struct DashboardView: View {
                                 .chartYScale(domain: weightChartDomain)
                                 .frame(height: 140)
                             }
-                            Button("Log Weight") { showingLogWeight = true }
+                            Button("Log Weight") { activeSheet = .logWeight }
                         }
                     }
 
                     if let errorMessage = viewModel.errorMessage {
                         Text(errorMessage).foregroundStyle(.red)
-                    }
-
-                    if let exercisesError {
-                        Text(exercisesError).foregroundStyle(.red)
-                    } else if !exercises.isEmpty {
-                        DashboardCard(title: "Exercise Progress") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                ForEach(exercises) { exercise in
-                                    NavigationLink(exercise.name) {
-                                        ExerciseProgressionView(exercise: exercise)
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
                 .padding()
@@ -94,44 +93,45 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .task {
                 await viewModel.load()
-                await loadExercises()
+                await checkinAvailability.refresh()
             }
-            .refreshable { await viewModel.load() }
-            .sheet(isPresented: $showingLogWeight) {
-                LogWeightSheet { kg in
-                    await viewModel.logWeight(kg: kg)
+            .refreshable {
+                await viewModel.load()
+                await checkinAvailability.refresh()
+            }
+            .sheet(item: $activeSheet) { sheet in
+                switch sheet {
+                case .logWeight:
+                    LogWeightSheet { kg in
+                        await viewModel.logWeight(kg: kg)
+                    }
+                case .dailyCheckin:
+                    DailyCheckinSheet {
+                        await viewModel.load()
+                    }
+                case .weeklyCheckin:
+                    WeeklyCheckinFlow {
+                        await viewModel.load()
+                    }
+                case .cardioSteps:
+                    CardioStepsSheet(
+                        sessions: viewModel.todayCardioSessions,
+                        onSave: { before, after in await viewModel.logCardioStepSession(before: before, after: after) },
+                        onDelete: { id in await viewModel.deleteCardioStepSession(id: id) }
+                    )
                 }
             }
         }
     }
 
-    @ViewBuilder
-    private var healthStatusRow: some View {
-        if healthSync.isSyncing {
-            Label("Syncing steps & sleep...", systemImage: "arrow.triangle.2.circlepath")
-                .foregroundStyle(.secondary)
-        } else if let healthError = healthSync.errorMessage {
-            Label(healthError, systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.red)
-        } else if let lastSynced = healthSync.lastSyncedAt {
-            Label("Synced \(lastSynced, style: .relative) ago", systemImage: "checkmark.circle")
-                .foregroundStyle(.secondary)
-        } else {
-            Label("Not synced yet", systemImage: "questionmark.circle")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func loadExercises() async {
-        do {
-            exercises = try await exerciseRepository.fetchAll()
-        } catch {
-            exercisesError = error.localizedDescription
-        }
-    }
-
     private func formattedDuration(_ minutes: Int) -> String {
         "\(minutes / 60)h \(minutes % 60)m"
+    }
+
+    private var displaySteps: Int? {
+        guard let todaySteps = viewModel.todaySteps else { return nil }
+        guard viewModel.cardioExclusionEnabled else { return todaySteps }
+        return max(todaySteps - viewModel.cardioStepsExcludedToday, 0)
     }
 
     private var weightChartDomain: ClosedRange<Double> {
@@ -142,20 +142,44 @@ struct DashboardView: View {
     }
 }
 
-private struct DashboardCard<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
+private struct CheckInsCard: View {
+    let dailyCompleted: Bool
+    let weeklyDue: Bool
+    let onTapDaily: () -> Void
+    let onTapWeekly: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.secondary)
-            content
+        DashboardCard(title: "Check-Ins") {
+            VStack(alignment: .leading, spacing: 12) {
+                Button(action: onTapDaily) {
+                    checkinRow(label: "Daily Check-In", isDone: dailyCompleted)
+                }
+                .buttonStyle(.plain)
+
+                if weeklyDue {
+                    Divider()
+                    Button(action: onTapWeekly) {
+                        checkinRow(label: "Weekly Check-In", isDone: false)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    @ViewBuilder
+    private func checkinRow(label: String, isDone: Bool) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            if isDone {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            } else {
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 

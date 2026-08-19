@@ -33,6 +33,7 @@ struct RoutineDayExercise: Codable, Identifiable, Hashable {
     let repRangeLow: Int
     let repRangeHigh: Int
     let weightIncrementKg: Double
+    let supersetGroupId: UUID?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -43,5 +44,6 @@ struct RoutineDayExercise: Codable, Identifiable, Hashable {
         case repRangeLow = "rep_range_low"
         case repRangeHigh = "rep_range_high"
         case weightIncrementKg = "weight_increment_kg"
+        case supersetGroupId = "superset_group_id"
     }
 }

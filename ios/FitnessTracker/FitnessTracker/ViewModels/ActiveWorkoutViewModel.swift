@@ -6,12 +6,19 @@ struct ActiveExercise: Identifiable {
     let target: RoutineDayExercise?
     var previousSets: [WorkoutSet] = []
     var loggedSets: [WorkoutSet] = []
+    var plannedSetCount: Int
 
     var id: UUID { exercise.id }
 
     var suggestion: ProgressionSuggestion? {
         guard let target else { return nil }
         return ProgressionCalculator.suggest(previousSets: previousSets, target: target)
+    }
+
+    init(exercise: Exercise, target: RoutineDayExercise?) {
+        self.exercise = exercise
+        self.target = target
+        self.plannedSetCount = target?.targetSets ?? 3
     }
 }
 
@@ -21,6 +28,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
     @Published var activeExercises: [ActiveExercise] = []
     @Published var errorMessage: String?
     @Published var isFinished = false
+    @Published var isCancelled = false
 
     private let routineRepository = RoutineRepository()
     private let workoutRepository = WorkoutRepository()
@@ -74,10 +82,24 @@ final class ActiveWorkoutViewModel: ObservableObject {
         }
     }
 
+    func addExtraSetRow(for exerciseId: UUID) {
+        guard let index = activeExercises.firstIndex(where: { $0.id == exerciseId }) else { return }
+        activeExercises[index].plannedSetCount += 1
+    }
+
     func finish() async {
         do {
             try await workoutRepository.finishWorkout(workoutId: workout.id)
             isFinished = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func cancel() async {
+        do {
+            try await workoutRepository.deleteWorkout(workoutId: workout.id)
+            isCancelled = true
         } catch {
             errorMessage = error.localizedDescription
         }

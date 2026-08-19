@@ -15,25 +15,31 @@ struct ExercisePickerView: View {
         return exercises.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
+    private var groupedByMuscle: [(group: MuscleGroup, exercises: [Exercise])] {
+        let byGroup = Dictionary(grouping: filtered) { $0.primaryMuscleGroup }
+        return MuscleGroup.allCases.compactMap { group in
+            guard let exercises = byGroup[group.rawValue], !exercises.isEmpty else { return nil }
+            return (group, exercises)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(.red)
                 }
-                ForEach(filtered) { exercise in
-                    Button {
-                        onPick(exercise)
-                        dismiss()
-                    } label: {
-                        VStack(alignment: .leading) {
-                            Text(exercise.name).foregroundStyle(.primary)
-                            if let group = exercise.primaryMuscleGroup {
-                                Text(group)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                if searchText.isEmpty {
+                    ForEach(groupedByMuscle, id: \.group) { section in
+                        Section(section.group.displayName) {
+                            ForEach(section.exercises) { exercise in
+                                exerciseRow(exercise)
                             }
                         }
+                    }
+                } else {
+                    ForEach(filtered) { exercise in
+                        exerciseRow(exercise)
                     }
                 }
             }
@@ -66,6 +72,23 @@ struct ExercisePickerView: View {
             errorMessage = error.localizedDescription
         }
     }
+
+    @ViewBuilder
+    private func exerciseRow(_ exercise: Exercise) -> some View {
+        Button {
+            onPick(exercise)
+            dismiss()
+        } label: {
+            VStack(alignment: .leading) {
+                Text(exercise.name).foregroundStyle(.primary)
+                if let group = exercise.primaryMuscleGroup {
+                    Text(group)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
 }
 
 private struct AddCustomExerciseView: View {
@@ -74,7 +97,7 @@ private struct AddCustomExerciseView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var category = "compound"
-    @State private var muscleGroup = ""
+    @State private var muscleGroup: MuscleGroup = .chest
     @State private var equipment = ""
     @State private var errorMessage: String?
     @State private var isSaving = false
@@ -90,7 +113,11 @@ private struct AddCustomExerciseView: View {
                     Picker("Category", selection: $category) {
                         ForEach(categories, id: \.self) { Text($0.capitalized) }
                     }
-                    TextField("Primary Muscle Group (optional)", text: $muscleGroup)
+                    Picker("Primary Muscle Group", selection: $muscleGroup) {
+                        ForEach(MuscleGroup.allCases) { group in
+                            Text(group.displayName).tag(group)
+                        }
+                    }
                     TextField("Equipment (optional)", text: $equipment)
                 }
                 if let errorMessage {
@@ -117,7 +144,7 @@ private struct AddCustomExerciseView: View {
             let exercise = try await repository.createCustom(
                 name: name,
                 category: category,
-                primaryMuscleGroup: muscleGroup.isEmpty ? nil : muscleGroup,
+                primaryMuscleGroup: muscleGroup.rawValue,
                 equipment: equipment.isEmpty ? nil : equipment
             )
             onCreated(exercise)

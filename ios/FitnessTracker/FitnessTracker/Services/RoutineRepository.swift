@@ -27,6 +27,17 @@ struct RoutineRepository {
         let weight_increment_kg: Double
     }
 
+    private struct UpdateRoutineDayExercise: Encodable {
+        let target_sets: Int
+        let rep_range_low: Int
+        let rep_range_high: Int
+        let weight_increment_kg: Double
+    }
+
+    private struct SupersetUpdate: Encodable {
+        let superset_group_id: UUID?
+    }
+
     func fetchActiveRoutine() async throws -> Routine? {
         let routines: [Routine] = try await client
             .from("routines")
@@ -130,6 +141,75 @@ struct RoutineRepository {
             .execute()
             .value
         guard let dayExercise = inserted.first else {
+            throw RepositoryError.insertFailed
+        }
+        return dayExercise
+    }
+
+    func updateExercise(
+        dayExerciseId: UUID,
+        targetSets: Int,
+        repRangeLow: Int,
+        repRangeHigh: Int,
+        weightIncrementKg: Double
+    ) async throws -> RoutineDayExercise {
+        let updated: [RoutineDayExercise] = try await client
+            .from("routine_day_exercises")
+            .update(UpdateRoutineDayExercise(
+                target_sets: targetSets,
+                rep_range_low: repRangeLow,
+                rep_range_high: repRangeHigh,
+                weight_increment_kg: weightIncrementKg
+            ))
+            .eq("id", value: dayExerciseId)
+            .select()
+            .execute()
+            .value
+        guard let dayExercise = updated.first else {
+            throw RepositoryError.insertFailed
+        }
+        return dayExercise
+    }
+
+    func pairExercises(dayExerciseIdA: UUID, dayExerciseIdB: UUID) async throws -> (RoutineDayExercise, RoutineDayExercise) {
+        let existing: [RoutineDayExercise] = try await client
+            .from("routine_day_exercises")
+            .select()
+            .in("id", values: [dayExerciseIdA, dayExerciseIdB])
+            .execute()
+            .value
+        let groupId = existing.compactMap(\.supersetGroupId).first ?? UUID()
+
+        async let updatedA: [RoutineDayExercise] = client
+            .from("routine_day_exercises")
+            .update(SupersetUpdate(superset_group_id: groupId))
+            .eq("id", value: dayExerciseIdA)
+            .select()
+            .execute()
+            .value
+        async let updatedB: [RoutineDayExercise] = client
+            .from("routine_day_exercises")
+            .update(SupersetUpdate(superset_group_id: groupId))
+            .eq("id", value: dayExerciseIdB)
+            .select()
+            .execute()
+            .value
+
+        guard let a = try await updatedA.first, let b = try await updatedB.first else {
+            throw RepositoryError.insertFailed
+        }
+        return (a, b)
+    }
+
+    func unpairExercise(dayExerciseId: UUID) async throws -> RoutineDayExercise {
+        let updated: [RoutineDayExercise] = try await client
+            .from("routine_day_exercises")
+            .update(SupersetUpdate(superset_group_id: nil))
+            .eq("id", value: dayExerciseId)
+            .select()
+            .execute()
+            .value
+        guard let dayExercise = updated.first else {
             throw RepositoryError.insertFailed
         }
         return dayExercise

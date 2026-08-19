@@ -1,60 +1,48 @@
 import SwiftUI
 
-struct SettingsView: View {
-    @State private var dailyCalorieTarget = ""
-    @State private var proteinGTarget = ""
-    @State private var carbsGTarget = ""
-    @State private var fatGTarget = ""
-    @State private var targetWeightKg = ""
-    @State private var weeklyWeightChangeKg = ""
-    @State private var stepTarget = ""
-    @State private var sleepTargetHours = ""
-    @State private var currentGoal: UserGoal?
-    @State private var errorMessage: String?
-    @State private var isSaving = false
-    @ObservedObject private var healthSync = HealthSyncService.shared
-    private let repository = GoalsRepository()
+private let weekdayNames = [
+    1: "Sunday", 2: "Monday", 3: "Tuesday", 4: "Wednesday",
+    5: "Thursday", 6: "Friday", 7: "Saturday",
+]
 
-    private var isValid: Bool {
-        Double(dailyCalorieTarget) != nil && Double(proteinGTarget) != nil
-    }
+struct SettingsView: View {
+    @ObservedObject private var healthSync = HealthSyncService.shared
+    @State private var weeklyCheckinWeekday = 2
+    @State private var cardioStepExclusionEnabled = false
+    @State private var preferencesError: String?
+    private let preferencesRepository = UserPreferencesRepository()
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Cut Goals") {
-                    if let currentGoal {
-                        Text("In effect since \(currentGoal.effectiveFrom)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("No goal set yet - add one below.")
-                            .foregroundStyle(.secondary)
+                Section("Goals") {
+                    NavigationLink("My Goals") {
+                        MyGoalsView()
                     }
+                }
 
-                    LabeledField(label: "Daily Calories", text: $dailyCalorieTarget, unit: "kcal")
-                    LabeledField(label: "Protein Target", text: $proteinGTarget, unit: "g")
-                    LabeledField(label: "Carbs Target", text: $carbsGTarget, unit: "g")
-                    LabeledField(label: "Fat Target", text: $fatGTarget, unit: "g")
-                    LabeledField(label: "Target Weight", text: $targetWeightKg, unit: "kg")
-                    LabeledField(label: "Weekly Change", text: $weeklyWeightChangeKg, unit: "kg")
-                    LabeledField(label: "Step Target", text: $stepTarget, unit: "steps")
-                    LabeledField(label: "Sleep Target", text: $sleepTargetHours, unit: "hrs")
-
-                    if let errorMessage {
-                        Text(errorMessage).foregroundStyle(.red)
-                    }
-
-                    Button {
-                        Task { await saveGoal() }
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                        } else {
-                            Text("Save Goal")
+                Section("Weekly Check-In") {
+                    Picker("Check-In Day", selection: $weeklyCheckinWeekday) {
+                        ForEach(1...7, id: \.self) { weekday in
+                            Text(weekdayNames[weekday] ?? "").tag(weekday)
                         }
                     }
-                    .disabled(!isValid || isSaving)
+                    .onChange(of: weeklyCheckinWeekday) { _, newValue in
+                        Task { await savePreferences(newValue) }
+                    }
+                    if let preferencesError {
+                        Text(preferencesError).foregroundStyle(.red)
+                    }
+                }
+
+                Section("Cardio Step Exclusion") {
+                    Toggle("Exclude Machine-Counted Cardio Steps", isOn: $cardioStepExclusionEnabled)
+                        .onChange(of: cardioStepExclusionEnabled) { _, newValue in
+                            Task { await saveCardioStepExclusion(newValue) }
+                        }
+                    Text("When on, the Dashboard subtracts steps logged during a cardio session (e.g. treadmill) from today's total, so machine-counted steps don't inflate your real walking count.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Apple Health") {
@@ -71,7 +59,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
-            .task { await loadGoal() }
+            .task { await loadPreferences() }
         }
     }
 
@@ -92,66 +80,31 @@ struct SettingsView: View {
         }
     }
 
-    private func loadGoal() async {
+    private func loadPreferences() async {
         do {
-            guard let goal = try await repository.fetchCurrentGoal() else { return }
-            currentGoal = goal
-            dailyCalorieTarget = String(goal.dailyCalorieTarget)
-            proteinGTarget = String(goal.proteinGTarget)
-            carbsGTarget = goal.carbsGTarget.map { String($0) } ?? ""
-            fatGTarget = goal.fatGTarget.map { String($0) } ?? ""
-            targetWeightKg = goal.targetWeightKg.map { String($0) } ?? ""
-            weeklyWeightChangeKg = goal.weeklyWeightChangeKg.map { String($0) } ?? ""
-            stepTarget = goal.stepTarget.map { String($0) } ?? ""
-            sleepTargetHours = goal.sleepTargetMinutes.map { String($0 / 60) } ?? ""
+            let preferences = try await preferencesRepository.fetch()
+            weeklyCheckinWeekday = preferences.weeklyCheckinWeekday
+            cardioStepExclusionEnabled = preferences.cardioStepExclusionEnabled
         } catch {
-            errorMessage = error.localizedDescription
+            preferencesError = error.localizedDescription
         }
     }
 
-    private func saveGoal() async {
-        guard
-            let calories = Double(dailyCalorieTarget),
-            let protein = Double(proteinGTarget)
-        else { return }
-
-        isSaving = true
-        defer { isSaving = false }
-
+    private func savePreferences(_ weekday: Int) async {
         do {
-            currentGoal = try await repository.saveGoal(
-                dailyCalorieTarget: calories,
-                proteinGTarget: protein,
-                carbsGTarget: Double(carbsGTarget),
-                fatGTarget: Double(fatGTarget),
-                targetWeightKg: Double(targetWeightKg),
-                weeklyWeightChangeKg: Double(weeklyWeightChangeKg),
-                stepTarget: Int(stepTarget),
-                sleepTargetMinutes: Int(sleepTargetHours).map { $0 * 60 }
-            )
-            errorMessage = nil
+            try await preferencesRepository.setWeeklyCheckinWeekday(weekday)
+            preferencesError = nil
         } catch {
-            errorMessage = error.localizedDescription
+            preferencesError = error.localizedDescription
         }
     }
-}
 
-private struct LabeledField: View {
-    let label: String
-    @Binding var text: String
-    let unit: String
-
-    var body: some View {
-        HStack {
-            Text(label)
-            Spacer()
-            TextField("-", text: $text)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 80)
-            Text(unit)
-                .foregroundStyle(.secondary)
-                .font(.caption)
+    private func saveCardioStepExclusion(_ enabled: Bool) async {
+        do {
+            try await preferencesRepository.setCardioStepExclusionEnabled(enabled)
+            preferencesError = nil
+        } catch {
+            preferencesError = error.localizedDescription
         }
     }
 }

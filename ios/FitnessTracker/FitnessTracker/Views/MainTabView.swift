@@ -9,8 +9,6 @@ struct MainTabView: View {
                 .tabItem { Label("Train", systemImage: "figure.strengthtraining.traditional") }
             NutritionEntryView()
                 .tabItem { Label("Nutrition", systemImage: "fork.knife") }
-            WorkoutHistoryView()
-                .tabItem { Label("History", systemImage: "clock.fill") }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }

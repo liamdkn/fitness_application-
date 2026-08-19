@@ -42,4 +42,16 @@ enum DateFormatting {
         formatter.timeZone = .current
         return formatter
     }()
+
+    /// The most recent date (<= reference) that falls on `weekday`
+    /// (Calendar.weekday numbering: 1=Sunday...7=Saturday). Used to find the
+    /// start of the user's configured check-in week, since
+    /// Calendar.dateInterval(of: .weekOfYear) doesn't respect a
+    /// user-configured week-start day.
+    static func startOfCheckinWeek(weekday: Int, reference: Date = Date(), calendar: Calendar = .current) -> Date {
+        let today = calendar.startOfDay(for: reference)
+        let todayWeekday = calendar.component(.weekday, from: today)
+        let daysSince = (todayWeekday - weekday + 7) % 7
+        return calendar.date(byAdding: .day, value: -daysSince, to: today) ?? today
+    }
 }

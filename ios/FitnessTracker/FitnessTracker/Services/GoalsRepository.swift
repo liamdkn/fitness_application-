@@ -11,6 +11,9 @@ struct GoalsRepository {
     private struct UserGoalRPCResult: Decodable {
         let id: UUID?
         let effectiveFrom: String?
+        let phaseType: GoalPhaseType?
+        let startingWeightKg: Double?
+        let durationWeeks: Int?
         let dailyCalorieTarget: Double?
         let proteinGTarget: Double?
         let carbsGTarget: Double?
@@ -19,10 +22,15 @@ struct GoalsRepository {
         let weeklyWeightChangeKg: Double?
         let stepTarget: Int?
         let sleepTargetMinutes: Int?
+        let cardioSessionsPerWeek: Int?
+        let cardioMinutesPerSession: Int?
 
         enum CodingKeys: String, CodingKey {
             case id
             case effectiveFrom = "effective_from"
+            case phaseType = "phase_type"
+            case startingWeightKg = "starting_weight_kg"
+            case durationWeeks = "duration_weeks"
             case dailyCalorieTarget = "daily_calorie_target"
             case proteinGTarget = "protein_g_target"
             case carbsGTarget = "carbs_g_target"
@@ -31,13 +39,21 @@ struct GoalsRepository {
             case weeklyWeightChangeKg = "weekly_weight_change_kg"
             case stepTarget = "step_target"
             case sleepTargetMinutes = "sleep_target_minutes"
+            case cardioSessionsPerWeek = "cardio_sessions_per_week"
+            case cardioMinutesPerSession = "cardio_minutes_per_session"
         }
 
         var goal: UserGoal? {
-            guard let id, let effectiveFrom, let dailyCalorieTarget, let proteinGTarget else { return nil }
+            guard
+                let id, let effectiveFrom, let phaseType, let durationWeeks,
+                let dailyCalorieTarget, let proteinGTarget
+            else { return nil }
             return UserGoal(
                 id: id,
                 effectiveFrom: effectiveFrom,
+                phaseType: phaseType,
+                startingWeightKg: startingWeightKg,
+                durationWeeks: durationWeeks,
                 dailyCalorieTarget: dailyCalorieTarget,
                 proteinGTarget: proteinGTarget,
                 carbsGTarget: carbsGTarget,
@@ -45,7 +61,9 @@ struct GoalsRepository {
                 targetWeightKg: targetWeightKg,
                 weeklyWeightChangeKg: weeklyWeightChangeKg,
                 stepTarget: stepTarget,
-                sleepTargetMinutes: sleepTargetMinutes
+                sleepTargetMinutes: sleepTargetMinutes,
+                cardioSessionsPerWeek: cardioSessionsPerWeek,
+                cardioMinutesPerSession: cardioMinutesPerSession
             )
         }
     }
@@ -53,6 +71,9 @@ struct GoalsRepository {
     private struct UpsertGoal: Encodable {
         let user_id: UUID
         let effective_from: String
+        let phase_type: GoalPhaseType
+        let starting_weight_kg: Double?
+        let duration_weeks: Int
         let daily_calorie_target: Double
         let protein_g_target: Double
         let carbs_g_target: Double?
@@ -61,11 +82,16 @@ struct GoalsRepository {
         let weekly_weight_change_kg: Double?
         let step_target: Int?
         let sleep_target_minutes: Int?
+        let cardio_sessions_per_week: Int?
+        let cardio_minutes_per_session: Int?
     }
 
     private struct FetchedUserGoal: Decodable {
         let id: UUID
         let effectiveFrom: String
+        let phaseType: GoalPhaseType
+        let startingWeightKg: Double?
+        let durationWeeks: Int
         let dailyCalorieTarget: Double
         let proteinGTarget: Double
         let carbsGTarget: Double?
@@ -74,10 +100,15 @@ struct GoalsRepository {
         let weeklyWeightChangeKg: Double?
         let stepTarget: Int?
         let sleepTargetMinutes: Int?
+        let cardioSessionsPerWeek: Int?
+        let cardioMinutesPerSession: Int?
 
         enum CodingKeys: String, CodingKey {
             case id
             case effectiveFrom = "effective_from"
+            case phaseType = "phase_type"
+            case startingWeightKg = "starting_weight_kg"
+            case durationWeeks = "duration_weeks"
             case dailyCalorieTarget = "daily_calorie_target"
             case proteinGTarget = "protein_g_target"
             case carbsGTarget = "carbs_g_target"
@@ -86,12 +117,17 @@ struct GoalsRepository {
             case weeklyWeightChangeKg = "weekly_weight_change_kg"
             case stepTarget = "step_target"
             case sleepTargetMinutes = "sleep_target_minutes"
+            case cardioSessionsPerWeek = "cardio_sessions_per_week"
+            case cardioMinutesPerSession = "cardio_minutes_per_session"
         }
 
         var goal: UserGoal {
             UserGoal(
                 id: id,
                 effectiveFrom: effectiveFrom,
+                phaseType: phaseType,
+                startingWeightKg: startingWeightKg,
+                durationWeeks: durationWeeks,
                 dailyCalorieTarget: dailyCalorieTarget,
                 proteinGTarget: proteinGTarget,
                 carbsGTarget: carbsGTarget,
@@ -99,7 +135,9 @@ struct GoalsRepository {
                 targetWeightKg: targetWeightKg,
                 weeklyWeightChangeKg: weeklyWeightChangeKg,
                 stepTarget: stepTarget,
-                sleepTargetMinutes: sleepTargetMinutes
+                sleepTargetMinutes: sleepTargetMinutes,
+                cardioSessionsPerWeek: cardioSessionsPerWeek,
+                cardioMinutesPerSession: cardioMinutesPerSession
             )
         }
     }
@@ -112,8 +150,22 @@ struct GoalsRepository {
         return result.goal
     }
 
+    func fetchPastGoals(limit: Int = 20) async throws -> [UserGoal] {
+        let goals: [FetchedUserGoal] = try await client
+            .from("user_goals")
+            .select()
+            .order("effective_from", ascending: false)
+            .limit(limit)
+            .execute()
+            .value
+        return goals.map(\.goal)
+    }
+
     @discardableResult
     func saveGoal(
+        phaseType: GoalPhaseType,
+        startingWeightKg: Double?,
+        durationWeeks: Int,
         dailyCalorieTarget: Double,
         proteinGTarget: Double,
         carbsGTarget: Double?,
@@ -121,12 +173,17 @@ struct GoalsRepository {
         targetWeightKg: Double?,
         weeklyWeightChangeKg: Double?,
         stepTarget: Int?,
-        sleepTargetMinutes: Int?
+        sleepTargetMinutes: Int?,
+        cardioSessionsPerWeek: Int?,
+        cardioMinutesPerSession: Int?
     ) async throws -> UserGoal {
         let userId = try await client.auth.session.user.id
         let payload = UpsertGoal(
             user_id: userId,
             effective_from: DateFormatting.isoDate(Date()),
+            phase_type: phaseType,
+            starting_weight_kg: startingWeightKg,
+            duration_weeks: durationWeeks,
             daily_calorie_target: dailyCalorieTarget,
             protein_g_target: proteinGTarget,
             carbs_g_target: carbsGTarget,
@@ -134,7 +191,9 @@ struct GoalsRepository {
             target_weight_kg: targetWeightKg,
             weekly_weight_change_kg: weeklyWeightChangeKg,
             step_target: stepTarget,
-            sleep_target_minutes: sleepTargetMinutes
+            sleep_target_minutes: sleepTargetMinutes,
+            cardio_sessions_per_week: cardioSessionsPerWeek,
+            cardio_minutes_per_session: cardioMinutesPerSession
         )
         let saved: [FetchedUserGoal] = try await client
             .from("user_goals")

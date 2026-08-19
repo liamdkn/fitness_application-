@@ -7,8 +7,16 @@ struct RoutineDayEditorView: View {
     @State private var exerciseNames: [UUID: String] = [:]
     @State private var errorMessage: String?
     @State private var showingPicker = false
+    @State private var pendingExercise: Exercise?
+    @State private var editingDayExercise: RoutineDayExercise?
+    @State private var isLinking = false
+    @State private var selectedForLink: Set<UUID> = []
     private let routineRepository = RoutineRepository()
     private let exerciseRepository = ExerciseRepository()
+
+    private var supersetLabels: [UUID: String] {
+        SupersetLabeling.labels(for: dayExercises)
+    }
 
     var body: some View {
         List {
@@ -16,31 +24,110 @@ struct RoutineDayEditorView: View {
                 Text(errorMessage).foregroundStyle(.red)
             }
             ForEach(dayExercises) { dayExercise in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(exerciseNames[dayExercise.exerciseId] ?? "Exercise")
-                        .font(.headline)
-                    Text("\(dayExercise.targetSets) sets \u{00d7} \(dayExercise.repRangeLow)-\(dayExercise.repRangeHigh) reps, +\(dayExercise.weightIncrementKg, specifier: "%.1f")kg")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                row(for: dayExercise)
             }
-            .onDelete(perform: removeExercises)
+            .onDelete(perform: isLinking ? nil : { offsets in removeExercises(at: offsets) })
         }
         .navigationTitle(day.label)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    isLinking.toggle()
+                    selectedForLink = []
+                } label: {
+                    Image(systemName: isLinking ? "link.circle.fill" : "link")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showingPicker = true
+                    if isLinking {
+                        Task { await pair() }
+                    } else {
+                        showingPicker = true
+                    }
                 } label: {
-                    Image(systemName: "plus")
+                    if isLinking {
+                        Text("Pair")
+                    } else {
+                        Image(systemName: "plus")
+                    }
                 }
+                .disabled(isLinking && selectedForLink.count != 2)
             }
         }
         .task { await load() }
         .sheet(isPresented: $showingPicker) {
             ExercisePickerView { exercise in
-                Task { await addExercise(exercise) }
+                pendingExercise = exercise
             }
+        }
+        .sheet(item: $pendingExercise) { exercise in
+            ExerciseTargetConfigView(exerciseName: exercise.name) { sets, low, high, increment in
+                Task { await addExercise(exercise, targetSets: sets, repRangeLow: low, repRangeHigh: high, weightIncrementKg: increment) }
+            }
+        }
+        .sheet(item: $editingDayExercise) { dayExercise in
+            ExerciseTargetConfigView(
+                exerciseName: exerciseNames[dayExercise.exerciseId] ?? "Exercise",
+                initialTargetSets: dayExercise.targetSets,
+                initialRepRangeLow: dayExercise.repRangeLow,
+                initialRepRangeHigh: dayExercise.repRangeHigh,
+                initialWeightIncrementKg: dayExercise.weightIncrementKg
+            ) { sets, low, high, increment in
+                Task { await updateExercise(dayExercise, targetSets: sets, repRangeLow: low, repRangeHigh: high, weightIncrementKg: increment) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func row(for dayExercise: RoutineDayExercise) -> some View {
+        let label = dayExercise.supersetGroupId.flatMap { supersetLabels[$0] }
+
+        Button {
+            if isLinking {
+                toggleSelection(dayExercise.id)
+            } else {
+                editingDayExercise = dayExercise
+            }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(exerciseNames[dayExercise.exerciseId] ?? "Exercise")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("\(dayExercise.targetSets) sets \u{00d7} \(dayExercise.repRangeLow)-\(dayExercise.repRangeHigh) reps, +\(dayExercise.weightIncrementKg, specifier: "%.1f")kg")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let label {
+                        Text(label)
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(.blue.opacity(0.15), in: Capsule())
+                            .foregroundStyle(.blue)
+                    }
+                }
+                Spacer()
+                if isLinking {
+                    Image(systemName: selectedForLink.contains(dayExercise.id) ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selectedForLink.contains(dayExercise.id) ? .blue : .secondary)
+                }
+            }
+        }
+        .contextMenu {
+            if !isLinking && dayExercise.supersetGroupId != nil {
+                Button("Remove from Superset", role: .destructive) {
+                    Task { await unpair(dayExercise) }
+                }
+            }
+        }
+    }
+
+    private func toggleSelection(_ id: UUID) {
+        if selectedForLink.contains(id) {
+            selectedForLink.remove(id)
+        } else if selectedForLink.count < 2 {
+            selectedForLink.insert(id)
         }
     }
 
@@ -54,7 +141,13 @@ struct RoutineDayEditorView: View {
         }
     }
 
-    private func addExercise(_ exercise: Exercise) async {
+    private func addExercise(
+        _ exercise: Exercise,
+        targetSets: Int,
+        repRangeLow: Int,
+        repRangeHigh: Int,
+        weightIncrementKg: Double
+    ) async {
         exerciseNames[exercise.id] = exercise.name
         do {
             let nextPosition = (dayExercises.map(\.position).max() ?? 0) + 1
@@ -62,12 +155,63 @@ struct RoutineDayEditorView: View {
                 routineDayId: day.id,
                 exerciseId: exercise.id,
                 position: nextPosition,
-                targetSets: 3,
-                repRangeLow: 8,
-                repRangeHigh: 12,
-                weightIncrementKg: 2.5
+                targetSets: targetSets,
+                repRangeLow: repRangeLow,
+                repRangeHigh: repRangeHigh,
+                weightIncrementKg: weightIncrementKg
             )
             dayExercises.append(added)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func updateExercise(
+        _ dayExercise: RoutineDayExercise,
+        targetSets: Int,
+        repRangeLow: Int,
+        repRangeHigh: Int,
+        weightIncrementKg: Double
+    ) async {
+        do {
+            let updated = try await routineRepository.updateExercise(
+                dayExerciseId: dayExercise.id,
+                targetSets: targetSets,
+                repRangeLow: repRangeLow,
+                repRangeHigh: repRangeHigh,
+                weightIncrementKg: weightIncrementKg
+            )
+            if let index = dayExercises.firstIndex(where: { $0.id == updated.id }) {
+                dayExercises[index] = updated
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func pair() async {
+        guard selectedForLink.count == 2 else { return }
+        let ids = Array(selectedForLink)
+        do {
+            let (a, b) = try await routineRepository.pairExercises(dayExerciseIdA: ids[0], dayExerciseIdB: ids[1])
+            for updated in [a, b] {
+                if let index = dayExercises.firstIndex(where: { $0.id == updated.id }) {
+                    dayExercises[index] = updated
+                }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLinking = false
+        selectedForLink = []
+    }
+
+    private func unpair(_ dayExercise: RoutineDayExercise) async {
+        do {
+            let updated = try await routineRepository.unpairExercise(dayExerciseId: dayExercise.id)
+            if let index = dayExercises.firstIndex(where: { $0.id == updated.id }) {
+                dayExercises[index] = updated
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

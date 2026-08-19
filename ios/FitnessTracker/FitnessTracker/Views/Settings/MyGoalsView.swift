@@ -1,0 +1,82 @@
+import SwiftUI
+
+struct MyGoalsView: View {
+    @State private var currentGoal: UserGoal?
+    @State private var pastGoals: [UserGoal] = []
+    @State private var errorMessage: String?
+    @State private var showingNewPhase = false
+    private let repository = GoalsRepository()
+
+    var body: some View {
+        List {
+            Section("Current Phase") {
+                if let errorMessage {
+                    Text(errorMessage).foregroundStyle(.red)
+                } else if let currentGoal {
+                    currentPhaseCard(currentGoal)
+                } else {
+                    Text("No active phase.")
+                        .foregroundStyle(.secondary)
+                }
+                Button("Start New Phase") { showingNewPhase = true }
+            }
+
+            if pastGoals.count > 1 {
+                Section("Past Phases") {
+                    ForEach(pastGoals.dropFirst()) { goal in
+                        HStack {
+                            Text(goal.phaseType.displayName)
+                            Spacer()
+                            Text(goal.effectiveFrom)
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("My Goals")
+        .task { await load() }
+        .sheet(isPresented: $showingNewPhase) {
+            StartNewPhaseView { _ in
+                Task { await load() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func currentPhaseCard(_ goal: UserGoal) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(goal.phaseType.displayName)
+                .font(.title2.bold())
+            Text("Started \(goal.effectiveFrom) - \(goal.durationWeeks) weeks")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let startingWeightKg = goal.startingWeightKg {
+                Text("Starting weight: \(startingWeightKg, specifier: "%.1f") kg")
+                    .font(.caption)
+            }
+            if let rate = goal.weeklyWeightChangeKg, rate != 0 {
+                Text("Target rate: \(rate, specifier: "%.2f") kg/week")
+                    .font(.caption)
+            }
+            Divider()
+            Text("\(Int(goal.dailyCalorieTarget)) kcal / \(Int(goal.proteinGTarget))g protein")
+                .font(.caption)
+            if let sessions = goal.cardioSessionsPerWeek, let minutes = goal.cardioMinutesPerSession {
+                Text("Cardio: \(sessions)x/week, \(minutes) min")
+                    .font(.caption)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func load() async {
+        do {
+            currentGoal = try await repository.fetchCurrentGoal()
+            pastGoals = try await repository.fetchPastGoals()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
