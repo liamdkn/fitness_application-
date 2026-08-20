@@ -18,11 +18,16 @@ struct WorkoutRepository {
         let weight_kg: Double
         let rpe: Double?
         let is_warmup: Bool
+        let is_drop_set: Bool
     }
 
     private struct EndWorkoutUpdate: Encodable {
         let ended_at: Date
         let rating: Int?
+    }
+
+    private struct NotesUpdate: Encodable {
+        let notes: String
     }
 
     private struct RoutineIdParam: Encodable {
@@ -92,6 +97,14 @@ struct WorkoutRepository {
             .execute()
     }
 
+    func updateNotes(workoutId: UUID, notes: String) async throws {
+        try await client
+            .from("workouts")
+            .update(NotesUpdate(notes: notes))
+            .eq("id", value: workoutId)
+            .execute()
+    }
+
     func deleteWorkout(workoutId: UUID) async throws {
         try await client
             .from("workouts")
@@ -107,7 +120,8 @@ struct WorkoutRepository {
         reps: Int,
         weightKg: Double,
         rpe: Double?,
-        isWarmup: Bool
+        isWarmup: Bool,
+        isDropSet: Bool = false
     ) async throws -> WorkoutSet {
         let userId = try await client.auth.session.user.id
         let inserted: [WorkoutSet] = try await client
@@ -120,7 +134,8 @@ struct WorkoutRepository {
                 reps: reps,
                 weight_kg: weightKg,
                 rpe: rpe,
-                is_warmup: isWarmup
+                is_warmup: isWarmup,
+                is_drop_set: isDropSet
             ))
             .select()
             .execute()
@@ -129,6 +144,23 @@ struct WorkoutRepository {
             throw RepositoryError.insertFailed
         }
         return set
+    }
+
+    func deleteSet(setId: UUID) async throws {
+        try await client
+            .from("workout_sets")
+            .delete()
+            .eq("id", value: setId)
+            .execute()
+    }
+
+    func deleteSets(workoutId: UUID, exerciseId: UUID) async throws {
+        try await client
+            .from("workout_sets")
+            .delete()
+            .eq("workout_id", value: workoutId)
+            .eq("exercise_id", value: exerciseId)
+            .execute()
     }
 
     func fetchSets(workoutId: UUID) async throws -> [WorkoutSet] {
@@ -149,6 +181,21 @@ struct WorkoutRepository {
             .limit(limit)
             .execute()
             .value
+    }
+
+    /// Per-workout progression points for a single exercise (est. 1RM, max
+    /// weight, volume), oldest first - the raw series for a progression
+    /// chart.
+    func fetchProgression(exerciseId: UUID, limit: Int = 30) async throws -> [ExerciseProgressionPoint] {
+        let points: [ExerciseProgressionPoint] = try await client
+            .from("v_exercise_progression")
+            .select()
+            .eq("exercise_id", value: exerciseId)
+            .order("performed_at", ascending: false)
+            .limit(limit)
+            .execute()
+            .value
+        return points.sorted { $0.performedAt < $1.performedAt }
     }
 
     func fetchWeeklyVolumeKg() async throws -> Double {

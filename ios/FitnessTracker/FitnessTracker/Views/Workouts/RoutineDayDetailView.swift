@@ -23,12 +23,19 @@ struct RoutineDayDetailView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(dayExercises) { dayExercise in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(exerciseNames[dayExercise.exerciseId] ?? "Exercise")
-                            .font(.headline)
-                        Text("\(dayExercise.targetSets) sets \u{00d7} \(dayExercise.repRangeLow)-\(dayExercise.repRangeHigh) reps, +\(dayExercise.weightIncrementKg, specifier: "%.1f")kg")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    NavigationLink {
+                        ExerciseProgressionView(
+                            exerciseId: dayExercise.exerciseId,
+                            exerciseName: exerciseNames[dayExercise.exerciseId] ?? "Exercise"
+                        )
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(exerciseNames[dayExercise.exerciseId] ?? "Exercise")
+                                .font(.headline)
+                            Text("\(dayExercise.targetSets) sets \u{00d7} \(dayExercise.repRangeLow)-\(dayExercise.repRangeHigh) reps, +\(dayExercise.weightIncrementKg, specifier: "%.1f")kg")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

@@ -66,6 +66,7 @@ struct CardioSessionEndSheet: View {
                 }
             }
             .navigationTitle("End Session")
+            .scrollDismissesKeyboard(.interactively)
             .interactiveDismissDisabled()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

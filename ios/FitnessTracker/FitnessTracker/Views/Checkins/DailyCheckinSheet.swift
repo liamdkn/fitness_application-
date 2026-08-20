@@ -112,6 +112,7 @@ struct DailyCheckinSheet: View {
                 }
             }
             .navigationTitle("Daily Check-In")
+            .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Skip") { dismiss() }

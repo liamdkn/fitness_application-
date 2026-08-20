@@ -1,12 +1,15 @@
+import Charts
 import SwiftUI
 
 struct MyGoalsView: View {
     @State private var currentGoal: UserGoal?
     @State private var pastGoals: [UserGoal] = []
+    @State private var tdeeHistory: [TDEEEstimate] = []
     @State private var errorMessage: String?
     @State private var showingNewPhase = false
     @State private var showingEditPhase = false
     private let repository = GoalsRepository()
+    private let tdeeEstimateRepository = TDEEEstimateRepository()
 
     var body: some View {
         List {
@@ -21,6 +24,26 @@ struct MyGoalsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Button("Start New Phase") { showingNewPhase = true }
+            }
+
+            if tdeeChartPoints.count >= 2 {
+                Section("Estimated Maintenance Calories") {
+                    Chart(tdeeChartPoints, id: \.date) { point in
+                        LineMark(
+                            x: .value("Date", point.date),
+                            y: .value("Estimated TDEE", point.tdee)
+                        )
+                        PointMark(
+                            x: .value("Date", point.date),
+                            y: .value("Estimated TDEE", point.tdee)
+                        )
+                    }
+                    .frame(height: 160)
+                    .padding(.vertical, 4)
+                    Text("From the adaptive calorie engine's weekly estimates - shows how your true maintenance has drifted over the phase.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if pastGoals.count > 1 {
@@ -80,10 +103,23 @@ struct MyGoalsView: View {
         .padding(.vertical, 4)
     }
 
+    private struct TDEEChartPoint {
+        let date: Date
+        let tdee: Double
+    }
+
+    private var tdeeChartPoints: [TDEEChartPoint] {
+        tdeeHistory.compactMap { estimate in
+            guard let date = DateFormatting.date(fromISODate: estimate.estimatedAt) else { return nil }
+            return TDEEChartPoint(date: date, tdee: estimate.estimatedTDEE)
+        }
+    }
+
     private func load() async {
         do {
             currentGoal = try await repository.fetchCurrentGoal()
             pastGoals = try await repository.fetchPastGoals()
+            tdeeHistory = try await tdeeEstimateRepository.fetchHistory()
         } catch {
             errorMessage = error.localizedDescription
         }

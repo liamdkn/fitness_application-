@@ -140,6 +140,7 @@ struct StartNewPhaseView: View {
                 }
             }
             .navigationTitle("New Phase")
+            .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }

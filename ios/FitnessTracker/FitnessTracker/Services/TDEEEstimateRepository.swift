@@ -57,6 +57,20 @@ struct TDEEEstimateRepository {
         return estimate
     }
 
+    /// Full estimate history, oldest first - the TDEE-over-time series for
+    /// a chart. Falls out of the weekly `save` calls the adaptive calorie
+    /// engine already makes; no separate aggregation needed.
+    func fetchHistory(limit: Int = 26) async throws -> [TDEEEstimate] {
+        let estimates: [TDEEEstimate] = try await client
+            .from("tdee_estimates")
+            .select()
+            .order("estimated_at", ascending: false)
+            .limit(limit)
+            .execute()
+            .value
+        return estimates.sorted { $0.estimatedAt < $1.estimatedAt }
+    }
+
     func updateStatus(id: UUID, status: TDEEEstimateStatus) async throws {
         try await client
             .from("tdee_estimates")

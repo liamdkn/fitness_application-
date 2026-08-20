@@ -53,6 +53,7 @@ struct WeeklyCheckinFlow: View {
                 }
             }
             .navigationTitle("Weekly Check-In (\(page + 1)/4)")
+            .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 if page < 3 {
                     ToolbarItemGroup(placement: .topBarTrailing) {

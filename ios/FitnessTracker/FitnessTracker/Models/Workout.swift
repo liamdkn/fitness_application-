@@ -34,6 +34,7 @@ struct WorkoutSet: Codable, Identifiable, Hashable {
     let weightKg: Double
     let rpe: Double?
     let isWarmup: Bool
+    let isDropSet: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -44,5 +45,6 @@ struct WorkoutSet: Codable, Identifiable, Hashable {
         case weightKg = "weight_kg"
         case rpe
         case isWarmup = "is_warmup"
+        case isDropSet = "is_drop_set"
     }
 }

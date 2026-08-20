@@ -63,6 +63,7 @@ struct ExerciseTargetConfigView: View {
                 }
             }
             .navigationTitle("Configure Exercise")
+            .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }

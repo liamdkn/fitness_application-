@@ -6,7 +6,9 @@ struct ActiveWorkoutView: View {
     @State private var showingAddExercise = false
     @State private var showingCancelDialog = false
     @State private var showingRatingSheet = false
+    @State private var exerciseToRemove: ActiveExercise?
     @State private var elapsed: TimeInterval = 0
+    @State private var restRemaining: TimeInterval = 0
     @Environment(\.dismiss) private var dismiss
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -25,6 +27,23 @@ struct ActiveWorkoutView: View {
                 Text(formattedElapsed)
                     .font(.system(.title, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .center)
+            }
+
+            if restRemaining > 0 {
+                Section {
+                    HStack {
+                        Label(formattedRestRemaining, systemImage: "timer")
+                            .font(.headline)
+                            .monospacedDigit()
+                            .foregroundStyle(.blue)
+                        Spacer()
+                        Button("Skip") {
+                            viewModel.skipRestTimer()
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             if let errorMessage = viewModel.errorMessage {
@@ -49,11 +68,28 @@ struct ActiveWorkoutView: View {
 
                     SetLogGridView(
                         activeExercise: activeExercise,
-                        onLogSet: { reps, weight, rpe in
-                            Task { await viewModel.logSet(for: activeExercise.id, reps: reps, weightKg: weight, rpe: rpe) }
+                        onLogSet: { reps, weight, rpe, isDropSet in
+                            Task {
+                                await viewModel.logSet(
+                                    for: activeExercise.id,
+                                    reps: reps,
+                                    weightKg: weight,
+                                    rpe: rpe,
+                                    isDropSet: isDropSet
+                                )
+                            }
+                        },
+                        onUnlogSet: { set in
+                            Task { await viewModel.unlogSet(for: activeExercise.id, set: set) }
                         },
                         onAddSet: {
                             viewModel.addExtraSetRow(for: activeExercise.id)
+                        },
+                        onAddDrop: {
+                            viewModel.addDropSetRow(for: activeExercise.id)
+                        },
+                        onRemoveSetRow: { pendingIndex in
+                            viewModel.removeSetRow(for: activeExercise.id, at: pendingIndex)
                         }
                     )
                 } header: {
@@ -67,6 +103,14 @@ struct ActiveWorkoutView: View {
                                 .background(.blue.opacity(0.15), in: Capsule())
                                 .foregroundStyle(.blue)
                         }
+                        Spacer()
+                        Menu {
+                            Button("Remove From Workout", role: .destructive) {
+                                exerciseToRemove = activeExercise
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
                     }
                 }
             }
@@ -77,6 +121,15 @@ struct ActiveWorkoutView: View {
                 } label: {
                     Label("Add Exercise", systemImage: "plus")
                 }
+            }
+
+            Section("Notes") {
+                TextField(
+                    "Notes (optional)",
+                    text: Binding(get: { viewModel.notes }, set: { viewModel.saveNotes($0) }),
+                    axis: .vertical
+                )
+                .lineLimit(2...6)
             }
 
             Section {
@@ -99,11 +152,23 @@ struct ActiveWorkoutView: View {
             }
             .listRowBackground(Color.clear)
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Workout")
         .navigationBarBackButtonHidden()
         .task { await viewModel.loadTemplate() }
         .onReceive(timer) { _ in
             elapsed = Date().timeIntervalSince(viewModel.workout.startedAt)
+            if let restTimerEndDate = viewModel.restTimerEndDate {
+                let remaining = restTimerEndDate.timeIntervalSinceNow
+                if remaining <= 0 {
+                    viewModel.skipRestTimer()
+                    restRemaining = 0
+                } else {
+                    restRemaining = remaining
+                }
+            } else {
+                restRemaining = 0
+            }
         }
         .sheet(isPresented: $showingAddExercise) {
             ExercisePickerView { exercise in
@@ -120,6 +185,22 @@ struct ActiveWorkoutView: View {
                 Task { await viewModel.cancel() }
             }
         }
+        .confirmationDialog(
+            "Remove \(exerciseToRemove?.exercise.name ?? "Exercise") From This Workout?",
+            isPresented: Binding(
+                get: { exerciseToRemove != nil },
+                set: { if !$0 { exerciseToRemove = nil } }
+            )
+        ) {
+            Button("Remove", role: .destructive) {
+                if let id = exerciseToRemove?.id {
+                    Task { await viewModel.removeExercise(exerciseId: id) }
+                }
+                exerciseToRemove = nil
+            }
+        } message: {
+            Text("This only removes it from this workout, not your split.")
+        }
         .onChange(of: viewModel.isFinished) { _, finished in
             if finished { dismiss() }
         }
@@ -132,6 +213,13 @@ struct ActiveWorkoutView: View {
         let minutes = Int(elapsed) / 60
         let seconds = Int(elapsed) % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    private var formattedRestRemaining: String {
+        let total = Int(restRemaining.rounded(.up))
+        let minutes = total / 60
+        let seconds = total % 60
+        return String(format: "Rest %d:%02d", minutes, seconds)
     }
 
     private func suggestionHeadline(_ suggestion: ProgressionSuggestion) -> String {

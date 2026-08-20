@@ -45,6 +45,7 @@ struct ExercisePickerView: View {
             }
             .searchable(text: $searchText, prompt: "Search exercises")
             .navigationTitle("Add Exercise")
+            .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
@@ -110,6 +111,7 @@ private struct AddCustomExerciseView: View {
             Form {
                 Section("Exercise") {
                     TextField("Name", text: $name)
+                        .textInputAutocapitalization(.words)
                     Picker("Category", selection: $category) {
                         ForEach(categories, id: \.self) { Text($0.capitalized) }
                     }
@@ -125,6 +127,7 @@ private struct AddCustomExerciseView: View {
                 }
             }
             .navigationTitle("New Exercise")
+            .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
@@ -142,7 +145,7 @@ private struct AddCustomExerciseView: View {
         defer { isSaving = false }
         do {
             let exercise = try await repository.createCustom(
-                name: name,
+                name: name.capitalized,
                 category: category,
                 primaryMuscleGroup: muscleGroup.rawValue,
                 equipment: equipment.isEmpty ? nil : equipment

@@ -9,10 +9,12 @@ struct StartWorkoutView: View {
     @State private var startedWorkout: Workout?
     @State private var isStarting = false
     @State private var deloadSignal: DeloadSignal?
+    @State private var volumeFlags: [MuscleGroupVolumeFlag] = []
     @ObservedObject private var cardioMonitor = CardioSessionMonitor.shared
     private let routineRepository = RoutineRepository()
     private let workoutRepository = WorkoutRepository()
     private let checkinRepository = DailyCheckinRepository()
+    private let muscleGroupVolumeRepository = MuscleGroupVolumeRepository()
 
     var body: some View {
         NavigationStack {
@@ -24,6 +26,10 @@ struct StartWorkoutView: View {
 
                     if let deloadSignal, deloadSignal.severity != .none {
                         DeloadBanner(signal: deloadSignal)
+                    }
+
+                    if !volumeFlags.isEmpty {
+                        VolumeCheckCard(flags: volumeFlags)
                     }
 
                     if routine == nil {
@@ -161,6 +167,7 @@ struct StartWorkoutView: View {
         }
         await CardioSessionMonitor.shared.refresh()
         await loadDeloadSignal()
+        await loadVolumeFlags()
     }
 
     private func loadDeloadSignal() async {
@@ -168,6 +175,15 @@ struct StartWorkoutView: View {
             let recentCheckins = try await checkinRepository.fetchRecent(days: 10)
             let recentWorkouts = try await workoutRepository.fetchHistory(limit: 5)
             deloadSignal = DeloadAdvisor.evaluate(recentCheckins: recentCheckins, recentWorkouts: recentWorkouts)
+        } catch {
+            // Advisory only - don't block the Train tab on this failing.
+        }
+    }
+
+    private func loadVolumeFlags() async {
+        do {
+            let rows = try await muscleGroupVolumeRepository.fetchRecentWeeks()
+            volumeFlags = MuscleGroupVolumeAnalyzer.evaluate(rows: rows)
         } catch {
             // Advisory only - don't block the Train tab on this failing.
         }
@@ -182,6 +198,30 @@ struct StartWorkoutView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+private struct VolumeCheckCard: View {
+    let flags: [MuscleGroupVolumeFlag]
+
+    var body: some View {
+        DashboardCard(title: "Volume Check") {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(flags, id: \.muscleGroup) { flag in
+                    HStack {
+                        Text(displayName(for: flag.muscleGroup))
+                        Spacer()
+                        Text("\(Int(flag.currentVolumeKg))kg this week vs \(Int(flag.trailingAverageVolumeKg))kg avg")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+    }
+
+    private func displayName(for muscleGroup: String) -> String {
+        MuscleGroup(rawValue: muscleGroup)?.displayName ?? muscleGroup.capitalized
     }
 }
 

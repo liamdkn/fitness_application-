@@ -49,6 +49,7 @@ struct StartCardioSessionView: View {
             }
         }
         .navigationTitle("Start Cardio")
+        .scrollDismissesKeyboard(.interactively)
         .navigationDestination(item: $startedSession) { session in
             CardioSessionLiveView(session: session)
         }
