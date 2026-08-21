@@ -21,6 +21,21 @@ struct CardioStepSessionRepository {
             .value
     }
 
+    /// All sessions within an inclusive calendar range - mirrors
+    /// `NutritionRepository.fetchRange`, used to apply the cardio-step
+    /// exclusion preference across a multi-day window (e.g. weekly
+    /// aggregation) instead of one day at a time.
+    func fetchSessions(from: Date, to: Date) async throws -> [CardioStepSession] {
+        try await client
+            .from("cardio_step_sessions")
+            .select()
+            .gte("date", value: DateFormatting.isoDate(from))
+            .lte("date", value: DateFormatting.isoDate(to))
+            .order("date")
+            .execute()
+            .value
+    }
+
     @discardableResult
     func logSession(date: Date, stepsBefore: Int, stepsAfter: Int) async throws -> CardioStepSession {
         let userId = try await client.auth.session.user.id

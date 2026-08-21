@@ -119,9 +119,11 @@ struct MyGoalsView: View {
         do {
             currentGoal = try await repository.fetchCurrentGoal()
             pastGoals = try await repository.fetchPastGoals()
-            tdeeHistory = try await tdeeEstimateRepository.fetchHistory()
         } catch {
             errorMessage = error.localizedDescription
         }
+        // Advisory only - a missing/broken TDEE table shouldn't block the
+        // Current Phase display above.
+        tdeeHistory = (try? await tdeeEstimateRepository.fetchHistory()) ?? []
     }
 }

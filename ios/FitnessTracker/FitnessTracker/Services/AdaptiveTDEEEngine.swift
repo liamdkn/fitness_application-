@@ -25,8 +25,10 @@ struct TDEERecommendation {
 enum AdaptiveTDEEEngine {
     /// Kcal per kg of body-mass change. 7700 is the standard approximation
     /// (Wishnofsky) for a mix of fat and lean tissue change in a typical
-    /// deficit/surplus.
-    private static let kcalPerKg = 7700.0
+    /// deficit/surplus. Not private - reused by WeeklyInsightsViewModel to
+    /// translate a calorie surplus/deficit into an implied weekly weight
+    /// change using the exact same constant.
+    static let kcalPerKg = 7700.0
 
     /// EWMA smoothing rate for a single-day gap between weigh-ins; scaled
     /// up for longer gaps so the trend still converges reasonably fast

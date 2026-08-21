@@ -90,12 +90,24 @@ struct DashboardView: View {
                     }
 
                     DashboardCard(title: "This Week") {
-                        StatRow(
-                            icon: "dumbbell.fill",
-                            label: "Training volume",
-                            value: viewModel.weeklyVolumeKg.map { "\(Int($0)) kg" } ?? "0 kg",
-                            target: nil
-                        )
+                        VStack(alignment: .leading, spacing: 12) {
+                            StatRow(
+                                icon: "dumbbell.fill",
+                                label: "Training volume",
+                                value: viewModel.weeklyVolumeKg.map { "\(Int($0)) kg" } ?? "0 kg",
+                                target: nil
+                            )
+                            NavigationLink {
+                                WeeklyInsightsView()
+                            } label: {
+                                HStack {
+                                    Text("Weekly Insights")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
                     }
 
                     DashboardCard(title: "Weight") {

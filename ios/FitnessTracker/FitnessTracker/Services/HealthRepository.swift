@@ -61,4 +61,18 @@ struct HealthRepository {
             .value
         return logs.first
     }
+
+    /// All logged days within an inclusive calendar range - mirrors
+    /// `NutritionRepository.fetchRange`, used for weekly aggregation on the
+    /// Dashboard.
+    func fetchStepLogs(from: Date, to: Date) async throws -> [StepLogRecord] {
+        try await client
+            .from("step_logs")
+            .select("date,step_count")
+            .gte("date", value: DateFormatting.isoDate(from))
+            .lte("date", value: DateFormatting.isoDate(to))
+            .order("date")
+            .execute()
+            .value
+    }
 }
