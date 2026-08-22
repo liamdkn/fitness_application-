@@ -75,6 +75,7 @@ struct CardioSessionLiveView: View {
         }
         .sheet(isPresented: $showingEndCapture) {
             CardioSessionEndSheet(
+                requiresSteps: viewModel.session.cardioType.involvesSteps,
                 onSave: { stepsAfter, avgHeartRate in
                     await viewModel.finish(stepsAfter: stepsAfter, avgHeartRate: avgHeartRate)
                 },

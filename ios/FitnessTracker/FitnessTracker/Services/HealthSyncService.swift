@@ -12,6 +12,7 @@ final class HealthSyncService: ObservableObject {
 
     private let healthKit = HealthKitManager()
     private let repository = HealthRepository()
+    private let nutritionRepository = NutritionRepository()
     private let preferencesRepository = UserPreferencesRepository()
     private let daysBack = 14
 
@@ -29,6 +30,7 @@ final class HealthSyncService: ObservableObject {
 
             async let steps = healthKit.fetchDailySteps(daysBack: daysBack, source: stepSource)
             async let sleep = healthKit.fetchDailySleep(daysBack: daysBack)
+            async let nutrition = healthKit.fetchDailyNutrition(daysBack: daysBack)
 
             let stepLogs = try await steps.map { date, count in
                 StepLog(userId: userId, date: DateFormatting.isoDate(date), stepCount: count, source: "healthkit")
@@ -42,9 +44,19 @@ final class HealthSyncService: ObservableObject {
                     source: "healthkit"
                 )
             }
+            let nutritionLogs = try await nutrition.map { date, value in
+                NutritionRepository.SyncedNutritionLog(
+                    date: DateFormatting.isoDate(date),
+                    calories: value.calories,
+                    proteinG: value.proteinG,
+                    carbsG: value.carbsG,
+                    fatG: value.fatG
+                )
+            }
 
             try await repository.upsertSteps(stepLogs)
             try await repository.upsertSleep(sleepLogs)
+            try await nutritionRepository.upsertLogs(nutritionLogs)
 
             lastSyncedAt = Date()
             errorMessage = nil

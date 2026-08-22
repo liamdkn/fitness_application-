@@ -8,7 +8,7 @@ struct CardioSessionRepository {
     private struct NewCardioSession: Encodable {
         let user_id: UUID
         let cardio_type: String
-        let steps_before: Int
+        let steps_before: Int?
     }
 
     private struct PauseUpdate: Encodable {
@@ -24,7 +24,7 @@ struct CardioSessionRepository {
         let ended_at: Date
         let paused_at: Date?
         let paused_seconds: Int
-        let steps_after: Int
+        let steps_after: Int?
         let avg_heart_rate: Int
     }
 
@@ -35,11 +35,11 @@ struct CardioSessionRepository {
     }
 
     private struct DetailsUpdate: Encodable {
-        let steps_after: Int
+        let steps_after: Int?
         let avg_heart_rate: Int
     }
 
-    func startSession(cardioType: CardioType, stepsBefore: Int) async throws -> CardioTrackingSession {
+    func startSession(cardioType: CardioType, stepsBefore: Int?) async throws -> CardioTrackingSession {
         let userId = try await client.auth.session.user.id
         let inserted: [CardioTrackingSession] = try await client
             .from("cardio_tracking_sessions")
@@ -85,7 +85,7 @@ struct CardioSessionRepository {
     func finishSession(
         sessionId: UUID,
         finalPausedSeconds: Int,
-        stepsAfter: Int,
+        stepsAfter: Int?,
         avgHeartRate: Int
     ) async throws -> CardioTrackingSession {
         let updated: [CardioTrackingSession] = try await client
@@ -104,7 +104,7 @@ struct CardioSessionRepository {
         guard let session = updated.first else {
             throw RepositoryError.insertFailed
         }
-        if let stepsBefore = session.stepsBefore {
+        if let stepsBefore = session.stepsBefore, let stepsAfter {
             try? await stepSessionRepository.logSession(date: session.startedAt, stepsBefore: stepsBefore, stepsAfter: stepsAfter)
         }
         return session
@@ -138,7 +138,7 @@ struct CardioSessionRepository {
     }
 
     @discardableResult
-    func updateSessionDetails(sessionId: UUID, stepsAfter: Int, avgHeartRate: Int) async throws -> CardioTrackingSession {
+    func updateSessionDetails(sessionId: UUID, stepsAfter: Int?, avgHeartRate: Int) async throws -> CardioTrackingSession {
         let updated: [CardioTrackingSession] = try await client
             .from("cardio_tracking_sessions")
             .update(DetailsUpdate(steps_after: stepsAfter, avg_heart_rate: avgHeartRate))
@@ -149,7 +149,7 @@ struct CardioSessionRepository {
         guard let session = updated.first else {
             throw RepositoryError.insertFailed
         }
-        if let stepsBefore = session.stepsBefore {
+        if let stepsBefore = session.stepsBefore, let stepsAfter {
             try? await stepSessionRepository.logSession(date: session.startedAt, stepsBefore: stepsBefore, stepsAfter: stepsAfter)
         }
         return session

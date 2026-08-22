@@ -1,40 +1,46 @@
 import SwiftUI
 
 struct CardioHistoryView: View {
+    /// When set, only the most recent `displayLimit` sessions show, with a
+    /// "More" link pushing an unrestricted instance of this same view -
+    /// pass `nil` (as that pushed instance does) to show everything.
+    var displayLimit: Int? = 7
+
     @State private var sessions: [CardioTrackingSession] = []
     @State private var errorMessage: String?
     @State private var completingSession: CardioTrackingSession?
     @State private var sessionToDelete: CardioTrackingSession?
     private let repository = CardioSessionRepository()
 
+    private var displayedSessions: [CardioTrackingSession] {
+        guard let displayLimit else { return sessions }
+        return Array(sessions.prefix(displayLimit))
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
-                } else if sessions.isEmpty {
-                    Text("No cardio sessions logged yet.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(sessions) { session in
-                            HStack {
-                                sessionRow(session)
-                                Spacer()
-                                Button {
-                                    sessionToDelete = session
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .foregroundStyle(.red)
-                                }
-                                .buttonStyle(.plain)
+        List {
+            if let errorMessage {
+                Text(errorMessage).foregroundStyle(.red)
+            } else if sessions.isEmpty {
+                Text("No cardio sessions logged yet.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(displayedSessions) { session in
+                    sessionRow(session)
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                sessionToDelete = session
+                            } label: {
+                                Label("Delete", systemImage: "trash")
                             }
-                            Divider()
                         }
+                }
+                if let displayLimit, sessions.count > displayLimit {
+                    NavigationLink("More") {
+                        CardioHistoryView(displayLimit: nil)
                     }
                 }
             }
-            .padding()
         }
         .navigationTitle("Cardio History")
         .task { await load() }
@@ -42,6 +48,7 @@ struct CardioHistoryView: View {
             CardioSessionEndSheet(
                 initialStepsAfter: session.stepsAfter,
                 initialAvgHeartRate: session.avgHeartRate,
+                requiresSteps: session.cardioType.involvesSteps,
                 allowsCancelActions: false,
                 onSave: { stepsAfter, avgHeartRate in
                     await complete(session, stepsAfter: stepsAfter, avgHeartRate: avgHeartRate)
@@ -80,7 +87,7 @@ struct CardioHistoryView: View {
             .foregroundStyle(.secondary)
 
             if isMissingDetails(session) {
-                Text("Tap to add steps & heart rate")
+                Text("Tap to add \(session.cardioType.involvesSteps ? "steps & " : "")heart rate")
                     .font(.caption)
                     .foregroundStyle(.blue)
             }
@@ -98,8 +105,14 @@ struct CardioHistoryView: View {
         }
     }
 
+    /// A session whose type never collects steps (Bike/Rowing/Swimming/
+    /// etc.) isn't "missing" steps just because `stepsAfter` is nil - that's
+    /// simply not applicable to it, so only heart rate (and steps, when
+    /// this type actually tracks them) count toward missing.
     private func isMissingDetails(_ session: CardioTrackingSession) -> Bool {
-        session.endedAt != nil && (session.stepsAfter == nil || session.avgHeartRate == nil)
+        guard session.endedAt != nil else { return false }
+        let missingSteps = session.cardioType.involvesSteps && session.stepsAfter == nil
+        return missingSteps || session.avgHeartRate == nil
     }
 
     private func load() async {
@@ -110,7 +123,7 @@ struct CardioHistoryView: View {
         }
     }
 
-    private func complete(_ session: CardioTrackingSession, stepsAfter: Int, avgHeartRate: Int) async {
+    private func complete(_ session: CardioTrackingSession, stepsAfter: Int?, avgHeartRate: Int) async {
         do {
             let updated = try await repository.updateSessionDetails(
                 sessionId: session.id,

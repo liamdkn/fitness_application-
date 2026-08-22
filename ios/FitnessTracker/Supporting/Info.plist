@@ -21,7 +21,7 @@
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSHealthShareUsageDescription</key>
-    <string>Fitness Tracker reads your steps and sleep from Health to show them alongside your workouts and nutrition on your dashboard.</string>
+    <string>Fitness Tracker reads your steps, sleep, and logged nutrition (e.g. from MyFitnessPal) from Health to show them alongside your workouts on your dashboard.</string>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>

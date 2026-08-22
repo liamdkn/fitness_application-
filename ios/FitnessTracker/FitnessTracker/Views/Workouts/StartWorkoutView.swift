@@ -7,14 +7,19 @@ struct StartWorkoutView: View {
     @State private var days: [RoutineDay] = []
     @State private var errorMessage: String?
     @State private var startedWorkout: Workout?
+    @State private var activeWorkout: Workout?
+    @State private var todayCompletedWorkout: Workout?
     @State private var isStarting = false
     @State private var deloadSignal: DeloadSignal?
     @State private var volumeFlags: [MuscleGroupVolumeFlag] = []
+    @State private var weeklyCardioMinutes = 0
+    @State private var weeklyCardioSessionCount = 0
     @ObservedObject private var cardioMonitor = CardioSessionMonitor.shared
     private let routineRepository = RoutineRepository()
     private let workoutRepository = WorkoutRepository()
     private let checkinRepository = DailyCheckinRepository()
     private let muscleGroupVolumeRepository = MuscleGroupVolumeRepository()
+    private let cardioSessionRepository = CardioSessionRepository()
 
     var body: some View {
         NavigationStack {
@@ -22,6 +27,26 @@ struct StartWorkoutView: View {
                 VStack(spacing: 20) {
                     if let errorMessage {
                         Text(errorMessage).foregroundStyle(.red)
+                    }
+
+                    if let activeWorkout {
+                        NavigationLink {
+                            ActiveWorkoutView(workout: activeWorkout)
+                        } label: {
+                            DashboardCard {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Workout In Progress")
+                                            .fontWeight(.semibold)
+                                        Text("Started \(activeWorkout.startedAt, style: .relative) ago - Tap to Resume")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     if let deloadSignal, deloadSignal.severity != .none {
@@ -54,27 +79,45 @@ struct StartWorkoutView: View {
                         if isRestDay {
                             Text("Rest day - no workout scheduled.")
                                 .foregroundStyle(.secondary)
-                        } else if todayDay != nil {
-                            Button {
-                                Task { await startWorkout() }
-                            } label: {
-                                if isStarting {
-                                    ProgressView()
-                                } else {
-                                    Text("Start Today's Workout")
+                        } else if todayDay != nil && activeWorkout == nil {
+                            if todayCompletedWorkout != nil {
+                                Label("Session Completed", systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                    .font(.headline)
+                            } else {
+                                // Hidden (not just disabled) whenever a
+                                // workout is already active - the Resume
+                                // banner above is the only way in, so a
+                                // second one can't get started by mistake
+                                // the way this one was.
+                                Button {
+                                    Task { await startWorkout() }
+                                } label: {
+                                    if isStarting {
+                                        ProgressView()
+                                    } else {
+                                        Text("Start Today's Workout")
+                                    }
                                 }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(isStarting)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(isStarting)
                         }
 
-                        if !days.isEmpty {
-                            Divider()
+                        Divider()
 
-                            VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
                                 Text("Your Split")
                                     .font(.headline)
                                     .foregroundStyle(.secondary)
+                                Spacer()
+                                NavigationLink("Edit") {
+                                    RoutineEditorView()
+                                }
+                                .font(.footnote)
+                            }
+                            if !days.isEmpty {
                                 ForEach(days) { day in
                                     NavigationLink {
                                         RoutineDayDetailView(day: day)
@@ -91,17 +134,21 @@ struct StartWorkoutView: View {
                                     }
                                 }
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-
-                        NavigationLink("Edit My Split") {
-                            RoutineEditorView()
-                        }
-                        .font(.footnote)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     DashboardCard(title: "Cardio") {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(spacing: 12) {
+                            VStack(spacing: 2) {
+                                Text("\(weeklyCardioMinutes)")
+                                    .font(.system(size: 44, weight: .bold, design: .rounded))
+                                Text("minutes this week")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+
                             if let activeSession = cardioMonitor.activeSession {
                                 NavigationLink {
                                     CardioSessionLiveView(session: activeSession)
@@ -122,10 +169,21 @@ struct StartWorkoutView: View {
                                     StartCardioSessionView()
                                 }
                             }
+
+                            HStack {
+                                Text("Sessions this week")
+                                Spacer()
+                                Text("\(weeklyCardioSessionCount)")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
                             NavigationLink("Cardio History") {
                                 CardioHistoryView()
                             }
                             .font(.footnote)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
 
@@ -135,8 +193,16 @@ struct StartWorkoutView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Train")
-            .task { await load() }
+            .navigationTitle("Training")
+            // `.onAppear`, not `.task` - this view stays mounted as the Train
+            // tab's root, so `.task` would only ever fire once. `.onAppear`
+            // re-fires whenever a pushed screen (a routine day, an active
+            // workout) pops back to this one, which is exactly when
+            // `activeWorkout` needs to be re-checked - otherwise finishing
+            // or canceling a resumed workout would leave a stale "Workout
+            // In Progress" banner showing until the tab was reloaded some
+            // other way.
+            .onAppear { Task { await load() } }
             .navigationDestination(item: $startedWorkout) { workout in
                 ActiveWorkoutView(workout: workout)
             }
@@ -165,16 +231,36 @@ struct StartWorkoutView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+        activeWorkout = try? await workoutRepository.fetchActive()
+        let recentWorkouts = (try? await workoutRepository.fetchHistory(limit: 10)) ?? []
+        todayCompletedWorkout = recentWorkouts.first { workout in
+            workout.routineDayId == todayDay?.id
+                && workout.endedAt != nil
+                && Calendar.current.isDateInToday(workout.performedAt)
+        }
         await CardioSessionMonitor.shared.refresh()
-        await loadDeloadSignal()
+        await loadDeloadSignal(recentWorkouts: recentWorkouts)
         await loadVolumeFlags()
+        await loadWeeklyCardioSummary()
     }
 
-    private func loadDeloadSignal() async {
+    private func loadDeloadSignal(recentWorkouts: [Workout]) async {
         do {
             let recentCheckins = try await checkinRepository.fetchRecent(days: 10)
-            let recentWorkouts = try await workoutRepository.fetchHistory(limit: 5)
-            deloadSignal = DeloadAdvisor.evaluate(recentCheckins: recentCheckins, recentWorkouts: recentWorkouts)
+            deloadSignal = DeloadAdvisor.evaluate(recentCheckins: recentCheckins, recentWorkouts: Array(recentWorkouts.prefix(5)))
+        } catch {
+            // Advisory only - don't block the Train tab on this failing.
+        }
+    }
+
+    private func loadWeeklyCardioSummary() async {
+        do {
+            let calendar = Calendar.current
+            let weekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
+            let sessions = try await cardioSessionRepository.fetchHistory(limit: 50)
+            let thisWeek = sessions.filter { $0.endedAt != nil && $0.startedAt >= weekStart }
+            weeklyCardioMinutes = Int(thisWeek.reduce(0.0) { $0 + $1.elapsed() } / 60)
+            weeklyCardioSessionCount = thisWeek.count
         } catch {
             // Advisory only - don't block the Train tab on this failing.
         }
@@ -191,6 +277,10 @@ struct StartWorkoutView: View {
 
     private func startWorkout() async {
         guard let todayDay else { return }
+        // Defensive - the button that calls this is already hidden while
+        // `activeWorkout` is set, but re-check here too so this can never
+        // create a second concurrent workout regardless of UI state.
+        guard activeWorkout == nil else { return }
         isStarting = true
         defer { isStarting = false }
         do {

@@ -10,15 +10,29 @@ struct DailySleep {
     let inBedMinutes: Int
 }
 
+struct DailyNutrition {
+    let calories: Double
+    let proteinG: Double
+    let carbsG: Double
+    let fatG: Double
+}
+
 final class HealthKitManager {
     private let store = HKHealthStore()
 
     private var stepType: HKQuantityType { HKQuantityType(.stepCount) }
     private var sleepType: HKCategoryType { HKCategoryType(.sleepAnalysis) }
+    private var caloriesType: HKQuantityType { HKQuantityType(.dietaryEnergyConsumed) }
+    private var proteinType: HKQuantityType { HKQuantityType(.dietaryProtein) }
+    private var carbsType: HKQuantityType { HKQuantityType(.dietaryCarbohydrates) }
+    private var fatType: HKQuantityType { HKQuantityType(.dietaryFatTotal) }
 
     func requestAuthorization() async throws {
         guard HKHealthStore.isHealthDataAvailable() else { throw HealthKitError.notAvailable }
-        try await store.requestAuthorization(toShare: [], read: [stepType, sleepType])
+        try await store.requestAuthorization(
+            toShare: [],
+            read: [stepType, sleepType, caloriesType, proteinType, carbsType, fatType]
+        )
     }
 
     func fetchDailySteps(daysBack: Int, source: StepSource) async throws -> [Date: Int] {
@@ -127,5 +141,52 @@ final class HealthKitManager {
             totals[wakeDay] = entry
         }
         return totals.mapValues { DailySleep(totalMinutes: $0.asleep, inBedMinutes: $0.inBed) }
+    }
+
+    /// Pulls in whatever a nutrition-logging app (e.g. MyFitnessPal) has
+    /// written to Health. `.cumulativeSum` here is "add up every food/meal
+    /// logged that day" - unlike steps, there's no cross-source dedup
+    /// concern to worry about, it's just the correct daily total.
+    func fetchDailyNutrition(daysBack: Int) async throws -> [Date: DailyNutrition] {
+        async let calories = fetchDailySum(for: caloriesType, unit: .kilocalorie(), daysBack: daysBack)
+        async let protein = fetchDailySum(for: proteinType, unit: .gram(), daysBack: daysBack)
+        async let carbs = fetchDailySum(for: carbsType, unit: .gram(), daysBack: daysBack)
+        async let fat = fetchDailySum(for: fatType, unit: .gram(), daysBack: daysBack)
+
+        let (caloriesByDay, proteinByDay, carbsByDay, fatByDay) = try await (calories, protein, carbs, fat)
+
+        // A day only appears if at least one of the four had samples, so a
+        // day with no MFP entries is naturally skipped rather than synced
+        // as all-zero.
+        let allDays = Set(caloriesByDay.keys).union(proteinByDay.keys).union(carbsByDay.keys).union(fatByDay.keys)
+        return Dictionary(uniqueKeysWithValues: allDays.map { day in
+            (day, DailyNutrition(
+                calories: caloriesByDay[day] ?? 0,
+                proteinG: proteinByDay[day] ?? 0,
+                carbsG: carbsByDay[day] ?? 0,
+                fatG: fatByDay[day] ?? 0
+            ))
+        })
+    }
+
+    private func fetchDailySum(for type: HKQuantityType, unit: HKUnit, daysBack: Int) async throws -> [Date: Double] {
+        let calendar = Calendar.current
+        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
+        let anchorDate = calendar.startOfDay(for: startDate)
+        let descriptor = HKStatisticsCollectionQueryDescriptor(
+            predicate: .quantitySample(type: type, predicate: predicate),
+            options: .cumulativeSum,
+            anchorDate: anchorDate,
+            intervalComponents: DateComponents(day: 1)
+        )
+        let collection = try await descriptor.result(for: store)
+
+        var totals: [Date: Double] = [:]
+        collection.enumerateStatistics(from: startDate, to: Date()) { statistics, _ in
+            guard let sum = statistics.sumQuantity() else { return }
+            totals[statistics.startDate] = sum.doubleValue(for: unit)
+        }
+        return totals
     }
 }

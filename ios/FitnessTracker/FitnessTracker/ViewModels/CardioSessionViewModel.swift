@@ -39,7 +39,7 @@ final class CardioSessionViewModel: ObservableObject {
         }
     }
 
-    func finish(stepsAfter: Int, avgHeartRate: Int) async {
+    func finish(stepsAfter: Int?, avgHeartRate: Int) async {
         guard !isMutating else { return }
         isMutating = true
         defer { isMutating = false }

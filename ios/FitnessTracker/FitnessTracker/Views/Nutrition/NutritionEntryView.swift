@@ -1,5 +1,6 @@
 import Charts
 import SwiftUI
+import UIKit
 
 private enum NutritionField: Hashable {
     case calories, protein, carbs, fat
@@ -18,86 +19,51 @@ struct NutritionEntryView: View {
     @State private var carbs = ""
     @State private var fat = ""
     @State private var recentLogs: [NutritionLog] = []
+    @State private var currentLogSource: String?
     @State private var goal: UserGoal?
     @State private var trendMetric: NutritionTrendMetric = .calories
+    @State private var showingManualEntry = false
     @State private var errorMessage: String?
-    @State private var isSaving = false
-    @FocusState private var focusedField: NutritionField?
     private let repository = NutritionRepository()
     private let goalsRepository = GoalsRepository()
-
-    private var isValid: Bool {
-        Double(calories) != nil && Double(protein) != nil && Double(carbs) != nil && Double(fat) != nil
-    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Progress") {
+                Section {
+                    HStack {
+                        Spacer()
+                        DatePicker(
+                            "",
+                            selection: $selectedDate,
+                            in: ...Date(),
+                            displayedComponents: .date
+                        )
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
+                        .onChange(of: selectedDate) { _, _ in Task { await loadForSelectedDate() } }
+                        Spacer()
+                    }
+                    .listRowSeparator(.hidden)
+
                     MacroRingsView(rings: macroRings)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                     ForEach(macroRings) { ring in
                         MacroLegendRow(ring: ring)
                     }
-                }
 
-                Section("Log a Day") {
-                    DatePicker("Date", selection: $selectedDate, displayedComponents: .date)
-                        .onChange(of: selectedDate) { _, _ in Task { await loadForSelectedDate() } }
-
-                    LabeledTextField(label: "Calories", text: $calories, unit: "kcal", focusedField: $focusedField, field: .calories)
-                    LabeledTextField(label: "Protein", text: $protein, unit: "g", focusedField: $focusedField, field: .protein)
-                    LabeledTextField(label: "Carbs", text: $carbs, unit: "g", focusedField: $focusedField, field: .carbs)
-                    LabeledTextField(label: "Fat", text: $fat, unit: "g", focusedField: $focusedField, field: .fat)
+                    if currentLogSource == "healthkit" {
+                        Text("Synced from Health - editing and saving will switch this day to manual.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     if let errorMessage {
                         Text(errorMessage).foregroundStyle(.red)
                     }
 
-                    Button {
-                        Task { await save() }
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                        } else {
-                            Text("Save")
-                        }
-                    }
-                    .disabled(!isValid || isSaving)
-                }
-
-                Section("This Week") {
-                    if let weeklyAverage {
-                        HStack {
-                            Text("Avg calories")
-                            Spacer()
-                            Text("\(Int(weeklyAverage.calories)) kcal")
-                                .foregroundStyle(.secondary)
-                        }
-                        if let target = goal?.dailyCalorieTarget {
-                            Text(deltaText(avg: weeklyAverage.calories, target: target, unit: "kcal"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        HStack {
-                            Text("Avg protein")
-                            Spacer()
-                            Text("\(Int(weeklyAverage.protein))g")
-                                .foregroundStyle(.secondary)
-                        }
-                        if let target = goal?.proteinGTarget {
-                            Text(deltaText(avg: weeklyAverage.protein, target: target, unit: "g"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Text("Based on your last \(weeklyAverage.days) logged day\(weeklyAverage.days == 1 ? "" : "s").")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Log a few days to see your weekly average.")
-                            .foregroundStyle(.secondary)
-                    }
+                    Button("Log Manually") { showingManualEntry = true }
                 }
 
                 Section("Trend") {
@@ -129,6 +95,35 @@ struct NutritionEntryView: View {
                         .frame(height: 160)
                         .padding(.vertical, 4)
                     }
+
+                    if let weeklyAverage {
+                        Divider()
+                        HStack {
+                            Text("Avg calories")
+                            Spacer()
+                            Text("\(Int(weeklyAverage.calories)) kcal")
+                                .foregroundStyle(.secondary)
+                        }
+                        if let target = goal?.dailyCalorieTarget {
+                            Text(deltaText(avg: weeklyAverage.calories, target: target, unit: "kcal"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Text("Avg protein")
+                            Spacer()
+                            Text("\(Int(weeklyAverage.protein))g")
+                                .foregroundStyle(.secondary)
+                        }
+                        if let target = goal?.proteinGTarget {
+                            Text(deltaText(avg: weeklyAverage.protein, target: target, unit: "g"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("Based on your last \(weeklyAverage.days) logged day\(weeklyAverage.days == 1 ? "" : "s").")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("Recent") {
@@ -136,36 +131,39 @@ struct NutritionEntryView: View {
                         Text("No entries yet.")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(recentLogs) { log in
-                            HStack {
-                                Text(relativeDayLabel(for: log.date))
-                                Spacer()
-                                Text("\(Int(log.calories)) kcal")
-                                    .foregroundStyle(.secondary)
-                            }
+                        ForEach(recentLogs.prefix(7)) { log in
+                            NutritionLogRow(log: log)
+                        }
+                        NavigationLink("View All") {
+                            NutritionHistoryView()
                         }
                     }
                 }
             }
             .navigationTitle("Nutrition")
-            .scrollDismissesKeyboard(.interactively)
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { focusedField = nil }
-                }
-            }
             .task {
                 await loadForSelectedDate()
                 await loadRecent()
                 await loadGoal()
             }
+            .sheet(isPresented: $showingManualEntry) {
+                ManualNutritionEntrySheet(
+                    date: selectedDate,
+                    initialCalories: calories,
+                    initialProtein: protein,
+                    initialCarbs: carbs,
+                    initialFat: fat
+                ) {
+                    await loadForSelectedDate()
+                    await loadRecent()
+                }
+            }
         }
     }
 
-    /// Rings reflect whichever date is selected, live from the entry
-    /// fields as they're typed - not a separate fetch, so it updates
-    /// immediately rather than only after Save.
+    /// Rings reflect whichever date is selected - the currently loaded
+    /// values for that day (from Health sync or a previous manual save),
+    /// not live text-field input, since entry now happens in a sheet.
     private var macroRings: [MacroRing] {
         [
             MacroRing(label: "Calories", value: Double(calories) ?? 0, target: goal?.dailyCalorieTarget, unit: "kcal", color: .orange),
@@ -212,41 +210,6 @@ struct NutritionEntryView: View {
         return "\(Int(abs(diff)))\(unit == "kcal" ? " kcal" : unit) \(direction) target."
     }
 
-    /// "Today"/weekday name for the last week, then "Weekday Nth" beyond
-    /// that - reads more naturally in a short recent-entries list than a
-    /// bare date.
-    private func relativeDayLabel(for isoDate: String) -> String {
-        guard let date = DateFormatting.date(fromISODate: isoDate) else { return isoDate }
-        let calendar = Calendar.current
-        let daysAgo = calendar.dateComponents(
-            [.day],
-            from: calendar.startOfDay(for: date),
-            to: calendar.startOfDay(for: Date())
-        ).day ?? 0
-
-        if daysAgo == 0 { return "Today" }
-
-        let weekdayFormatter = DateFormatter()
-        weekdayFormatter.dateFormat = "EEEE"
-        let weekday = weekdayFormatter.string(from: date)
-
-        if daysAgo < 7 { return weekday }
-
-        let day = calendar.component(.day, from: date)
-        return "\(weekday) \(ordinal(day))"
-    }
-
-    private func ordinal(_ day: Int) -> String {
-        let suffix: String
-        switch (day % 10, day % 100) {
-        case (1, let hundreds) where hundreds != 11: suffix = "st"
-        case (2, let hundreds) where hundreds != 12: suffix = "nd"
-        case (3, let hundreds) where hundreds != 13: suffix = "rd"
-        default: suffix = "th"
-        }
-        return "\(day)\(suffix)"
-    }
-
     private func loadForSelectedDate() async {
         do {
             if let log = try await repository.fetchLog(date: selectedDate) {
@@ -254,11 +217,13 @@ struct NutritionEntryView: View {
                 protein = String(log.proteinG)
                 carbs = String(log.carbsG)
                 fat = String(log.fatG)
+                currentLogSource = log.source
             } else {
                 calories = ""
                 protein = ""
                 carbs = ""
                 fat = ""
+                currentLogSource = nil
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -276,6 +241,128 @@ struct NutritionEntryView: View {
     private func loadGoal() async {
         goal = try? await goalsRepository.fetchCurrentGoal()
     }
+}
+
+/// "Today"/weekday name for the last week, then "Weekday Nth" beyond
+/// that - reads more naturally in a short recent-entries list than a
+/// bare date.
+private func relativeDayLabel(for isoDate: String) -> String {
+    guard let date = DateFormatting.date(fromISODate: isoDate) else { return isoDate }
+    let calendar = Calendar.current
+    let daysAgo = calendar.dateComponents(
+        [.day],
+        from: calendar.startOfDay(for: date),
+        to: calendar.startOfDay(for: Date())
+    ).day ?? 0
+
+    if daysAgo == 0 { return "Today" }
+
+    let weekdayFormatter = DateFormatter()
+    weekdayFormatter.dateFormat = "EEEE"
+    let weekday = weekdayFormatter.string(from: date)
+
+    if daysAgo < 7 { return weekday }
+
+    let day = calendar.component(.day, from: date)
+    return "\(weekday) \(ordinal(day))"
+}
+
+private func ordinal(_ day: Int) -> String {
+    let suffix: String
+    switch (day % 10, day % 100) {
+    case (1, let hundreds) where hundreds != 11: suffix = "st"
+    case (2, let hundreds) where hundreds != 12: suffix = "nd"
+    case (3, let hundreds) where hundreds != 13: suffix = "rd"
+    default: suffix = "th"
+    }
+    return "\(day)\(suffix)"
+}
+
+struct NutritionLogRow: View {
+    let log: NutritionLog
+
+    var body: some View {
+        HStack {
+            Text(relativeDayLabel(for: log.date))
+            Text(log.source == "healthkit" ? "Health" : "Manual")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.secondary.opacity(0.15), in: Capsule())
+            Spacer()
+            Text("\(Int(log.calories)) kcal")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct ManualNutritionEntrySheet: View {
+    let date: Date
+    let onSaved: () async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var calories: String
+    @State private var protein: String
+    @State private var carbs: String
+    @State private var fat: String
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @FocusState private var focusedField: NutritionField?
+    private let repository = NutritionRepository()
+
+    init(date: Date, initialCalories: String, initialProtein: String, initialCarbs: String, initialFat: String, onSaved: @escaping () async -> Void) {
+        self.date = date
+        self.onSaved = onSaved
+        _calories = State(initialValue: initialCalories)
+        _protein = State(initialValue: initialProtein)
+        _carbs = State(initialValue: initialCarbs)
+        _fat = State(initialValue: initialFat)
+    }
+
+    private var isValid: Bool {
+        Double(calories) != nil && Double(protein) != nil && Double(carbs) != nil && Double(fat) != nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledTextField(label: "Calories", text: $calories, unit: "kcal", focusedField: $focusedField, field: .calories)
+                    LabeledTextField(label: "Protein", text: $protein, unit: "g", focusedField: $focusedField, field: .protein)
+                    LabeledTextField(label: "Carbs", text: $carbs, unit: "g", focusedField: $focusedField, field: .carbs)
+                    LabeledTextField(label: "Fat", text: $fat, unit: "g", focusedField: $focusedField, field: .fat)
+                }
+
+                if let errorMessage {
+                    Text(errorMessage).foregroundStyle(.red)
+                }
+            }
+            .navigationTitle(Text(date, style: .date))
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text("Save")
+                        }
+                    }
+                    .disabled(!isValid || isSaving)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focusedField = nil }
+                }
+            }
+        }
+    }
 
     private func save() async {
         guard
@@ -290,14 +377,14 @@ struct NutritionEntryView: View {
 
         do {
             try await repository.upsertLog(
-                date: selectedDate,
+                date: date,
                 calories: caloriesValue,
                 proteinG: proteinValue,
                 carbsG: carbsValue,
                 fatG: fatValue
             )
-            errorMessage = nil
-            await loadRecent()
+            await onSaved()
+            dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -334,9 +421,11 @@ private struct MacroRing: Identifiable {
     let unit: String
     let color: Color
 
+    /// Uncapped ratio - can exceed 1.0 when over target. `MacroRingsView`
+    /// splits this into a base lap and an overflow lap for rendering.
     var progress: Double {
         guard let target, target > 0 else { return 0 }
-        return min(value / target, 1.0)
+        return value / target
     }
 
     var valueText: String {
@@ -347,27 +436,79 @@ private struct MacroRing: Identifiable {
 }
 
 /// Concentric activity-ring-style progress - calories outermost, then
-/// protein, carbs, fat - reflecting the entry form's current values
-/// against today's (or whichever day is selected) targets.
+/// protein, carbs, fat - reflecting the selected day's values against its
+/// targets. Apple Watch-inspired: going past 100% draws a second,
+/// brightened lap over the ring rather than just leaving it as an
+/// indistinguishable solid closed circle.
 private struct MacroRingsView: View {
     let rings: [MacroRing]
+
+    private let ringWidth: CGFloat = 16
+    private let outerDiameter: CGFloat = 160
+
+    private func diameter(for index: Int) -> CGFloat {
+        outerDiameter - CGFloat(index) * ringWidth * 2
+    }
 
     var body: some View {
         ZStack {
             ForEach(Array(rings.enumerated()), id: \.element.id) { index, ring in
-                let inset = CGFloat(index) * 18
-                Circle()
-                    .stroke(ring.color.opacity(0.15), lineWidth: 10)
-                    .padding(inset)
-                Circle()
-                    .trim(from: 0, to: ring.progress)
-                    .stroke(ring.color, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .padding(inset)
-                    .animation(.easeInOut(duration: 0.3), value: ring.progress)
+                ringBand(for: ring, diameter: diameter(for: index))
             }
         }
-        .frame(width: 160, height: 160)
+        .frame(width: outerDiameter, height: outerDiameter)
+    }
+
+    /// Apple Watch-inspired: rings sit edge-to-edge (no gaps), each a solid
+    /// color with a dark, muted track showing the unfilled remainder (the
+    /// same way a real Activity ring shows its "remaining" portion as a
+    /// dim version of the ring's own hue, not a pale one). A single round
+    /// stroke cap naturally rounds off both the start (12 o'clock) and the
+    /// leading edge of the current fill - no separate overlaid shape - so
+    /// there's exactly one consistent semicircular cap style at each end.
+    @ViewBuilder
+    private func ringBand(for ring: MacroRing, diameter: CGFloat) -> some View {
+        let baseProgress = min(ring.progress, 1.0)
+
+        ZStack {
+            Circle()
+                .stroke(ring.color.darkened(by: 0.6), lineWidth: ringWidth)
+            Circle()
+                .trim(from: 0, to: baseProgress)
+                .stroke(ring.color, style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: diameter, height: diameter)
+        .animation(.easeInOut(duration: 0.3), value: ring.progress)
+    }
+}
+
+private extension Color {
+    /// Blends toward white by a fixed ratio and returns a fully opaque
+    /// result - unlike `.opacity()`, this looks identical regardless of
+    /// what's rendered behind it (a light-mode white background vs a
+    /// dark-mode near-black one), since there's no transparency for the
+    /// backdrop to show through.
+    func lightened(by amount: Double) -> Color {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return Color(
+            red: r + (1 - r) * amount,
+            green: g + (1 - g) * amount,
+            blue: b + (1 - b) * amount
+        )
+    }
+
+    /// Blends toward black by a fixed ratio - the darker end of the
+    /// angular gradient used for each ring's glossy fill.
+    func darkened(by amount: Double) -> Color {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return Color(
+            red: r * (1 - amount),
+            green: g * (1 - amount),
+            blue: b * (1 - amount)
+        )
     }
 }
 

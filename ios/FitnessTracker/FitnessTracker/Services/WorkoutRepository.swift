@@ -173,6 +173,23 @@ struct WorkoutRepository {
             .value
     }
 
+    /// The most recent unfinished workout, if any - lets the Train tab
+    /// offer a "Resume Workout" path instead of leaving an in-progress
+    /// session stranded whenever the app relaunches cold (e.g. iOS
+    /// terminating it in the background mid-workout) rather than just
+    /// resuming an already-running process.
+    func fetchActive() async throws -> Workout? {
+        let workouts: [Workout] = try await client
+            .from("workouts")
+            .select()
+            .is("ended_at", value: nil)
+            .order("started_at", ascending: false)
+            .limit(1)
+            .execute()
+            .value
+        return workouts.first
+    }
+
     func fetchHistory(limit: Int = 50) async throws -> [Workout] {
         try await client
             .from("workouts")

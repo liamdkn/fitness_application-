@@ -10,6 +10,10 @@ struct StartCardioSessionView: View {
 
     private var stepsBeforeValue: Int? { Int(stepsBeforeText) }
 
+    private var isValid: Bool {
+        !cardioType.involvesSteps || stepsBeforeValue != nil
+    }
+
     var body: some View {
         Form {
             Section("Cardio Type") {
@@ -20,14 +24,16 @@ struct StartCardioSessionView: View {
                 }
             }
 
-            Section("Before You Start") {
-                HStack {
-                    Text("Current Steps")
-                    Spacer()
-                    TextField("-", text: $stepsBeforeText)
-                        .keyboardType(.numberPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 80)
+            if cardioType.involvesSteps {
+                Section("Before You Start") {
+                    HStack {
+                        Text("Current Steps")
+                        Spacer()
+                        TextField("-", text: $stepsBeforeText)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
+                    }
                 }
             }
 
@@ -45,7 +51,7 @@ struct StartCardioSessionView: View {
                         Text("Start")
                     }
                 }
-                .disabled(stepsBeforeValue == nil || isStarting)
+                .disabled(!isValid || isStarting)
             }
         }
         .navigationTitle("Start Cardio")
@@ -56,11 +62,14 @@ struct StartCardioSessionView: View {
     }
 
     private func start() async {
-        guard let stepsBefore = stepsBeforeValue else { return }
+        guard isValid else { return }
         isStarting = true
         defer { isStarting = false }
         do {
-            let session = try await repository.startSession(cardioType: cardioType, stepsBefore: stepsBefore)
+            let session = try await repository.startSession(
+                cardioType: cardioType,
+                stepsBefore: cardioType.involvesSteps ? stepsBeforeValue : nil
+            )
             CardioSessionMonitor.shared.sessionStarted(session)
             startedSession = session
         } catch {

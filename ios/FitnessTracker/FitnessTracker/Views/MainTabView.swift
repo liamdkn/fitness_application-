@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct MainTabView: View {
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some View {
         TabView {
             DashboardView()
@@ -14,6 +16,15 @@ struct MainTabView: View {
         }
         .task {
             await HealthSyncService.shared.requestAuthorizationAndSync()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // `.task` only fires once, on this view's first appearance - it
+            // won't re-run just from switching back to an already-running
+            // app. Re-syncing on every return to foreground means data
+            // another app (e.g. MyFitnessPal) wrote to Health while we were
+            // in the background shows up without needing a force-quit.
+            guard newPhase == .active else { return }
+            Task { await HealthSyncService.shared.requestAuthorizationAndSync() }
         }
     }
 }

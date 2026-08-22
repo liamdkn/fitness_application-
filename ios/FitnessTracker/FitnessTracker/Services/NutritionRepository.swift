@@ -14,6 +14,14 @@ struct NutritionRepository {
         let source: String
     }
 
+    struct SyncedNutritionLog {
+        let date: String
+        let calories: Double
+        let proteinG: Double
+        let carbsG: Double
+        let fatG: Double
+    }
+
     func fetchLog(date: Date) async throws -> NutritionLog? {
         let dateString = DateFormatting.isoDate(date)
         let logs: [NutritionLog] = try await client
@@ -73,5 +81,31 @@ struct NutritionRepository {
             throw RepositoryError.insertFailed
         }
         return log
+    }
+
+    /// Batch upsert for the HealthKit sync path (mirrors
+    /// `HealthRepository.upsertSteps`/`upsertSleep`) - always tagged
+    /// `source: "healthkit"`, unconditionally overwriting whatever was
+    /// there for that day, same as steps/sleep already do. A later manual
+    /// edit via `upsertLog` still overwrites it in the moment; the next
+    /// sync will simply re-apply HealthKit's number again.
+    func upsertLogs(_ logs: [SyncedNutritionLog]) async throws {
+        guard !logs.isEmpty else { return }
+        let userId = try await client.auth.session.user.id
+        let payload = logs.map {
+            UpsertNutritionLog(
+                user_id: userId,
+                date: $0.date,
+                calories: $0.calories,
+                protein_g: $0.proteinG,
+                carbs_g: $0.carbsG,
+                fat_g: $0.fatG,
+                source: "healthkit"
+            )
+        }
+        try await client
+            .from("nutrition_logs")
+            .upsert(payload, onConflict: "user_id,date")
+            .execute()
     }
 }

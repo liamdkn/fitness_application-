@@ -3,11 +3,15 @@ import SwiftUI
 struct CardioSessionEndSheet: View {
     var initialStepsAfter: Int?
     var initialAvgHeartRate: Int?
+    /// Whether this cardio type generates steps at all - types like Bike/
+    /// Rowing/Swimming never collected a "steps before," so there's nothing
+    /// meaningful to diff against and this field is skipped entirely.
+    var requiresSteps = true
     /// True when ending a live session (offers Discard/Save Anyway on
     /// cancel). False when filling in missing details later from history,
     /// where there's nothing to discard - Cancel just dismisses.
     var allowsCancelActions = true
-    let onSave: (Int, Int) async -> Void
+    let onSave: (Int?, Int) async -> Void
     var onDiscard: (() async -> Void)?
     var onSaveWithoutDetails: (() async -> Void)?
 
@@ -20,13 +24,15 @@ struct CardioSessionEndSheet: View {
     init(
         initialStepsAfter: Int? = nil,
         initialAvgHeartRate: Int? = nil,
+        requiresSteps: Bool = true,
         allowsCancelActions: Bool = true,
-        onSave: @escaping (Int, Int) async -> Void,
+        onSave: @escaping (Int?, Int) async -> Void,
         onDiscard: (() async -> Void)? = nil,
         onSaveWithoutDetails: (() async -> Void)? = nil
     ) {
         self.initialStepsAfter = initialStepsAfter
         self.initialAvgHeartRate = initialAvgHeartRate
+        self.requiresSteps = requiresSteps
         self.allowsCancelActions = allowsCancelActions
         self.onSave = onSave
         self.onDiscard = onDiscard
@@ -39,20 +45,22 @@ struct CardioSessionEndSheet: View {
     private var avgHeartRateValue: Int? { Int(avgHeartRateText) }
 
     private var isValid: Bool {
-        stepsAfterValue != nil && avgHeartRateValue != nil
+        (!requiresSteps || stepsAfterValue != nil) && avgHeartRateValue != nil
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Finish Session") {
-                    HStack {
-                        Text("Steps Now")
-                        Spacer()
-                        TextField("-", text: $stepsAfterText)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
+                    if requiresSteps {
+                        HStack {
+                            Text("Steps Now")
+                            Spacer()
+                            TextField("-", text: $stepsAfterText)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 80)
+                        }
                     }
                     HStack {
                         Text("Average Heart Rate")
@@ -80,10 +88,10 @@ struct CardioSessionEndSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
-                        guard let stepsAfter = stepsAfterValue, let avgHeartRate = avgHeartRateValue else { return }
+                        guard let avgHeartRate = avgHeartRateValue else { return }
                         isSaving = true
                         Task {
-                            await onSave(stepsAfter, avgHeartRate)
+                            await onSave(requiresSteps ? stepsAfterValue : nil, avgHeartRate)
                             isSaving = false
                             dismiss()
                         }
@@ -105,7 +113,7 @@ struct CardioSessionEndSheet: View {
                     }
                 }
             } message: {
-                Text("You can discard this session entirely, or save it now and fill in steps and heart rate later from Cardio History.")
+                Text("You can discard this session entirely, or save it now and fill in details later from Cardio History.")
             }
         }
     }
