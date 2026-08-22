@@ -47,16 +47,18 @@ struct WorkoutRepository {
         let routineId: UUID?
         let position: Int?
         let label: String?
+        let isOptional: Bool?
 
         enum CodingKeys: String, CodingKey {
             case id
             case routineId = "routine_id"
             case position, label
+            case isOptional = "is_optional"
         }
 
         var routineDay: RoutineDay? {
             guard let id, let routineId, let position, let label else { return nil }
-            return RoutineDay(id: id, routineId: routineId, position: position, label: label)
+            return RoutineDay(id: id, routineId: routineId, position: position, label: label, isOptional: isOptional ?? false)
         }
     }
 
@@ -200,6 +202,19 @@ struct WorkoutRepository {
             .value
     }
 
+    /// All workouts performed within an inclusive range - used by the
+    /// weekly adherence score to tell which calendar days had a session.
+    func fetchWorkouts(from: Date, to: Date) async throws -> [Workout] {
+        try await client
+            .from("workouts")
+            .select()
+            .gte("performed_at", value: from.ISO8601Format())
+            .lte("performed_at", value: to.ISO8601Format())
+            .order("performed_at")
+            .execute()
+            .value
+    }
+
     /// Per-workout progression points for a single exercise (est. 1RM, max
     /// weight, volume), oldest first - the raw series for a progression
     /// chart.
@@ -213,6 +228,28 @@ struct WorkoutRepository {
             .execute()
             .value
         return points.sorted { $0.performedAt < $1.performedAt }
+    }
+
+    private struct WorkoutIdRow: Decodable {
+        let id: UUID
+    }
+
+    /// Whether any workout was performed on the given calendar day - used
+    /// by the daily adherence score, which only needs a hit/miss rather
+    /// than the full workout record.
+    func hasWorkout(on date: Date) async throws -> Bool {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        guard let startOfNextDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else { return false }
+        let rows: [WorkoutIdRow] = try await client
+            .from("workouts")
+            .select("id")
+            .gte("performed_at", value: startOfDay.ISO8601Format())
+            .lt("performed_at", value: startOfNextDay.ISO8601Format())
+            .limit(1)
+            .execute()
+            .value
+        return !rows.isEmpty
     }
 
     func fetchWeeklyVolumeKg() async throws -> Double {

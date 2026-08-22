@@ -45,6 +45,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
     @Published var summary: WeeklySummary?
     @Published var stepsDebt: StepsDebt?
     @Published var maintenanceInsight: MaintenanceInsight?
+    @Published var weeklyAdherence: WeeklyAdherenceScore?
     @Published var errorMessage: String?
     @Published var isLoading = false
 
@@ -57,6 +58,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
     private let cardioStepSessionRepository = CardioStepSessionRepository()
     private let preferencesRepository = UserPreferencesRepository()
     private let tdeeEstimateRepository = TDEEEstimateRepository()
+    private let dailyCheckinRepository = DailyCheckinRepository()
 
     func load() async {
         isLoading = true
@@ -94,6 +96,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
         async let latestEstimateResult = try? tdeeEstimateRepository.fetchLatest()
         async let preferencesResult = try? preferencesRepository.fetch()
         async let cardioStepSessionsResult = try? cardioStepSessionRepository.fetchSessions(from: exclusionRangeStart, to: now)
+        async let weekWorkoutsResult = try? workoutRepository.fetchWorkouts(from: weekStart, to: now)
+        async let weekCheckinsResult = try? dailyCheckinRepository.fetchRange(from: weekStart, to: now)
 
         goal = await goalResult ?? nil
 
@@ -176,6 +180,67 @@ final class WeeklyInsightsViewModel: ObservableObject {
         } else {
             maintenanceInsight = nil
         }
+
+        let weekWorkouts = await weekWorkoutsResult ?? []
+        let weekCheckins = await weekCheckinsResult ?? []
+        weeklyAdherence = buildWeeklyAdherence(
+            weekStart: weekStart,
+            nutritionLogs: nutritionLogs,
+            stepLogs: stepLogs,
+            workouts: weekWorkouts,
+            checkins: weekCheckins,
+            cardioExclusionEnabled: cardioExclusionEnabled,
+            excludedStepsByDate: excludedStepsByDate
+        )
+    }
+
+    /// One `DailyAdherenceScore` per day of the (locale) week, Sunday/Monday
+    /// through today-or-later, rolled up into a `WeeklyAdherenceScore` -
+    /// a day past today simply has no data yet, which the engine already
+    /// treats as "excluded" rather than a miss.
+    private func buildWeeklyAdherence(
+        weekStart: Date,
+        nutritionLogs: [NutritionLog],
+        stepLogs: [StepLogRecord],
+        workouts: [Workout],
+        checkins: [DailyCheckin],
+        cardioExclusionEnabled: Bool,
+        excludedStepsByDate: [String: Int]
+    ) -> WeeklyAdherenceScore? {
+        guard goal != nil else { return nil }
+        let calendar = Calendar.current
+
+        let nutritionByDate = Dictionary(uniqueKeysWithValues: nutritionLogs.map { ($0.date, $0) })
+        let checkinByDate = Dictionary(uniqueKeysWithValues: checkins.map { ($0.checkinDate, $0) })
+        let stepsByDate: [String: Int] = stepLogs.reduce(into: [:]) { result, log in
+            let raw = log.stepCount
+            result[log.date] = cardioExclusionEnabled ? max(raw - (excludedStepsByDate[log.date] ?? 0), 0) : raw
+        }
+        let workoutDates = Set(workouts.map { calendar.startOfDay(for: $0.performedAt) })
+
+        var dailyScores: [DailyAdherenceScore] = []
+        var sessionsCompleted = 0
+        for offset in 0..<7 {
+            guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else { continue }
+            let isoDate = DateFormatting.isoDate(date)
+            let didWorkout = workoutDates.contains(calendar.startOfDay(for: date))
+            if didWorkout { sessionsCompleted += 1 }
+            dailyScores.append(AdherenceScoreEngine.dailyScore(
+                date: date,
+                goal: goal,
+                nutrition: nutritionByDate[isoDate],
+                steps: stepsByDate[isoDate],
+                didWorkout: didWorkout,
+                isRestDay: checkinByDate[isoDate]?.isRestDay
+            ))
+        }
+
+        let requiredSessions = goal?.strengthSessionsPerWeek.map { $0 - (goal?.strengthOptionalSessions ?? 0) }
+        return AdherenceScoreEngine.weeklyScore(
+            dailyScores: dailyScores,
+            sessionsCompleted: sessionsCompleted,
+            requiredSessionsPerWeek: requiredSessions
+        )
     }
 
     private func average(_ values: [Double]) -> Double? {

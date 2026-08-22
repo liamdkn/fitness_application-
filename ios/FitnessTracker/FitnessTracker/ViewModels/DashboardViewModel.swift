@@ -13,6 +13,7 @@ final class DashboardViewModel: ObservableObject {
     @Published var cardioStepsExcludedToday = 0
     @Published var nutritionInsight: TDEEEstimate?
     @Published var isApplyingNutritionInsight = false
+    @Published var adherenceScore: DailyAdherenceScore?
     @Published var errorMessage: String?
     @Published var isLoading = false
 
@@ -24,6 +25,7 @@ final class DashboardViewModel: ObservableObject {
     private let preferencesRepository = UserPreferencesRepository()
     private let cardioStepSessionRepository = CardioStepSessionRepository()
     private let tdeeEstimateRepository = TDEEEstimateRepository()
+    private let dailyCheckinRepository = DailyCheckinRepository()
     private let tdeeWindowDays = 21
 
     func load(date: Date = Date()) async {
@@ -38,6 +40,8 @@ final class DashboardViewModel: ObservableObject {
         async let weightsResult = try? bodyWeightRepository.fetchRecent(days: 30)
         async let preferencesResult = try? preferencesRepository.fetch()
         async let cardioSessionsResult = try? cardioStepSessionRepository.fetchSessions(date: date)
+        async let checkinResult = try? dailyCheckinRepository.fetch(date: date)
+        async let hasWorkoutResult = try? workoutRepository.hasWorkout(on: date)
 
         goal = await goalResult ?? nil
         todayNutrition = await nutritionResult ?? nil
@@ -48,6 +52,20 @@ final class DashboardViewModel: ObservableObject {
         cardioExclusionEnabled = (await preferencesResult ?? nil)?.cardioStepExclusionEnabled ?? false
         let cardioSessions = await cardioSessionsResult ?? []
         cardioStepsExcludedToday = cardioSessions.reduce(0) { $0 + $1.stepsDelta }
+
+        let adjustedSteps = todaySteps.map { steps in
+            cardioExclusionEnabled ? max(steps - cardioStepsExcludedToday, 0) : steps
+        }
+        let checkin = await checkinResult ?? nil
+        let didWorkout = await hasWorkoutResult ?? false
+        adherenceScore = AdherenceScoreEngine.dailyScore(
+            date: date,
+            goal: goal,
+            nutrition: todayNutrition,
+            steps: adjustedSteps,
+            didWorkout: didWorkout,
+            isRestDay: checkin?.isRestDay
+        )
 
         await refreshNutritionInsight()
     }

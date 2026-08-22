@@ -24,6 +24,8 @@ struct GoalsRepository {
         let sleepTargetMinutes: Int?
         let cardioSessionsPerWeek: Int?
         let cardioMinutesPerSession: Int?
+        let strengthSessionsPerWeek: Int?
+        let strengthOptionalSessions: Int?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -41,6 +43,8 @@ struct GoalsRepository {
             case sleepTargetMinutes = "sleep_target_minutes"
             case cardioSessionsPerWeek = "cardio_sessions_per_week"
             case cardioMinutesPerSession = "cardio_minutes_per_session"
+            case strengthSessionsPerWeek = "strength_sessions_per_week"
+            case strengthOptionalSessions = "strength_optional_sessions"
         }
 
         var goal: UserGoal? {
@@ -63,7 +67,9 @@ struct GoalsRepository {
                 stepTarget: stepTarget,
                 sleepTargetMinutes: sleepTargetMinutes,
                 cardioSessionsPerWeek: cardioSessionsPerWeek,
-                cardioMinutesPerSession: cardioMinutesPerSession
+                cardioMinutesPerSession: cardioMinutesPerSession,
+                strengthSessionsPerWeek: strengthSessionsPerWeek,
+                strengthOptionalSessions: strengthOptionalSessions
             )
         }
     }
@@ -84,6 +90,8 @@ struct GoalsRepository {
         let sleep_target_minutes: Int?
         let cardio_sessions_per_week: Int?
         let cardio_minutes_per_session: Int?
+        let strength_sessions_per_week: Int?
+        let strength_optional_sessions: Int?
     }
 
     private struct UpdateGoal: Encodable {
@@ -101,6 +109,8 @@ struct GoalsRepository {
         let sleep_target_minutes: Int?
         let cardio_sessions_per_week: Int?
         let cardio_minutes_per_session: Int?
+        let strength_sessions_per_week: Int?
+        let strength_optional_sessions: Int?
     }
 
     private struct FetchedUserGoal: Decodable {
@@ -119,6 +129,8 @@ struct GoalsRepository {
         let sleepTargetMinutes: Int?
         let cardioSessionsPerWeek: Int?
         let cardioMinutesPerSession: Int?
+        let strengthSessionsPerWeek: Int?
+        let strengthOptionalSessions: Int?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -136,6 +148,8 @@ struct GoalsRepository {
             case sleepTargetMinutes = "sleep_target_minutes"
             case cardioSessionsPerWeek = "cardio_sessions_per_week"
             case cardioMinutesPerSession = "cardio_minutes_per_session"
+            case strengthSessionsPerWeek = "strength_sessions_per_week"
+            case strengthOptionalSessions = "strength_optional_sessions"
         }
 
         var goal: UserGoal {
@@ -154,7 +168,9 @@ struct GoalsRepository {
                 stepTarget: stepTarget,
                 sleepTargetMinutes: sleepTargetMinutes,
                 cardioSessionsPerWeek: cardioSessionsPerWeek,
-                cardioMinutesPerSession: cardioMinutesPerSession
+                cardioMinutesPerSession: cardioMinutesPerSession,
+                strengthSessionsPerWeek: strengthSessionsPerWeek,
+                strengthOptionalSessions: strengthOptionalSessions
             )
         }
     }
@@ -180,7 +196,9 @@ struct GoalsRepository {
             stepTarget: goal.stepTarget,
             sleepTargetMinutes: goal.sleepTargetMinutes,
             cardioSessionsPerWeek: goal.cardioSessionsPerWeek,
-            cardioMinutesPerSession: goal.cardioMinutesPerSession
+            cardioMinutesPerSession: goal.cardioMinutesPerSession,
+            strengthSessionsPerWeek: goal.strengthSessionsPerWeek,
+            strengthOptionalSessions: goal.strengthOptionalSessions
         )
     }
 
@@ -218,7 +236,9 @@ struct GoalsRepository {
         stepTarget: Int?,
         sleepTargetMinutes: Int?,
         cardioSessionsPerWeek: Int?,
-        cardioMinutesPerSession: Int?
+        cardioMinutesPerSession: Int?,
+        strengthSessionsPerWeek: Int?,
+        strengthOptionalSessions: Int?
     ) async throws -> UserGoal {
         let userId = try await client.auth.session.user.id
         let payload = UpsertGoal(
@@ -236,7 +256,9 @@ struct GoalsRepository {
             step_target: stepTarget,
             sleep_target_minutes: sleepTargetMinutes,
             cardio_sessions_per_week: cardioSessionsPerWeek,
-            cardio_minutes_per_session: cardioMinutesPerSession
+            cardio_minutes_per_session: cardioMinutesPerSession,
+            strength_sessions_per_week: strengthSessionsPerWeek,
+            strength_optional_sessions: strengthOptionalSessions
         )
         let saved: [FetchedUserGoal] = try await client
             .from("user_goals")
@@ -266,7 +288,9 @@ struct GoalsRepository {
         stepTarget: Int?,
         sleepTargetMinutes: Int?,
         cardioSessionsPerWeek: Int?,
-        cardioMinutesPerSession: Int?
+        cardioMinutesPerSession: Int?,
+        strengthSessionsPerWeek: Int?,
+        strengthOptionalSessions: Int?
     ) async throws -> UserGoal {
         let payload = UpdateGoal(
             effective_from: DateFormatting.isoDate(effectiveFrom),
@@ -282,7 +306,9 @@ struct GoalsRepository {
             step_target: stepTarget,
             sleep_target_minutes: sleepTargetMinutes,
             cardio_sessions_per_week: cardioSessionsPerWeek,
-            cardio_minutes_per_session: cardioMinutesPerSession
+            cardio_minutes_per_session: cardioMinutesPerSession,
+            strength_sessions_per_week: strengthSessionsPerWeek,
+            strength_optional_sessions: strengthOptionalSessions
         )
         let saved: [FetchedUserGoal] = try await client
             .from("user_goals")

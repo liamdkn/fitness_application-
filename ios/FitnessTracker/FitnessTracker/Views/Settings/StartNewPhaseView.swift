@@ -16,12 +16,15 @@ struct StartNewPhaseView: View {
     @State private var sleepTargetHours = ""
     @State private var cardioSessionsPerWeek = ""
     @State private var cardioMinutesPerSession = ""
+    @State private var strengthSessionsPerWeek = ""
+    @State private var strengthOptionalSessions = ""
     @State private var errorMessage: String?
     @State private var isSaving = false
     @State private var createdGoal: UserGoal?
     private let repository = GoalsRepository()
     private let measurementRepository = BodyMeasurementRepository()
     private let photoRepository = ProgressPhotoRepository()
+    private let routineRepository = RoutineRepository()
 
     private var isValid: Bool {
         Double(dailyCalorieTarget) != nil && Double(proteinGTarget) != nil && Int(durationWeeks) != nil
@@ -121,6 +124,14 @@ struct StartNewPhaseView: View {
                         LabeledField(label: "Minutes / Session", text: $cardioMinutesPerSession, unit: "min")
                     }
 
+                    Section("Training Targets") {
+                        LabeledField(label: "Sessions / Week", text: $strengthSessionsPerWeek, unit: "sessions")
+                        LabeledField(label: "Optional Sessions", text: $strengthOptionalSessions, unit: "of those")
+                        Text("Sets up (or grows) your split to match - e.g. 5 sessions with 1 optional creates Day 1-5, with Day 5 marked optional.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
                     if let errorMessage {
                         Text(errorMessage).foregroundStyle(.red)
                     }
@@ -181,13 +192,41 @@ struct StartNewPhaseView: View {
                 stepTarget: Int(stepTarget),
                 sleepTargetMinutes: Int(sleepTargetHours).map { $0 * 60 },
                 cardioSessionsPerWeek: Int(cardioSessionsPerWeek),
-                cardioMinutesPerSession: Int(cardioMinutesPerSession)
+                cardioMinutesPerSession: Int(cardioMinutesPerSession),
+                strengthSessionsPerWeek: Int(strengthSessionsPerWeek),
+                strengthOptionalSessions: Int(strengthOptionalSessions)
             )
             createdGoal = goal
             onCreated(goal)
             errorMessage = nil
+            await growSplitToTarget(goal)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Grows (never shrinks) the active split to match the phase's
+    /// strength-sessions target, so the split the user builds out always
+    /// has a day for every planned session rather than drifting apart from
+    /// what the phase says the week should look like. Best-effort - a
+    /// failure here shouldn't block the phase itself from being created.
+    private func growSplitToTarget(_ goal: UserGoal) async {
+        guard let target = goal.strengthSessionsPerWeek else { return }
+        do {
+            var activeRoutine = try await routineRepository.fetchActiveRoutine()
+            if activeRoutine == nil {
+                activeRoutine = try await routineRepository.createRoutine(name: "My Split")
+            }
+            guard let activeRoutine else { return }
+            let existingDays = try await routineRepository.fetchDays(routineId: activeRoutine.id)
+            try await routineRepository.fillDaysToTarget(
+                routineId: activeRoutine.id,
+                existingDays: existingDays,
+                targetCount: target,
+                optionalCount: goal.strengthOptionalSessions ?? 0
+            )
+        } catch {
+            // Non-critical - the split can still be built manually from the Train tab.
         }
     }
 }

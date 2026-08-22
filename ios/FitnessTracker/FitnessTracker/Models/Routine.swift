@@ -16,11 +16,16 @@ struct RoutineDay: Codable, Identifiable, Hashable {
     let routineId: UUID
     let position: Int
     let label: String
+    /// A bonus/optional session (e.g. an optional "Day 5") rather than a
+    /// required one - the weekly adherence score won't count missing it
+    /// against you.
+    let isOptional: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
         case routineId = "routine_id"
         case position, label
+        case isOptional = "is_optional"
     }
 }
 

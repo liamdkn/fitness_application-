@@ -27,12 +27,27 @@ struct NutritionEntryView: View {
     private let repository = NutritionRepository()
     private let goalsRepository = GoalsRepository()
 
+    private var isToday: Bool {
+        Calendar.current.isDateInToday(selectedDate)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     HStack {
+                        Button {
+                            changeDay(by: -1)
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
                         Spacer()
+                        // Native compact DatePicker - tapping it opens the
+                        // system's own popup calendar (anchored in place,
+                        // not a custom sheet), and it's a single real
+                        // control rather than a Button sharing this row
+                        // with the chevrons, which is what was making the
+                        // chevron taps land on the wrong target.
                         DatePicker(
                             "",
                             selection: $selectedDate,
@@ -43,6 +58,12 @@ struct NutritionEntryView: View {
                         .labelsHidden()
                         .onChange(of: selectedDate) { _, _ in Task { await loadForSelectedDate() } }
                         Spacer()
+                        Button {
+                            changeDay(by: 1)
+                        } label: {
+                            Image(systemName: "chevron.right")
+                        }
+                        .disabled(isToday)
                     }
                     .listRowSeparator(.hidden)
 
@@ -159,6 +180,12 @@ struct NutritionEntryView: View {
                 }
             }
         }
+    }
+
+    private func changeDay(by offset: Int) {
+        guard let newDate = Calendar.current.date(byAdding: .day, value: offset, to: selectedDate) else { return }
+        selectedDate = newDate
+        Task { await loadForSelectedDate() }
     }
 
     /// Rings reflect whichever date is selected - the currently loaded
@@ -459,58 +486,87 @@ private struct MacroRingsView: View {
         .frame(width: outerDiameter, height: outerDiameter)
     }
 
-    /// Apple Watch-inspired: rings sit edge-to-edge (no gaps), each a solid
-    /// color with a dark, muted track showing the unfilled remainder (the
-    /// same way a real Activity ring shows its "remaining" portion as a
-    /// dim version of the ring's own hue, not a pale one). A single round
-    /// stroke cap naturally rounds off both the start (12 o'clock) and the
-    /// leading edge of the current fill - no separate overlaid shape - so
-    /// there's exactly one consistent semicircular cap style at each end.
+    /// Apple Watch-inspired: rings sit edge-to-edge (no gaps), each band
+    /// filled with a subtle angular gradient that brightens toward the
+    /// leading edge for a glossy, tubular look rather than a flat stroke.
+    /// Rather than drawing a second wrapped lap when over target, the ring
+    /// is always just its single closed band (trimmed to at most a full
+    /// loop) with one raised, glassy capsule "puck" marking the current
+    /// fill position - which naturally lands back at the top seam once
+    /// you're at or past 100%, the same way a closed Activity ring reads.
     @ViewBuilder
     private func ringBand(for ring: MacroRing, diameter: CGFloat) -> some View {
         let baseProgress = min(ring.progress, 1.0)
+        let capAngle = Angle.degrees(-90 + 360 * baseProgress)
+        let radius = diameter / 2
 
         ZStack {
+            // Opaque, not translucent - a semi-transparent track blends
+            // against whatever's behind it, so the same `opacity(0.16)`
+            // that reads as a pale tint on a white background renders as a
+            // near-black notch on a dark-mode background. Pre-mixing with
+            // white bakes in a fixed pale color that looks the same in
+            // both appearances.
             Circle()
-                .stroke(ring.color.darkened(by: 0.6), lineWidth: ringWidth)
+                .stroke(ring.color.lightened(by: 0.82), lineWidth: ringWidth)
+
+            // The gradient's start/end always spans the full circle (not
+            // just the filled arc), so `trim` reveals only a slice of it -
+            // a mostly-empty ring shows just the darker end near its
+            // start, and the color only brightens up to true Apple-style
+            // shine as the ring nears a full lap.
             Circle()
                 .trim(from: 0, to: baseProgress)
-                .stroke(ring.color, style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: ring.color.darkened(by: 0.12), location: 0),
+                            .init(color: ring.color, location: 0.55),
+                            .init(color: ring.color.lightened(by: 0.35), location: 1)
+                        ]),
+                        center: .center,
+                        startAngle: .degrees(0),
+                        endAngle: .degrees(360)
+                    ),
+                    style: StrokeStyle(lineWidth: ringWidth, lineCap: .round)
+                )
                 .rotationEffect(.degrees(-90))
+
+            if baseProgress > 0.015 {
+                // A vertical capsule is naturally tangent to the circle at
+                // the 3 o'clock point (capAngle == 0), so it only needs
+                // rotating BY capAngle itself to stay tangent anywhere else
+                // - not capAngle + 90, which was pointing it radially
+                // (in/out) instead of along the ring's curve.
+                ZStack {
+                    Capsule()
+                        .fill(ring.color)
+                        .frame(width: ringWidth * 0.95, height: ringWidth * 1.35)
+                    // A soft top-down highlight is what sells the "glassy
+                    // nub" look real Activity rings have on their puck.
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [.white.opacity(0.55), .white.opacity(0)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .frame(width: ringWidth * 0.65, height: ringWidth * 0.75)
+                        .offset(y: -ringWidth * 0.22)
+                }
+                .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1.5)
+                .rotationEffect(capAngle)
+                .offset(x: radius * cos(capAngle.radians), y: radius * sin(capAngle.radians))
+            }
         }
         .frame(width: diameter, height: diameter)
         .animation(.easeInOut(duration: 0.3), value: ring.progress)
     }
 }
 
-private extension Color {
-    /// Blends toward white by a fixed ratio and returns a fully opaque
-    /// result - unlike `.opacity()`, this looks identical regardless of
-    /// what's rendered behind it (a light-mode white background vs a
-    /// dark-mode near-black one), since there's no transparency for the
-    /// backdrop to show through.
-    func lightened(by amount: Double) -> Color {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
-        return Color(
-            red: r + (1 - r) * amount,
-            green: g + (1 - g) * amount,
-            blue: b + (1 - b) * amount
-        )
-    }
-
-    /// Blends toward black by a fixed ratio - the darker end of the
-    /// angular gradient used for each ring's glossy fill.
-    func darkened(by amount: Double) -> Color {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
-        return Color(
-            red: r * (1 - amount),
-            green: g * (1 - amount),
-            blue: b * (1 - amount)
-        )
-    }
-}
+// `lightened(by:)`/`darkened(by:)` now live in Views/Shared/Color+Blend.swift,
+// shared with ScoreRingView's identical ring-gradient treatment.
 
 private struct MacroLegendRow: View {
     let ring: MacroRing

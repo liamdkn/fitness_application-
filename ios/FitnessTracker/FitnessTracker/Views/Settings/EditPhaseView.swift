@@ -17,9 +17,12 @@ struct EditPhaseView: View {
     @State private var sleepTargetHours: String
     @State private var cardioSessionsPerWeek: String
     @State private var cardioMinutesPerSession: String
+    @State private var strengthSessionsPerWeek: String
+    @State private var strengthOptionalSessions: String
     @State private var errorMessage: String?
     @State private var isSaving = false
     private let repository = GoalsRepository()
+    private let routineRepository = RoutineRepository()
 
     init(goal: UserGoal, onSaved: @escaping (UserGoal) -> Void) {
         self.goal = goal
@@ -36,6 +39,8 @@ struct EditPhaseView: View {
         _sleepTargetHours = State(initialValue: goal.sleepTargetMinutes.map { String($0 / 60) } ?? "")
         _cardioSessionsPerWeek = State(initialValue: goal.cardioSessionsPerWeek.map { String($0) } ?? "")
         _cardioMinutesPerSession = State(initialValue: goal.cardioMinutesPerSession.map { String($0) } ?? "")
+        _strengthSessionsPerWeek = State(initialValue: goal.strengthSessionsPerWeek.map { String($0) } ?? "")
+        _strengthOptionalSessions = State(initialValue: goal.strengthOptionalSessions.map { String($0) } ?? "")
     }
 
     private var isValid: Bool {
@@ -108,6 +113,14 @@ struct EditPhaseView: View {
                     LabeledField(label: "Minutes / Session", text: $cardioMinutesPerSession, unit: "min")
                 }
 
+                Section("Training Targets") {
+                    LabeledField(label: "Sessions / Week", text: $strengthSessionsPerWeek, unit: "sessions")
+                    LabeledField(label: "Optional Sessions", text: $strengthOptionalSessions, unit: "of those")
+                    Text("Raising this grows your split to match (never shrinks it) - e.g. going from 4 to 5 adds a Day 5.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(.red)
                 }
@@ -168,12 +181,38 @@ struct EditPhaseView: View {
                 stepTarget: Int(stepTarget),
                 sleepTargetMinutes: Int(sleepTargetHours).map { $0 * 60 },
                 cardioSessionsPerWeek: Int(cardioSessionsPerWeek),
-                cardioMinutesPerSession: Int(cardioMinutesPerSession)
+                cardioMinutesPerSession: Int(cardioMinutesPerSession),
+                strengthSessionsPerWeek: Int(strengthSessionsPerWeek),
+                strengthOptionalSessions: Int(strengthOptionalSessions)
             )
+            await growSplitToTarget(updated)
             onSaved(updated)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Grows (never shrinks) the active split to match the phase's
+    /// strength-sessions target - see `StartNewPhaseView`'s identical
+    /// helper. Best-effort - a failure here shouldn't block the phase edit.
+    private func growSplitToTarget(_ goal: UserGoal) async {
+        guard let target = goal.strengthSessionsPerWeek else { return }
+        do {
+            var activeRoutine = try await routineRepository.fetchActiveRoutine()
+            if activeRoutine == nil {
+                activeRoutine = try await routineRepository.createRoutine(name: "My Split")
+            }
+            guard let activeRoutine else { return }
+            let existingDays = try await routineRepository.fetchDays(routineId: activeRoutine.id)
+            try await routineRepository.fillDaysToTarget(
+                routineId: activeRoutine.id,
+                existingDays: existingDays,
+                targetCount: target,
+                optionalCount: goal.strengthOptionalSessions ?? 0
+            )
+        } catch {
+            // Non-critical - the split can still be built manually from the Train tab.
         }
     }
 }

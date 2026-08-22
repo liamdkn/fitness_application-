@@ -14,6 +14,15 @@ struct RoutineRepository {
         let user_id: UUID
         let position: Int
         let label: String
+        let is_optional: Bool
+    }
+
+    private struct RenameDayUpdate: Encodable {
+        let label: String
+    }
+
+    private struct OptionalUpdate: Encodable {
+        let is_optional: Bool
     }
 
     private struct NewRoutineDayExercise: Encodable {
@@ -83,15 +92,68 @@ struct RoutineRepository {
             .value
     }
 
-    func addDay(routineId: UUID, label: String, position: Int) async throws -> RoutineDay {
+    func addDay(routineId: UUID, label: String, position: Int, isOptional: Bool = false) async throws -> RoutineDay {
         let userId = try await client.auth.session.user.id
         let inserted: [RoutineDay] = try await client
             .from("routine_days")
-            .insert(NewRoutineDay(routine_id: routineId, user_id: userId, position: position, label: label))
+            .insert(NewRoutineDay(routine_id: routineId, user_id: userId, position: position, label: label, is_optional: isOptional))
             .select()
             .execute()
             .value
         guard let day = inserted.first else {
+            throw RepositoryError.insertFailed
+        }
+        return day
+    }
+
+    /// Adds trailing "Day N" placeholders so the split has at least
+    /// `targetCount` days - never removes or relabels existing ones, so
+    /// raising a phase's sessions/week target only ever grows the split,
+    /// it never silently discards a day someone already built out. The
+    /// last `optionalCount` of the target are marked optional if newly
+    /// created; an existing day's optional flag is left as the user set it.
+    @discardableResult
+    func fillDaysToTarget(
+        routineId: UUID,
+        existingDays: [RoutineDay],
+        targetCount: Int,
+        optionalCount: Int
+    ) async throws -> [RoutineDay] {
+        guard existingDays.count < targetCount else { return [] }
+        var nextPosition = existingDays.map(\.position).max() ?? 0
+        var created: [RoutineDay] = []
+        for dayNumber in (existingDays.count + 1)...targetCount {
+            nextPosition += 1
+            let isOptional = dayNumber > (targetCount - optionalCount)
+            let day = try await addDay(routineId: routineId, label: "Day \(dayNumber)", position: nextPosition, isOptional: isOptional)
+            created.append(day)
+        }
+        return created
+    }
+
+    func renameDay(dayId: UUID, label: String) async throws -> RoutineDay {
+        let updated: [RoutineDay] = try await client
+            .from("routine_days")
+            .update(RenameDayUpdate(label: label))
+            .eq("id", value: dayId)
+            .select()
+            .execute()
+            .value
+        guard let day = updated.first else {
+            throw RepositoryError.insertFailed
+        }
+        return day
+    }
+
+    func setDayOptional(dayId: UUID, isOptional: Bool) async throws -> RoutineDay {
+        let updated: [RoutineDay] = try await client
+            .from("routine_days")
+            .update(OptionalUpdate(is_optional: isOptional))
+            .eq("id", value: dayId)
+            .select()
+            .execute()
+            .value
+        guard let day = updated.first else {
             throw RepositoryError.insertFailed
         }
         return day

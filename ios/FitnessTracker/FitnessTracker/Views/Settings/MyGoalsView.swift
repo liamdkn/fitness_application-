@@ -99,6 +99,13 @@ struct MyGoalsView: View {
                 Text("Cardio: \(sessions)x/week, \(minutes) min")
                     .font(.caption)
             }
+            if let sessions = goal.strengthSessionsPerWeek {
+                let optional = goal.strengthOptionalSessions ?? 0
+                Text(optional > 0
+                    ? "Training: \(sessions)x/week (\(optional) optional)"
+                    : "Training: \(sessions)x/week")
+                    .font(.caption)
+            }
         }
         .padding(.vertical, 4)
     }

@@ -30,4 +30,9 @@ struct UserGoal: Identifiable {
     let sleepTargetMinutes: Int?
     let cardioSessionsPerWeek: Int?
     let cardioMinutesPerSession: Int?
+    let strengthSessionsPerWeek: Int?
+    /// How many of `strengthSessionsPerWeek` are optional/bonus sessions
+    /// (e.g. an optional "Day 5") - missing one of these isn't scored as a
+    /// training miss. Always <= strengthSessionsPerWeek.
+    let strengthOptionalSessions: Int?
 }

@@ -35,6 +35,8 @@ struct DashboardView: View {
                         onTapWeekly: { activeSheet = .weeklyCheckin }
                     )
 
+                    AdherenceScoreCard(score: viewModel.adherenceScore)
+
                     if let insight = viewModel.nutritionInsight {
                         NutritionInsightCard(
                             insight: insight,
@@ -86,27 +88,6 @@ struct DashboardView: View {
                                 value: viewModel.lastNightSleepMinutes.map(formattedDuration) ?? "-",
                                 target: viewModel.goal?.sleepTargetMinutes.map(formattedDuration)
                             )
-                        }
-                    }
-
-                    DashboardCard(title: "This Week") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            StatRow(
-                                icon: "dumbbell.fill",
-                                label: "Training volume",
-                                value: viewModel.weeklyVolumeKg.map { "\(Int($0)) kg" } ?? "0 kg",
-                                target: nil
-                            )
-                            NavigationLink {
-                                WeeklyInsightsView()
-                            } label: {
-                                HStack {
-                                    Text("Weekly Insights")
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
                         }
                     }
 
@@ -276,6 +257,67 @@ private struct CheckInsCard: View {
             } else {
                 Image(systemName: "chevron.right")
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// Today's (or the selected day's) adherence score - how closely calories,
+/// protein, steps, and training matched the current phase's targets.
+/// Renders as one `ScoreRingView` (the same Apple Watch-style ring used for
+/// macros) plus a compact per-component breakdown; a component reading "-"
+/// means it's excluded from the average (not logged yet, or a rest day),
+/// not that it scored zero.
+private struct AdherenceScoreCard: View {
+    let score: DailyAdherenceScore?
+
+    private var ringColor: Color {
+        guard let overall = score?.overall else { return .secondary }
+        switch overall {
+        case 85...: return .green
+        case 65..<85: return .orange
+        default: return .red
+        }
+    }
+
+    var body: some View {
+        DashboardCard(title: "Adherence Score") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let score, let overall = score.overall {
+                    HStack(alignment: .center, spacing: 20) {
+                        ScoreRingView(score: overall, color: ringColor, diameter: 84, ringWidth: 11)
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(score.components) { component in
+                                HStack {
+                                    Text(component.component.label)
+                                        .font(.caption)
+                                    Spacer()
+                                    Text(component.score.map { "\(Int($0.rounded()))" } ?? "-")
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .foregroundStyle(component.score == nil ? .secondary : .primary)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text("Log today's calories, protein, and steps to see your adherence score.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Divider()
+
+                NavigationLink {
+                    WeeklyInsightsView()
+                } label: {
+                    HStack {
+                        Text("Weekly Insights")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }

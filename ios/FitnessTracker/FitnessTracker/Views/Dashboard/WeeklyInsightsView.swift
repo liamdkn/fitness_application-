@@ -70,6 +70,10 @@ struct WeeklyInsightsView: View {
                     }
                 }
 
+                Section("Adherence Score") {
+                    WeeklyAdherenceCard(weeklyScore: viewModel.weeklyAdherence)
+                }
+
                 Section {
                     MaintenanceCaloriesCard(insight: viewModel.maintenanceInsight, goal: viewModel.goal)
                 } header: {
@@ -137,6 +141,81 @@ private struct MaintenanceCaloriesCard: View {
         } else {
             return "That's ahead of your \(goalRateText) goal."
         }
+    }
+}
+
+/// The week's overall adherence score as a ring (same visual language as
+/// the Dashboard's daily one) with a component breakdown, plus a
+/// day-by-day row so a bad patch and where it happened are both visible at
+/// a glance rather than hidden inside a single number.
+private struct WeeklyAdherenceCard: View {
+    let weeklyScore: WeeklyAdherenceScore?
+
+    private func bandColor(_ score: Double) -> Color {
+        switch score {
+        case 85...: return .green
+        case 65..<85: return .orange
+        default: return .red
+        }
+    }
+
+    var body: some View {
+        if let weeklyScore, let overall = weeklyScore.overall {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .center, spacing: 20) {
+                    ScoreRingView(score: overall, color: bandColor(overall), diameter: 84, ringWidth: 11)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(weeklyScore.components) { component in
+                            HStack {
+                                Text(component.component.label)
+                                    .font(.caption)
+                                Spacer()
+                                Text(component.score.map { "\(Int($0.rounded()))" } ?? "-")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(component.score == nil ? .secondary : .primary)
+                            }
+                        }
+                    }
+                }
+                Divider()
+                HStack(spacing: 4) {
+                    ForEach(weeklyScore.dailyScores, id: \.date) { day in
+                        dayColumn(day)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        } else {
+            Text("Log a few days this week to see your weekly adherence score.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func dayColumn(_ day: DailyAdherenceScore) -> some View {
+        VStack(spacing: 4) {
+            Text(weekdayLetter(day.date))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Circle()
+                .fill(day.overall.map(bandColor) ?? Color.secondary.opacity(0.15))
+                .frame(width: 26, height: 26)
+                .overlay {
+                    if let overall = day.overall {
+                        Text("\(Int(overall.rounded()))")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                    }
+                }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func weekdayLetter(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEEE"
+        return formatter.string(from: date)
     }
 }
 

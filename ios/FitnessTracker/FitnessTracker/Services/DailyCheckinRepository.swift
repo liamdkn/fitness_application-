@@ -71,6 +71,21 @@ struct DailyCheckinRepository {
             .value
     }
 
+    /// Check-ins within an inclusive calendar range, oldest first - mirrors
+    /// `NutritionRepository.fetchRange`/`HealthRepository.fetchStepLogs`,
+    /// used by the weekly adherence score to know which days were planned
+    /// rest days.
+    func fetchRange(from: Date, to: Date) async throws -> [DailyCheckin] {
+        try await client
+            .from("daily_checkins")
+            .select()
+            .gte("checkin_date", value: DateFormatting.isoDate(from))
+            .lte("checkin_date", value: DateFormatting.isoDate(to))
+            .order("checkin_date")
+            .execute()
+            .value
+    }
+
     @discardableResult
     func save(
         date: Date,
