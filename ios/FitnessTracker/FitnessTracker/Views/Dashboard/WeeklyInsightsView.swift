@@ -22,7 +22,7 @@ struct WeeklyInsightsView: View {
                 }
 
                 Section("Activity") {
-                    if let avgSteps = summary.avgStepsPerLoggedDay {
+                    if let avgSteps = summary.avgStepsPerDay {
                         InsightRow(
                             icon: "figure.walk",
                             label: "Avg steps/day",
@@ -36,6 +36,12 @@ struct WeeklyInsightsView: View {
 
                     if let debt = viewModel.stepsDebt, let stepTarget = viewModel.goal?.stepTarget {
                         StepsDebtView(debt: debt, stepTarget: stepTarget)
+                    }
+
+                    if !viewModel.dailySteps.isEmpty {
+                        DisclosureGroup("Daily Breakdown") {
+                            DailyStepsBreakdown(days: viewModel.dailySteps, stepTarget: viewModel.goal?.stepTarget)
+                        }
                     }
                 }
 
@@ -248,6 +254,65 @@ private struct StepsDebtView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// Monday-Sunday row-per-day steps list, shown inside a `DisclosureGroup` so
+/// it doesn't crowd the summary numbers above it by default.
+private struct DailyStepsBreakdown: View {
+    let days: [DailyStepEntry]
+    let stepTarget: Int?
+
+    private var maxSteps: Int {
+        max(days.compactMap(\.steps).max() ?? 0, stepTarget ?? 0, 1)
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(days) { day in
+                dayRow(day)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func dayRow(_ day: DailyStepEntry) -> some View {
+        HStack(spacing: 12) {
+            Text(weekdayLabel(day.date))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, alignment: .leading)
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.15))
+                    if let steps = day.steps {
+                        Capsule()
+                            .fill(barColor(steps))
+                            .frame(width: geometry.size.width * min(Double(steps) / Double(maxSteps), 1))
+                    }
+                }
+            }
+            .frame(height: 8)
+
+            Text(day.steps.map { "\($0)" } ?? "-")
+                .font(.caption)
+                .foregroundStyle(day.steps == nil ? .secondary : .primary)
+                .frame(width: 56, alignment: .trailing)
+                .monospacedDigit()
+        }
+    }
+
+    private func barColor(_ steps: Int) -> Color {
+        guard let stepTarget, stepTarget > 0 else { return .blue }
+        return steps >= stepTarget ? .green : .blue
+    }
+
+    private func weekdayLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE"
+        return formatter.string(from: date)
     }
 }
 

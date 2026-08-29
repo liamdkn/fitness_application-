@@ -3,13 +3,22 @@ import Foundation
 
 struct WeeklySummary {
     let weeklyVolumeKg: Double?
-    let avgStepsPerLoggedDay: Int?
+    let avgStepsPerDay: Int?
     let avgCaloriesPerLoggedDay: Double?
     let avgProteinG: Double?
     let avgCarbsG: Double?
     let avgFatG: Double?
     let cardioSessionsCompleted: Int
     let weightChangeThisWeekKg: Double?
+}
+
+/// One calendar day's step count in the Monday-Sunday breakdown. `steps` is
+/// nil for a day with no synced data yet - either it hasn't happened, or
+/// today's count just hasn't come in - rather than a definite zero.
+struct DailyStepEntry: Identifiable {
+    let date: Date
+    let steps: Int?
+    var id: Date { date }
 }
 
 /// Tracks progress toward a 10k-steps-a-day average over a strict
@@ -43,6 +52,7 @@ struct MaintenanceInsight {
 final class WeeklyInsightsViewModel: ObservableObject {
     @Published var goal: UserGoal?
     @Published var summary: WeeklySummary?
+    @Published var dailySteps: [DailyStepEntry] = []
     @Published var stepsDebt: StepsDebt?
     @Published var maintenanceInsight: MaintenanceInsight?
     @Published var weeklyAdherence: WeeklyAdherenceScore?
@@ -77,19 +87,20 @@ final class WeeklyInsightsViewModel: ObservableObject {
         let weekday = calendar.component(.weekday, from: today)
         let daysSinceMonday = (weekday + 5) % 7
         let mondayThisWeek = calendar.date(byAdding: .day, value: -daysSinceMonday, to: today) ?? today
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        let sundayThisWeek = calendar.date(byAdding: .day, value: 6, to: mondayThisWeek) ?? mondayThisWeek
 
-        // Covers both the locale week (avg steps/day) and the Monday-anchored
-        // window (steps debt) in one fetch, whichever starts earlier.
+        // Covers both the locale week (adherence) and the Monday-anchored
+        // window (steps debt/breakdown) in one fetch, whichever starts earlier.
         let exclusionRangeStart = min(weekStart, mondayThisWeek)
 
         async let goalResult = try? goalsRepository.fetchCurrentGoal()
         async let volumeResult = try? workoutRepository.fetchWeeklyVolumeKg()
         async let stepLogsResult = try? healthRepository.fetchStepLogs(from: weekStart, to: now)
-        // On Monday, `yesterday` falls before `mondayThisWeek`, making this
-        // an empty (from > to) range - which correctly yields zero
-        // completed days rather than needing a special case.
-        async let debtStepLogsResult = try? healthRepository.fetchStepLogs(from: mondayThisWeek, to: yesterday)
+        // Whole Monday-Sunday week in one fetch - both the day-by-day
+        // breakdown and the avg/debt numbers (Monday..yesterday only) are
+        // derived from this single source, so they can never disagree with
+        // each other the way two separately-ranged queries could.
+        async let weekStepLogsResult = try? healthRepository.fetchStepLogs(from: mondayThisWeek, to: sundayThisWeek)
         async let nutritionLogsResult = try? nutritionRepository.fetchRange(from: weekStart, to: now)
         async let cardioHistoryResult = try? cardioSessionRepository.fetchHistory(limit: 50)
         async let weightsResult = try? bodyWeightRepository.fetchRecent(days: 14)
@@ -112,9 +123,12 @@ final class WeeklyInsightsViewModel: ObservableObject {
         let excludedStepsByDate = Dictionary(grouping: cardioStepSessions, by: \.date)
             .mapValues { $0.reduce(0) { $0 + $1.stepsDelta } }
 
-        func adjusted(_ logs: [StepLogRecord]) -> [Int] {
-            guard cardioExclusionEnabled else { return logs.map(\.stepCount) }
-            return logs.map { max($0.stepCount - (excludedStepsByDate[$0.date] ?? 0), 0) }
+        func adjustedStepsByDate(_ logs: [StepLogRecord]) -> [String: Int] {
+            var result: [String: Int] = [:]
+            for log in logs {
+                result[log.date] = cardioExclusionEnabled ? max(log.stepCount - (excludedStepsByDate[log.date] ?? 0), 0) : log.stepCount
+            }
+            return result
         }
 
         let stepLogs = await stepLogsResult ?? []
@@ -123,8 +137,27 @@ final class WeeklyInsightsViewModel: ObservableObject {
         let weights = await weightsResult ?? []
         let latestEstimate = await latestEstimateResult ?? nil
 
-        let adjustedStepLogs = adjusted(stepLogs)
-        let avgSteps = adjustedStepLogs.isEmpty ? nil : adjustedStepLogs.reduce(0, +) / adjustedStepLogs.count
+        // Today never counts as "completed" - its step count is still
+        // accumulating live, so both the breakdown and the pace numbers
+        // treat it as still in progress rather than a finished (or missed)
+        // day.
+        let weekStepsByDate = adjustedStepsByDate(await weekStepLogsResult ?? [])
+        let completedDays = daysSinceMonday
+        var dailyStepsBuilder: [DailyStepEntry] = []
+        var actualStepsCompleted = 0
+        for offset in 0..<7 {
+            let date = calendar.date(byAdding: .day, value: offset, to: mondayThisWeek) ?? mondayThisWeek
+            let steps = weekStepsByDate[DateFormatting.isoDate(date)]
+            // Today (offset == completedDays) still shows its live count if
+            // any has synced - only days strictly in the future are blank.
+            dailyStepsBuilder.append(DailyStepEntry(date: date, steps: offset <= completedDays ? steps : nil))
+            if offset < completedDays {
+                actualStepsCompleted += steps ?? 0
+            }
+        }
+        dailySteps = dailyStepsBuilder
+        let avgSteps = completedDays > 0 ? actualStepsCompleted / completedDays : nil
+
         let avgCalories = average(nutritionLogs.map(\.calories))
         let avgProtein = average(nutritionLogs.map(\.proteinG))
         let avgCarbs = average(nutritionLogs.map(\.carbsG))
@@ -142,7 +175,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
 
         summary = WeeklySummary(
             weeklyVolumeKg: await volumeResult ?? nil,
-            avgStepsPerLoggedDay: avgSteps,
+            avgStepsPerDay: avgSteps,
             avgCaloriesPerLoggedDay: avgCalories,
             avgProteinG: avgProtein,
             avgCarbsG: avgCarbs,
@@ -151,11 +184,12 @@ final class WeeklyInsightsViewModel: ObservableObject {
             weightChangeThisWeekKg: weightChange
         )
 
+        // Built from the exact same `actualStepsCompleted`/`completedDays`
+        // as `avgSteps` above, so the debt and the average can never tell a
+        // contradictory story (e.g. "ahead of your daily average" while
+        // also "behind pace") the way two separately-computed numbers could.
         if let stepTarget = goal?.stepTarget {
-            let debtStepLogs = await debtStepLogsResult ?? []
-            let completedDays = daysSinceMonday
             let remainingDays = 7 - completedDays
-            let actualStepsCompleted = adjusted(debtStepLogs).reduce(0, +)
             let stepsBehindPace = actualStepsCompleted - stepTarget * completedDays
             let requiredPerDayForRest = remainingDays > 0
                 ? max(0, (stepTarget * 7 - actualStepsCompleted + remainingDays - 1) / remainingDays)

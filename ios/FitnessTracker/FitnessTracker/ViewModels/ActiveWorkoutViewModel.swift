@@ -53,21 +53,55 @@ final class ActiveWorkoutViewModel: ObservableObject {
 
     func loadTemplate() async {
         guard activeExercises.isEmpty else { return }
-        guard let routineDayId = workout.routineDayId else { return }
         do {
-            let dayExercises = try await routineRepository.fetchDayExercises(routineDayId: routineDayId)
+            // Resuming a workout that already has sets logged (backgrounded
+            // mid-session, or reopened after the app was killed) needs those
+            // sets restored into view, not just re-loaded from the day
+            // template as if starting fresh.
+            let existingSets = try await workoutRepository.fetchSets(workoutId: workout.id)
+            let existingSetsByExercise = Dictionary(grouping: existingSets, by: \.exerciseId)
             let allExercises = try await exerciseRepository.fetchAll()
             let byId = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.id, $0) })
 
-            for dayExercise in dayExercises {
-                guard let exercise = byId[dayExercise.exerciseId] else { continue }
-                var active = ActiveExercise(exercise: exercise, target: dayExercise)
+            var templateExerciseIds: Set<UUID> = []
+            if let routineDayId = workout.routineDayId {
+                let dayExercises = try await routineRepository.fetchDayExercises(routineDayId: routineDayId)
+                for dayExercise in dayExercises {
+                    guard let exercise = byId[dayExercise.exerciseId] else { continue }
+                    templateExerciseIds.insert(exercise.id)
+                    var active = ActiveExercise(exercise: exercise, target: dayExercise)
+                    active.previousSets = (try? await workoutRepository.previousSets(exerciseId: exercise.id)) ?? []
+                    restoreExistingSets(existingSetsByExercise[exercise.id] ?? [], into: &active)
+                    activeExercises.append(active)
+                }
+            }
+
+            // A resumed workout may also have sets logged against an
+            // exercise added ad hoc mid-session (not part of the day's
+            // template) - without this, those rows would silently vanish
+            // from view even though the sets themselves are safely saved.
+            for (exerciseId, sets) in existingSetsByExercise where !templateExerciseIds.contains(exerciseId) {
+                guard let exercise = byId[exerciseId] else { continue }
+                var active = ActiveExercise(exercise: exercise, target: nil)
                 active.previousSets = (try? await workoutRepository.previousSets(exerciseId: exercise.id)) ?? []
+                restoreExistingSets(sets, into: &active)
                 activeExercises.append(active)
             }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Marks a resumed exercise's already-logged sets as confirmed and
+    /// shrinks the remaining pending rows to match - drop sets are extra,
+    /// chained sets and don't count against the target, so only normal
+    /// sets reduce it.
+    private func restoreExistingSets(_ sets: [WorkoutSet], into active: inout ActiveExercise) {
+        guard !sets.isEmpty else { return }
+        active.loggedSets = sets.sorted { $0.setIndex < $1.setIndex }
+        let loggedNormalCount = active.loggedSets.filter { !$0.isDropSet }.count
+        let remainingTarget = max(0, active.pendingRows.count - loggedNormalCount)
+        active.pendingRows = Array(repeating: .normal, count: remainingTarget)
     }
 
     func addAdHocExercise(_ exercise: Exercise) async {
