@@ -14,8 +14,6 @@ struct SetLogGridView: View {
     let onAddDrop: () -> Void
     let onRemoveSetRow: (Int) -> Void
 
-    @State private var showingRPEInfo = false
-
     private var rowCount: Int {
         activeExercise.loggedSets.count + activeExercise.pendingRows.count
     }
@@ -26,13 +24,18 @@ struct SetLogGridView: View {
             ForEach(1...max(rowCount, 1), id: \.self) { setIndex in
                 if setIndex <= activeExercise.loggedSets.count {
                     let set = activeExercise.loggedSets[setIndex - 1]
-                    confirmedRow(setIndex: setIndex, set: set)
+                    let isLast = setIndex == activeExercise.loggedSets.count
+                    let label = set.isDropSet
+                        ? "\u{21b3}D\(dropNumber(upToIndex: setIndex - 1))"
+                        : "\(setIndex)"
+                    ConfirmedSetRow(label: label, set: set, isLast: isLast, onAddDrop: onAddDrop, onUnlogSet: onUnlogSet)
                         .listRowSeparator(.hidden)
                 } else {
                     let pendingIndex = setIndex - activeExercise.loggedSets.count - 1
                     let kind = activeExercise.pendingRows[safe: pendingIndex] ?? .normal
+                    let label = kind == .drop ? "\u{21b3}D" : "\(setIndex)"
                     EditableSetRow(
-                        setIndex: setIndex,
+                        label: label,
                         kind: kind,
                         previous: activeExercise.previousSets[safe: setIndex - 1],
                         placeholder: placeholder(forRowAt: setIndex),
@@ -61,83 +64,10 @@ struct SetLogGridView: View {
     }
 
     private var header: some View {
-        HStack {
-            Text("Set").frame(width: 28, alignment: .leading)
-            Text("Previous").frame(maxWidth: .infinity, alignment: .leading)
-            Text("kg").frame(width: 52, alignment: .center)
-            Text("Reps").frame(width: 44, alignment: .center)
-            HStack(spacing: 2) {
-                Text("RPE")
-                Button {
-                    showingRPEInfo = true
-                } label: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 10))
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showingRPEInfo) {
-                    Text("Rate of Perceived Exertion (1\u{2013}10) \u{2014} how hard did that set feel?\n\n10 = you couldn't have done another rep.\n7 = you had about 3 more reps left.")
-                        .font(.callout)
-                        .padding()
-                        .frame(maxWidth: 260)
-                        .presentationCompactAdaptation(.popover)
-                }
-            }
-            .frame(width: 56, alignment: .center)
-            Image(systemName: "checkmark").frame(width: 24).opacity(0)
-        }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-        .listRowSeparator(.hidden)
+        SetGridHeader()
     }
 
-    @ViewBuilder
-    private func confirmedRow(setIndex: Int, set: WorkoutSet) -> some View {
-        let isLast = setIndex == activeExercise.loggedSets.count
-        HStack {
-            if set.isDropSet {
-                Text("\u{21b3} Drop \(dropNumber(upToIndex: setIndex - 1))")
-                    .font(.caption2)
-                    .frame(width: 28, alignment: .leading)
-            } else {
-                Text("\(setIndex)").frame(width: 28, alignment: .leading)
-            }
-            Text(previousText(for: activeExercise.previousSets[safe: setIndex - 1]))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(set.weightKg, format: .number.precision(.fractionLength(0...1)))
-                .frame(width: 52, alignment: .center)
-            Text("\(set.reps)")
-                .frame(width: 44, alignment: .center)
-            Text(set.rpe.map { String(format: "%.1f", $0) } ?? "\u{2014}")
-                .foregroundStyle(.secondary)
-                .frame(width: 56, alignment: .center)
-            if isLast {
-                Button {
-                    onAddDrop()
-                } label: {
-                    Text("+ Drop")
-                        .font(.caption2)
-                }
-                .buttonStyle(.plain)
-            }
-            if isLast {
-                Button {
-                    onUnlogSet(set)
-                } label: {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                }
-                .buttonStyle(.plain)
-                .frame(width: 24)
-            } else {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .frame(width: 24)
-            }
-        }
-        .padding(.vertical, 4)
-    }
+
 
     /// Counts how many consecutive drop-tagged sets end at (and include)
     /// this position, purely for the "Drop N" display label - no schema
@@ -166,18 +96,10 @@ struct SetLogGridView: View {
         return nil
     }
 
-    private func previousText(for set: WorkoutSet?) -> String {
-        guard let set else { return "\u{2014}" }
-        var text = "\(set.reps) \u{00d7} \(String(format: "%.1f", set.weightKg))kg"
-        if let rpe = set.rpe {
-            text += " @\(String(format: "%.1f", rpe))"
-        }
-        return text
-    }
 }
 
-private struct EditableSetRow: View {
-    let setIndex: Int
+struct EditableSetRow: View {
+    let label: String
     let kind: PendingSetKind
     let previous: WorkoutSet?
     let placeholder: (reps: Int, weightKg: Double)?
@@ -195,6 +117,28 @@ private struct EditableSetRow: View {
         Int(repsText) ?? placeholder?.reps
     }
 
+    /// Soft, non-blocking sanity check for the classic kg/reps mix-up (e.g.
+    /// typing "20" reps into the kg box after a normal set of 8-12 reps at
+    /// 20kg-ish). Only judges what the user actually typed - not the
+    /// placeholder fallback itself, which by definition always matches - so
+    /// an empty field never triggers it. `reference` prefers this session's
+    /// own placeholder (last confirmed/previous-session value for this row)
+    /// and falls back to `previous` when there's no placeholder yet.
+    private var weightReference: Double? { placeholder?.weightKg ?? previous?.weightKg }
+    private var repsReference: Int? { placeholder?.reps ?? previous?.reps }
+
+    private var weightLooksOff: Bool {
+        guard let entered = Double(kgText), let reference = weightReference, reference > 0 else { return false }
+        let ratio = entered / reference
+        return ratio > 1.8 || ratio < 0.5
+    }
+
+    private var repsLooksOff: Bool {
+        guard let entered = Int(repsText), let reference = repsReference, reference > 0 else { return false }
+        let ratio = Double(entered) / Double(reference)
+        return ratio > 2.5 || ratio < 0.35
+    }
+
     /// Unlike reps/weight, RPE never falls back to a placeholder - it's a
     /// subjective per-set reading, so a blank field means "not logged"
     /// rather than silently repeating last set's effort.
@@ -206,14 +150,11 @@ private struct EditableSetRow: View {
 
     var body: some View {
         HStack {
-            if kind == .drop {
-                Text("\u{21b3} Drop").font(.caption2).frame(width: 28, alignment: .leading)
-            } else {
-                Text("\(setIndex)").frame(width: 28, alignment: .leading)
-            }
-            Text(previousText)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(label)
+                .font(kind == .drop ? .caption2 : .body)
+                .lineLimit(1)
+                .frame(width: 28, alignment: .leading)
+            Spacer(minLength: 0)
             TextField(
                 "",
                 text: $kgText,
@@ -223,6 +164,23 @@ private struct EditableSetRow: View {
             .textFieldStyle(.roundedBorder)
             .multilineTextAlignment(.center)
             .frame(width: 52)
+            // Purely visual - never blocks confirming the set. A border
+            // tint plus a small badge rather than extra text, so a row
+            // that's already tight on width never has to reflow to fit a
+            // warning (that's exactly the kind of column-shifting bug this
+            // screen has had before).
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(weightLooksOff ? Color.orange : Color.clear, lineWidth: 1.5)
+            )
+            .overlay(alignment: .topTrailing) {
+                if weightLooksOff {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.orange)
+                        .offset(x: 4, y: -4)
+                }
+            }
             TextField(
                 "",
                 text: $repsText,
@@ -232,6 +190,18 @@ private struct EditableSetRow: View {
             .textFieldStyle(.roundedBorder)
             .multilineTextAlignment(.center)
             .frame(width: 44)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(repsLooksOff ? Color.orange : Color.clear, lineWidth: 1.5)
+            )
+            .overlay(alignment: .topTrailing) {
+                if repsLooksOff {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.orange)
+                        .offset(x: 4, y: -4)
+                }
+            }
             TextField("\u{2014}", text: $rpeText)
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.roundedBorder)
@@ -250,17 +220,108 @@ private struct EditableSetRow: View {
         .padding(.vertical, 2)
     }
 
-    private var previousText: String {
-        guard let previous else { return "\u{2014}" }
-        var text = "\(previous.reps) \u{00d7} \(String(format: "%.1f", previous.weightKg))kg"
-        if let rpe = previous.rpe {
-            text += " @\(String(format: "%.1f", rpe))"
+}
+
+/// One already-logged set's row. Standalone (not private) and driven by a
+/// precomputed `label` rather than a set index, so `SupersetLogGridView`
+/// can reuse it for an interleaved "A1, B1, A2, B2..." layout without
+/// duplicating this HStack.
+struct ConfirmedSetRow: View {
+    let label: String
+    let set: WorkoutSet
+    let isLast: Bool
+    let onAddDrop: () -> Void
+    let onUnlogSet: (WorkoutSet) -> Void
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(set.isDropSet ? .caption2 : .body)
+                .lineLimit(1)
+                .frame(width: 28, alignment: .leading)
+            Spacer(minLength: 0)
+            Text(set.weightKg, format: .number.precision(.fractionLength(0...1)))
+                .frame(width: 52, alignment: .center)
+            Text("\(set.reps)")
+                .frame(width: 44, alignment: .center)
+            Text(set.rpe.map { String(format: "%.1f", $0) } ?? "\u{2014}")
+                .foregroundStyle(.secondary)
+                .frame(width: 56, alignment: .center)
+            // Reserved at a fixed width and always rendered (hidden via
+            // opacity, same trick the header uses for its checkmark glyph)
+            // rather than conditionally included - an intrinsically-sized
+            // "+ Drop" button that only sometimes appeared here used to
+            // shift every fixed-width column after it (most visibly right
+            // after confirming a drop set, since that's almost always the
+            // newest "last" row), so the slot's width can never change now.
+            Button {
+                onAddDrop()
+            } label: {
+                Text("+ Drop")
+                    .font(.caption2)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 50, alignment: .trailing)
+            .opacity(isLast ? 1 : 0)
+            .disabled(!isLast)
+            if isLast {
+                Button {
+                    onUnlogSet(set)
+                } label: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 24)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .frame(width: 24)
+            }
         }
-        return text
+        .padding(.vertical, 4)
     }
 }
 
-private extension Array {
+/// Shared column header for both the single-exercise grid and the combined
+/// superset grid - identical columns either way, just a different set of
+/// rows underneath.
+struct SetGridHeader: View {
+    @State private var showingRPEInfo = false
+
+    var body: some View {
+        HStack {
+            Text("Set").frame(width: 28, alignment: .leading)
+            Spacer(minLength: 0)
+            Text("kg").frame(width: 52, alignment: .center)
+            Text("Reps").frame(width: 44, alignment: .center)
+            HStack(spacing: 2) {
+                Text("RPE")
+                Button {
+                    showingRPEInfo = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 10))
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showingRPEInfo) {
+                    Text("Rate of Perceived Exertion (1\u{2013}10) \u{2014} how hard did that set feel?\n\n10 = you couldn't have done another rep.\n7 = you had about 3 more reps left.")
+                        .font(.callout)
+                        .padding()
+                        .frame(maxWidth: 260)
+                        .presentationCompactAdaptation(.popover)
+                }
+            }
+            .frame(width: 56, alignment: .center)
+            Image(systemName: "checkmark").frame(width: 24).opacity(0)
+        }
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .listRowSeparator(.hidden)
+    }
+}
+
+extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
     }

@@ -7,6 +7,7 @@ struct BodyMeasurement: Codable, Identifiable {
     let leftBicepCm: Double?
     let rightBicepCm: Double?
     let source: String
+    let weeklyCheckinId: UUID?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -15,5 +16,6 @@ struct BodyMeasurement: Codable, Identifiable {
         case leftBicepCm = "left_bicep_cm"
         case rightBicepCm = "right_bicep_cm"
         case source
+        case weeklyCheckinId = "weekly_checkin_id"
     }
 }

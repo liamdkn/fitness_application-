@@ -49,6 +49,19 @@ struct WeeklyCheckinRepository {
         return !checkins.isEmpty
     }
 
+    /// Reverse-chronological page of check-ins for the history list under
+    /// Settings - unlike `fetchRange`, this doesn't need a known date
+    /// window up front.
+    func fetchRecent(limit: Int = 52) async throws -> [WeeklyCheckin] {
+        try await client
+            .from("weekly_checkins")
+            .select()
+            .order("checkin_date", ascending: false)
+            .limit(limit)
+            .execute()
+            .value
+    }
+
     func fetchMostRecent() async throws -> WeeklyCheckin? {
         let checkins: [WeeklyCheckin] = try await client
             .from("weekly_checkins")
@@ -58,6 +71,21 @@ struct WeeklyCheckinRepository {
             .execute()
             .value
         return checkins.first
+    }
+
+    /// Check-ins within an inclusive calendar range, most recent first -
+    /// lets Weekly Insights show whichever weekly check-in was filled in
+    /// for the selected week, even if it landed a day or two after the
+    /// week's official start (mirrors `DailyCheckinRepository.fetchRange`).
+    func fetchRange(from: Date, to: Date) async throws -> [WeeklyCheckin] {
+        try await client
+            .from("weekly_checkins")
+            .select()
+            .gte("checkin_date", value: DateFormatting.isoDate(from))
+            .lte("checkin_date", value: DateFormatting.isoDate(to))
+            .order("checkin_date", ascending: false)
+            .execute()
+            .value
     }
 
     @discardableResult

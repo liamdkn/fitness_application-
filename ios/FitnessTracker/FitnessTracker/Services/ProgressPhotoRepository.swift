@@ -23,6 +23,18 @@ struct ProgressPhotoRepository {
             .value
     }
 
+    /// Photos attached to a specific weekly check-in - used by the
+    /// check-in history/detail screen under Settings.
+    func fetchForWeeklyCheckin(_ weeklyCheckinId: UUID) async throws -> [ProgressPhoto] {
+        try await client
+            .from("progress_photos")
+            .select()
+            .eq("weekly_checkin_id", value: weeklyCheckinId)
+            .order("taken_at", ascending: false)
+            .execute()
+            .value
+    }
+
     /// Uploads to Storage first, then records the DB row - so a row never
     /// points at a missing object (the reverse failure mode, an orphaned
     /// object with no row, is low-stakes and not worth a compensating step).

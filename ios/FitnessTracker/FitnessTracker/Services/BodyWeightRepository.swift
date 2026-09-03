@@ -22,6 +22,19 @@ struct BodyWeightRepository {
             .value
     }
 
+    /// Range-filtered, unlike `fetchRecent(days:)` which is always anchored
+    /// to today - lets Weekly Insights show a past week's weigh-ins.
+    func fetchRange(from: Date, to: Date) async throws -> [BodyWeightLog] {
+        try await client
+            .from("body_weight_logs")
+            .select()
+            .gte("logged_at", value: from.ISO8601Format())
+            .lte("logged_at", value: to.ISO8601Format())
+            .order("logged_at")
+            .execute()
+            .value
+    }
+
     func hasLoggedToday() async throws -> Bool {
         let startOfToday = Calendar.current.startOfDay(for: Date())
         let logs: [BodyWeightLog] = try await client

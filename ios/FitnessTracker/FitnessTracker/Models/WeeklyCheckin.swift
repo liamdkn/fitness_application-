@@ -19,6 +19,25 @@ struct WeeklyCheckin: Codable, Identifiable {
     let disciplineLevel: Int?
     let upcomingDistractions: String?
 
+    /// True once the old subjective survey (overall rating, discipline,
+    /// stress, biggest win, mood notes, self-rated adherence) has any
+    /// content at all - the current check-in flow no longer collects any
+    /// of this (see `WeeklyCheckinFlow`), so a check-in saved going forward
+    /// will have every one of these nil. Lets the summary card in Weekly
+    /// Insights hide itself instead of rendering an empty shell for a
+    /// modern check-in, while still showing historical survey answers for
+    /// old ones.
+    var hasSurveyContent: Bool {
+        overallRating7d != nil
+            || disciplineLevel != nil
+            || stressLevel != nil
+            || trainingAdherence != nil
+            || nutritionAdherence != nil
+            || (biggestWin?.isEmpty == false)
+            || (moodNotes?.isEmpty == false)
+            || (stressReason?.isEmpty == false)
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case checkinDate = "checkin_date"

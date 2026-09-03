@@ -1,10 +1,84 @@
+import Charts
 import SwiftUI
 
 struct WeeklyInsightsView: View {
     @StateObject private var viewModel = WeeklyInsightsViewModel()
+    @State private var selectedDayScore: DailyAdherenceScore?
+
+    private var weekRangeLabel: String {
+        if viewModel.isCurrentWeek { return "This Week" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        let start = viewModel.selectedWeekStart
+        let end = Calendar.current.date(byAdding: .day, value: 6, to: start) ?? start
+        return "\(formatter.string(from: start)) - \(formatter.string(from: end))"
+    }
 
     var body: some View {
-        List {
+        VStack(spacing: 0) {
+            // Outside the List deliberately - two Buttons sharing one List
+            // row has repeatedly misattributed taps in this app (see
+            // SetLogGridView, the nutrition date header), and it's exactly
+            // the failure mode "flicking" through weeks quickly would
+            // expose. Dashboard's day-changer uses the same plain-HStack
+            // pattern outside any List for the same reason.
+            weekNavHeader
+                .padding(.horizontal)
+                .padding(.vertical, 12)
+
+            List {
+                weeklyInsightsContent
+            }
+            .refreshable { await viewModel.load() }
+        }
+        .navigationTitle("Weekly Insights")
+        .task { await viewModel.load() }
+        .navigationDestination(item: $selectedDayScore) { dayScore in
+            DayAdherenceDetailView(dayScore: dayScore)
+        }
+    }
+
+    private var weekNavHeader: some View {
+        HStack {
+            Button {
+                viewModel.goToPreviousWeek()
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            Spacer()
+            Text(weekRangeLabel)
+                .font(.headline)
+            Spacer()
+            Button {
+                viewModel.goToNextWeek()
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(viewModel.isCurrentWeek)
+        }
+    }
+
+    @ViewBuilder
+    private var weeklyInsightsContent: some View {
+            if viewModel.scoreHistory.compactMap(\.overall).count >= 2 {
+                Section("Trend") {
+                    AdherenceTrendChart(points: viewModel.scoreHistory)
+                }
+            }
+
+            Section("Adherence Score") {
+                WeeklyAdherenceCard(
+                    weeklyScore: viewModel.weeklyAdherence,
+                    onSelectDay: { selectedDayScore = $0 }
+                )
+            }
+
+            if let checkin = viewModel.weeklyCheckin, checkin.hasSurveyContent {
+                Section("Weekly Check-In") {
+                    WeeklyCheckinSummary(checkin: checkin)
+                }
+            }
+
             if let summary = viewModel.summary {
                 Section("Training") {
                     InsightRow(
@@ -76,14 +150,12 @@ struct WeeklyInsightsView: View {
                     }
                 }
 
-                Section("Adherence Score") {
-                    WeeklyAdherenceCard(weeklyScore: viewModel.weeklyAdherence)
-                }
-
-                Section {
-                    MaintenanceCaloriesCard(insight: viewModel.maintenanceInsight, goal: viewModel.goal)
-                } header: {
-                    Text("Maintenance Calories")
+                if viewModel.isCurrentWeek {
+                    Section {
+                        MaintenanceCaloriesCard(insight: viewModel.maintenanceInsight, goal: viewModel.goal)
+                    } header: {
+                        Text("Maintenance Calories")
+                    }
                 }
             } else if viewModel.isLoading {
                 ProgressView()
@@ -92,10 +164,6 @@ struct WeeklyInsightsView: View {
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage).foregroundStyle(.red)
             }
-        }
-        .navigationTitle("Weekly Insights")
-        .task { await viewModel.load() }
-        .refreshable { await viewModel.load() }
     }
 }
 
@@ -156,6 +224,7 @@ private struct MaintenanceCaloriesCard: View {
 /// a glance rather than hidden inside a single number.
 private struct WeeklyAdherenceCard: View {
     let weeklyScore: WeeklyAdherenceScore?
+    let onSelectDay: (DailyAdherenceScore) -> Void
 
     private func bandColor(_ score: Double) -> Color {
         switch score {
@@ -184,12 +253,18 @@ private struct WeeklyAdherenceCard: View {
                         }
                     }
                 }
+                Text("\(weeklyScore.scoredCount) of \(weeklyScore.totalCount) tracked this week")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 Divider()
                 HStack(spacing: 4) {
                     ForEach(weeklyScore.dailyScores, id: \.date) { day in
                         dayColumn(day)
                     }
                 }
+                Text("Tap a day to see its details.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             .padding(.vertical, 4)
         } else {
@@ -198,6 +273,11 @@ private struct WeeklyAdherenceCard: View {
         }
     }
 
+    // Plain tap gestures rather than Buttons/NavigationLinks - several
+    // interactive controls sharing one List row has repeatedly misattributed
+    // taps in this app (each day here is a sibling in one shared row), and a
+    // bare tap gesture per view doesn't fight over that row's hit-testing
+    // the way stacked Buttons do.
     @ViewBuilder
     private func dayColumn(_ day: DailyAdherenceScore) -> some View {
         VStack(spacing: 4) {
@@ -216,6 +296,8 @@ private struct WeeklyAdherenceCard: View {
                 }
         }
         .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { onSelectDay(day) }
     }
 
     private func weekdayLetter(_ date: Date) -> String {
@@ -241,6 +323,11 @@ private struct StepsDebtView: View {
         }
     }
 
+    private var subtitleText: String {
+        guard debt.remainingDays > 0 else { return "Week complete." }
+        return "Need \(debt.requiredPerDayForRest)/day through Sunday to still average \(stepTarget) (\(debt.remainingDays) day\(debt.remainingDays == 1 ? "" : "s") left)."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -249,7 +336,7 @@ private struct StepsDebtView: View {
                 Text(paceText)
                     .foregroundStyle(debt.stepsBehindPace < 0 ? .red : .secondary)
             }
-            Text("Need \(debt.requiredPerDayForRest)/day through Sunday to still average \(stepTarget) (\(debt.remainingDays) day\(debt.remainingDays == 1 ? "" : "s") left).")
+            Text(subtitleText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -361,6 +448,109 @@ private struct MacroLine: View {
         let valueText = value.map { "\(Int($0))g" } ?? "-"
         guard let target else { return valueText }
         return "\(valueText)/\(Int(target))g"
+    }
+}
+
+/// Multi-week line of `WeeklyAdherenceScore.overall` values, oldest to
+/// newest, ending at the selected week - a single week's card can only say
+/// "how was this week"; this is the one place the screen answers "is the
+/// trend actually moving the right way." Weeks without enough logged data
+/// to score (nil) are simply skipped rather than plotted as zero, so a
+/// lightly-tracked week reads as a gap, not a crash to the bottom.
+private struct AdherenceTrendChart: View {
+    let points: [WeeklyScorePoint]
+
+    private func bandColor(_ score: Double) -> Color {
+        switch score {
+        case 85...: return .green
+        case 65..<85: return .orange
+        default: return .red
+        }
+    }
+
+    var body: some View {
+        Chart {
+            ForEach(points) { point in
+                if let overall = point.overall {
+                    LineMark(
+                        x: .value("Week", point.weekStart),
+                        y: .value("Score", overall)
+                    )
+                    .foregroundStyle(.secondary)
+                    .interpolationMethod(.catmullRom)
+                    PointMark(
+                        x: .value("Week", point.weekStart),
+                        y: .value("Score", overall)
+                    )
+                    .foregroundStyle(bandColor(overall))
+                }
+            }
+        }
+        .chartYScale(domain: 0...100)
+        .chartXAxis(.hidden)
+        .frame(height: 90)
+        .padding(.vertical, 4)
+    }
+}
+
+/// A compact, read-only summary of the self-reported `WeeklyCheckin` survey
+/// for the selected week - shown right after the objective adherence score
+/// so the two can be compared (e.g. a high score next to a self-rated
+/// "stressful, low discipline" week is worth noticing on its own). All
+/// ratings in `WeeklyCheckinFlow` are 1-5.
+struct WeeklyCheckinSummary: View {
+    let checkin: WeeklyCheckin
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 20) {
+                if let rating = checkin.overallRating7d {
+                    ratingStat(label: "Felt like", value: rating)
+                }
+                if let discipline = checkin.disciplineLevel {
+                    ratingStat(label: "Discipline", value: discipline)
+                }
+                if let stress = checkin.stressLevel {
+                    ratingStat(label: "Stress", value: stress)
+                }
+            }
+
+            if let selfTraining = checkin.trainingAdherence, let selfNutrition = checkin.nutritionAdherence {
+                Text("Self-rated adherence: training \(selfTraining)/5, nutrition \(selfNutrition)/5")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let win = checkin.biggestWin, !win.isEmpty {
+                Text("Biggest win: \(win)")
+                    .font(.subheadline)
+            }
+
+            if let notes = checkin.moodNotes, !notes.isEmpty {
+                Text(notes)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let reason = checkin.stressReason, !reason.isEmpty {
+                Text("Stress: \(reason)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func ratingStat(label: String, value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text("\(value)/5")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+        }
     }
 }
 

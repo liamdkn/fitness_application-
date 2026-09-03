@@ -21,13 +21,12 @@ struct DailyStepEntry: Identifiable {
     var id: Date { date }
 }
 
-/// Tracks progress toward a 10k-steps-a-day average over a strict
-/// Monday-Sunday week (independent of the device's locale/first-weekday
-/// setting, unlike the rest of this screen's "this week" aggregations).
-/// Today always counts as one of the "remaining" days rather than a
-/// "completed" one, since its step count is still accumulating live -
-/// the catch-up number is always "how many steps, starting from right now
-/// through Sunday, to land the week on target."
+/// Tracks progress toward a 10k-steps-a-day average over the selected
+/// Monday-Sunday week. For the current week, today always counts as one of
+/// the "remaining" days rather than a "completed" one, since its step count
+/// is still accumulating live - the catch-up number is "how many steps,
+/// starting from right now through Sunday, to land the week on target." A
+/// past week has `remainingDays == 0` and simply reads as a final total.
 struct StepsDebt {
     let completedDays: Int
     let remainingDays: Int
@@ -48,6 +47,17 @@ struct MaintenanceInsight {
     var surplusOrDeficit: Double { avgCaloriesPerDay - estimatedTDEE }
 }
 
+/// One week's overall adherence score, used to plot a multi-week trend at
+/// the top of Weekly Insights - `overall` is nil for a week that didn't
+/// have enough logged data to score at all (same "not enough data" meaning
+/// as `WeeklyAdherenceScore.overall`), which the chart just renders as a
+/// gap rather than a zero.
+struct WeeklyScorePoint: Identifiable {
+    let weekStart: Date
+    let overall: Double?
+    var id: Date { weekStart }
+}
+
 @MainActor
 final class WeeklyInsightsViewModel: ObservableObject {
     @Published var goal: UserGoal?
@@ -56,6 +66,18 @@ final class WeeklyInsightsViewModel: ObservableObject {
     @Published var stepsDebt: StepsDebt?
     @Published var maintenanceInsight: MaintenanceInsight?
     @Published var weeklyAdherence: WeeklyAdherenceScore?
+    /// Last `historyWeeksCount` weeks' overall scores, oldest first, ending
+    /// at `selectedWeekStart` - see `loadScoreHistory`.
+    @Published var scoreHistory: [WeeklyScorePoint] = []
+    /// The weekly check-in survey (self-rated adherence/discipline/stress,
+    /// biggest win, mood notes) filled in for the selected week, if any -
+    /// shown alongside the objective adherence score so the two can be
+    /// compared.
+    @Published var weeklyCheckin: WeeklyCheckin?
+    /// Monday of whichever week is currently being viewed - defaults to
+    /// this week, but `goToPreviousWeek()`/`goToNextWeek()` can walk it
+    /// back through history (never past the current week).
+    @Published private(set) var selectedWeekStart = WeeklyInsightsViewModel.mondayOfWeek(containing: Date())
     @Published var errorMessage: String?
     @Published var isLoading = false
 
@@ -69,48 +91,93 @@ final class WeeklyInsightsViewModel: ObservableObject {
     private let preferencesRepository = UserPreferencesRepository()
     private let tdeeEstimateRepository = TDEEEstimateRepository()
     private let dailyCheckinRepository = DailyCheckinRepository()
+    private let weeklyCheckinRepository = WeeklyCheckinRepository()
+
+    /// How many trailing weeks the trend chart covers.
+    private let historyWeeksCount = 8
+
+    /// Bumped at the start of every `load()` - flicking through weeks
+    /// quickly starts a new load before an older one's network calls have
+    /// returned, and without this an older, slower response could land
+    /// after a newer one and overwrite it with the wrong week's data. Only
+    /// the call that's still the most recent one when it finishes is
+    /// allowed to commit its results.
+    private var loadGeneration = 0
+
+    /// `.weekday` is always 1=Sunday...7=Saturday regardless of the
+    /// device's locale/first-weekday setting, so this arithmetic is
+    /// locale-proof - the whole screen is a strict Monday-Sunday week.
+    static func mondayOfWeek(containing date: Date) -> Date {
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(for: date)
+        let weekday = calendar.component(.weekday, from: day)
+        let daysSinceMonday = (weekday + 5) % 7
+        return calendar.date(byAdding: .day, value: -daysSinceMonday, to: day) ?? day
+    }
+
+    var isCurrentWeek: Bool {
+        selectedWeekStart == Self.mondayOfWeek(containing: Date())
+    }
+
+    func goToPreviousWeek() {
+        guard let newStart = Calendar.current.date(byAdding: .day, value: -7, to: selectedWeekStart) else { return }
+        selectedWeekStart = newStart
+        Task { await load() }
+    }
+
+    func goToNextWeek() {
+        guard !isCurrentWeek else { return }
+        guard let newStart = Calendar.current.date(byAdding: .day, value: 7, to: selectedWeekStart) else { return }
+        selectedWeekStart = newStart
+        Task { await load() }
+    }
 
     func load() async {
+        loadGeneration += 1
+        let generation = loadGeneration
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            // A newer load has since started and will clear this itself
+            // when it finishes - don't clear the flag out from under it.
+            if generation == loadGeneration { isLoading = false }
+        }
 
         let calendar = Calendar.current
-        let weekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
-        let now = Date()
+        let weekStart = selectedWeekStart
+        let sundayThisWeek = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+        let today = calendar.startOfDay(for: Date())
 
-        // Strict Monday-anchored week for the steps-debt calculation, kept
-        // independent of the locale-dependent `weekStart` above (which may
-        // not start on Monday depending on the device's first-weekday
-        // setting). `.weekday` is always 1=Sunday...7=Saturday regardless of
-        // that setting, so this arithmetic is locale-proof.
-        let today = calendar.startOfDay(for: now)
-        let weekday = calendar.component(.weekday, from: today)
-        let daysSinceMonday = (weekday + 5) % 7
-        let mondayThisWeek = calendar.date(byAdding: .day, value: -daysSinceMonday, to: today) ?? today
-        let sundayThisWeek = calendar.date(byAdding: .day, value: 6, to: mondayThisWeek) ?? mondayThisWeek
-
-        // Covers both the locale week (adherence) and the Monday-anchored
-        // window (steps debt/breakdown) in one fetch, whichever starts earlier.
-        let exclusionRangeStart = min(weekStart, mondayThisWeek)
+        // How many of this week's days are fully in the past - 7 for any
+        // week before this one, a partial count for the current week
+        // (today itself is still "in progress" and never counts as
+        // completed), 0 if this were somehow a future week (can't happen -
+        // `goToNextWeek()` is capped at the current week).
+        let daysElapsed = calendar.dateComponents([.day], from: weekStart, to: min(today, sundayThisWeek)).day ?? 0
+        let completedDays = max(0, min(7, daysElapsed))
 
         async let goalResult = try? goalsRepository.fetchCurrentGoal()
-        async let volumeResult = try? workoutRepository.fetchWeeklyVolumeKg()
-        async let stepLogsResult = try? healthRepository.fetchStepLogs(from: weekStart, to: now)
-        // Whole Monday-Sunday week in one fetch - both the day-by-day
-        // breakdown and the avg/debt numbers (Monday..yesterday only) are
-        // derived from this single source, so they can never disagree with
-        // each other the way two separately-ranged queries could.
-        async let weekStepLogsResult = try? healthRepository.fetchStepLogs(from: mondayThisWeek, to: sundayThisWeek)
-        async let nutritionLogsResult = try? nutritionRepository.fetchRange(from: weekStart, to: now)
-        async let cardioHistoryResult = try? cardioSessionRepository.fetchHistory(limit: 50)
-        async let weightsResult = try? bodyWeightRepository.fetchRecent(days: 14)
+        async let volumeResult = try? workoutRepository.fetchVolumeKg(from: weekStart, to: sundayThisWeek)
+        // Whole Monday-Sunday week in one fetch, reused for both the
+        // day-by-day breakdown and the weekly adherence score - a single
+        // source for "this week's steps" means they can never disagree
+        // with each other the way separately-ranged queries could.
+        async let weekStepLogsResult = try? healthRepository.fetchStepLogs(from: weekStart, to: sundayThisWeek)
+        async let nutritionLogsResult = try? nutritionRepository.fetchRange(from: weekStart, to: sundayThisWeek)
+        async let cardioHistoryResult = try? cardioSessionRepository.fetchHistory(from: weekStart, to: sundayThisWeek)
+        async let weightsResult = try? bodyWeightRepository.fetchRange(from: weekStart, to: sundayThisWeek)
         async let latestEstimateResult = try? tdeeEstimateRepository.fetchLatest()
         async let preferencesResult = try? preferencesRepository.fetch()
-        async let cardioStepSessionsResult = try? cardioStepSessionRepository.fetchSessions(from: exclusionRangeStart, to: now)
-        async let weekWorkoutsResult = try? workoutRepository.fetchWorkouts(from: weekStart, to: now)
-        async let weekCheckinsResult = try? dailyCheckinRepository.fetchRange(from: weekStart, to: now)
+        async let cardioStepSessionsResult = try? cardioStepSessionRepository.fetchSessions(from: weekStart, to: sundayThisWeek)
+        async let weekWorkoutsResult = try? workoutRepository.fetchWorkouts(from: weekStart, to: sundayThisWeek)
+        async let weekCheckinsResult = try? dailyCheckinRepository.fetchRange(from: weekStart, to: sundayThisWeek)
+        async let weeklyCheckinsResult = try? weeklyCheckinRepository.fetchRange(from: weekStart, to: sundayThisWeek)
 
-        goal = await goalResult ?? nil
+        // Every result is resolved into a plain local first - nothing
+        // touches a `@Published` property until the single generation
+        // check below passes, so a stale, slower call from an earlier week
+        // can never partially overwrite what a newer one already
+        // committed (or is about to).
+        let resolvedGoal = await goalResult ?? nil
 
         // Mirrors the Dashboard's "exclude machine-counted cardio steps"
         // adjustment (DashboardView's `displaySteps`), which otherwise only
@@ -131,50 +198,103 @@ final class WeeklyInsightsViewModel: ObservableObject {
             return result
         }
 
-        let stepLogs = await stepLogsResult ?? []
+        let weekStepLogs = await weekStepLogsResult ?? []
         let nutritionLogs = await nutritionLogsResult ?? []
         let cardioHistory = await cardioHistoryResult ?? []
         let weights = await weightsResult ?? []
         let latestEstimate = await latestEstimateResult ?? nil
+        let weekWorkouts = await weekWorkoutsResult ?? []
+        let weekCheckins = await weekCheckinsResult ?? []
+        let resolvedWeeklyCheckin = (await weeklyCheckinsResult ?? []).first
+        let resolvedVolumeKg = await volumeResult ?? nil
 
-        // Today never counts as "completed" - its step count is still
-        // accumulating live, so both the breakdown and the pace numbers
-        // treat it as still in progress rather than a finished (or missed)
-        // day.
-        let weekStepsByDate = adjustedStepsByDate(await weekStepLogsResult ?? [])
-        let completedDays = daysSinceMonday
+        let weekStepsByDate = adjustedStepsByDate(weekStepLogs)
         var dailyStepsBuilder: [DailyStepEntry] = []
         var actualStepsCompleted = 0
         for offset in 0..<7 {
-            let date = calendar.date(byAdding: .day, value: offset, to: mondayThisWeek) ?? mondayThisWeek
+            let date = calendar.date(byAdding: .day, value: offset, to: weekStart) ?? weekStart
             let steps = weekStepsByDate[DateFormatting.isoDate(date)]
-            // Today (offset == completedDays) still shows its live count if
-            // any has synced - only days strictly in the future are blank.
+            // Today (offset == completedDays, current week only) still
+            // shows its live count if any has synced - only days strictly
+            // in the future are blank.
             dailyStepsBuilder.append(DailyStepEntry(date: date, steps: offset <= completedDays ? steps : nil))
             if offset < completedDays {
                 actualStepsCompleted += steps ?? 0
             }
         }
-        dailySteps = dailyStepsBuilder
         let avgSteps = completedDays > 0 ? actualStepsCompleted / completedDays : nil
+
+        // Hoisted above the steps-debt block (which now needs it) from
+        // where it used to sit, right before the maintenance-insight block
+        // further down - still used there too.
+        let isThisWeekCurrent = weekStart == Self.mondayOfWeek(containing: Date())
 
         let avgCalories = average(nutritionLogs.map(\.calories))
         let avgProtein = average(nutritionLogs.map(\.proteinG))
         let avgCarbs = average(nutritionLogs.map(\.carbsG))
         let avgFat = average(nutritionLogs.map(\.fatG))
 
-        let cardioSessionsCompleted = cardioHistory.filter { session in
-            session.endedAt != nil && session.startedAt >= weekStart
-        }.count
+        // Already range-filtered server-side (`fetchHistory(from:to:)`), so
+        // no client-side date filter is needed here.
+        let cardioSessionsCompleted = cardioHistory.filter { $0.endedAt != nil }.count
 
-        let weightsThisWeek = weights.filter { $0.loggedAt >= weekStart }
         let weightChange: Double? = {
-            guard let first = weightsThisWeek.first, let last = weightsThisWeek.last, first.id != last.id else { return nil }
+            guard let first = weights.first, let last = weights.last, first.id != last.id else { return nil }
             return last.weightKg - first.weightKg
         }()
 
+        // Today's own steps (current week only) are deliberately excluded
+        // from `actualStepsCompleted` above - it only counts fully-elapsed
+        // days, so the "avg steps/day" figure isn't diluted by a
+        // still-accumulating day. The debt/pace numbers are different: they
+        // exist to answer "am I on track *right now*," so today's live
+        // count (if HealthKit has synced anything yet) is folded back in
+        // here. Without this, the debt figure was frozen at last night's
+        // total until midnight rolled it into `actualStepsCompleted` -
+        // every step taken today was invisible to it all day.
+        let todaysStepsSoFar = isThisWeekCurrent ? (weekStepsByDate[DateFormatting.isoDate(today)] ?? 0) : 0
+        let stepsBankedTowardDebt = actualStepsCompleted + todaysStepsSoFar
+
+        let resolvedStepsDebt: StepsDebt? = {
+            guard let stepTarget = resolvedGoal?.stepTarget else { return nil }
+            let remainingDays = 7 - completedDays
+            let stepsBehindPace = stepsBankedTowardDebt - stepTarget * completedDays
+            let requiredPerDayForRest = remainingDays > 0
+                ? max(0, (stepTarget * 7 - stepsBankedTowardDebt + remainingDays - 1) / remainingDays)
+                : 0
+            return StepsDebt(
+                completedDays: completedDays,
+                remainingDays: remainingDays,
+                stepsBehindPace: stepsBehindPace,
+                requiredPerDayForRest: requiredPerDayForRest
+            )
+        }()
+
+        // Only meaningful for the current week - it's a real-time "at your
+        // recent rate" recommendation, not a historical figure a past week
+        // can be judged against. Checked against `weekStart` (this call's
+        // own target week, declared above), not the live `isCurrentWeek`,
+        // which could have already moved on to a different week by the
+        // time this resolves.
+        let resolvedMaintenanceInsight: MaintenanceInsight? = {
+            guard isThisWeekCurrent, let estimatedTDEE = latestEstimate?.estimatedTDEE, let avgCalories else { return nil }
+            let impliedWeeklyChangeKg = (avgCalories - estimatedTDEE) * 7 / AdaptiveTDEEEngine.kcalPerKg
+            return MaintenanceInsight(
+                estimatedTDEE: estimatedTDEE,
+                avgCaloriesPerDay: avgCalories,
+                impliedWeeklyChangeKg: impliedWeeklyChangeKg
+            )
+        }()
+
+        // A newer load has since started (fast prev/next flicking through
+        // weeks) - discard these now-stale results rather than let them
+        // land after, and overwrite, what the newer load already committed.
+        guard generation == loadGeneration else { return }
+
+        goal = resolvedGoal
+        dailySteps = dailyStepsBuilder
         summary = WeeklySummary(
-            weeklyVolumeKg: await volumeResult ?? nil,
+            weeklyVolumeKg: resolvedVolumeKg,
             avgStepsPerDay: avgSteps,
             avgCaloriesPerLoggedDay: avgCalories,
             avgProteinG: avgProtein,
@@ -183,55 +303,27 @@ final class WeeklyInsightsViewModel: ObservableObject {
             cardioSessionsCompleted: cardioSessionsCompleted,
             weightChangeThisWeekKg: weightChange
         )
-
-        // Built from the exact same `actualStepsCompleted`/`completedDays`
-        // as `avgSteps` above, so the debt and the average can never tell a
-        // contradictory story (e.g. "ahead of your daily average" while
-        // also "behind pace") the way two separately-computed numbers could.
-        if let stepTarget = goal?.stepTarget {
-            let remainingDays = 7 - completedDays
-            let stepsBehindPace = actualStepsCompleted - stepTarget * completedDays
-            let requiredPerDayForRest = remainingDays > 0
-                ? max(0, (stepTarget * 7 - actualStepsCompleted + remainingDays - 1) / remainingDays)
-                : 0
-            stepsDebt = StepsDebt(
-                completedDays: completedDays,
-                remainingDays: remainingDays,
-                stepsBehindPace: stepsBehindPace,
-                requiredPerDayForRest: requiredPerDayForRest
-            )
-        } else {
-            stepsDebt = nil
-        }
-
-        if let estimatedTDEE = latestEstimate?.estimatedTDEE, let avgCalories {
-            let impliedWeeklyChangeKg = (avgCalories - estimatedTDEE) * 7 / AdaptiveTDEEEngine.kcalPerKg
-            maintenanceInsight = MaintenanceInsight(
-                estimatedTDEE: estimatedTDEE,
-                avgCaloriesPerDay: avgCalories,
-                impliedWeeklyChangeKg: impliedWeeklyChangeKg
-            )
-        } else {
-            maintenanceInsight = nil
-        }
-
-        let weekWorkouts = await weekWorkoutsResult ?? []
-        let weekCheckins = await weekCheckinsResult ?? []
+        stepsDebt = resolvedStepsDebt
+        maintenanceInsight = resolvedMaintenanceInsight
         weeklyAdherence = buildWeeklyAdherence(
             weekStart: weekStart,
             nutritionLogs: nutritionLogs,
-            stepLogs: stepLogs,
+            stepLogs: weekStepLogs,
             workouts: weekWorkouts,
             checkins: weekCheckins,
             cardioExclusionEnabled: cardioExclusionEnabled,
             excludedStepsByDate: excludedStepsByDate
         )
+        weeklyCheckin = resolvedWeeklyCheckin
+
+        await loadScoreHistory(selectedWeekStart: weekStart, generation: generation)
     }
 
-    /// One `DailyAdherenceScore` per day of the (locale) week, Sunday/Monday
-    /// through today-or-later, rolled up into a `WeeklyAdherenceScore` -
-    /// a day past today simply has no data yet, which the engine already
-    /// treats as "excluded" rather than a miss.
+    /// One `DailyAdherenceScore` per day of the selected Monday-Sunday week,
+    /// rolled up into a `WeeklyAdherenceScore` - a day with no data (past
+    /// today in the current week, or never logged in a past week) simply
+    /// scores nil per component, which the engine already treats as
+    /// "excluded" rather than a miss.
     private func buildWeeklyAdherence(
         weekStart: Date,
         nutritionLogs: [NutritionLog],
@@ -275,6 +367,77 @@ final class WeeklyInsightsViewModel: ObservableObject {
             sessionsCompleted: sessionsCompleted,
             requiredSessionsPerWeek: requiredSessions
         )
+    }
+
+    /// Last `historyWeeksCount` weeks' overall scores (oldest first, ending
+    /// at whichever week is currently selected) - powers the trend chart at
+    /// the top of Weekly Insights. A single week's score can only answer
+    /// "how was this week"; this is what answers "are we on the right
+    /// trajectory," which the score alone can't. Fetches its own range
+    /// independently of the rest of `load()` (a little overlap with the
+    /// selected week's own fetch) so this stays simple and can't
+    /// accidentally disagree with a differently-scoped query.
+    private func loadScoreHistory(selectedWeekStart: Date, generation: Int) async {
+        guard goal != nil else {
+            if generation == loadGeneration { scoreHistory = [] }
+            return
+        }
+        let calendar = Calendar.current
+        guard let historyStart = calendar.date(byAdding: .day, value: -7 * (historyWeeksCount - 1), to: selectedWeekStart),
+              let historyEnd = calendar.date(byAdding: .day, value: 6, to: selectedWeekStart)
+        else {
+            if generation == loadGeneration { scoreHistory = [] }
+            return
+        }
+
+        async let nutritionResult = try? nutritionRepository.fetchRange(from: historyStart, to: historyEnd)
+        async let stepLogsResult = try? healthRepository.fetchStepLogs(from: historyStart, to: historyEnd)
+        async let workoutsResult = try? workoutRepository.fetchWorkouts(from: historyStart, to: historyEnd)
+        async let checkinsResult = try? dailyCheckinRepository.fetchRange(from: historyStart, to: historyEnd)
+        async let preferencesResult = try? preferencesRepository.fetch()
+        async let cardioStepSessionsResult = try? cardioStepSessionRepository.fetchSessions(from: historyStart, to: historyEnd)
+
+        let nutritionLogs = await nutritionResult ?? []
+        let stepLogs = await stepLogsResult ?? []
+        let workouts = await workoutsResult ?? []
+        let checkins = await checkinsResult ?? []
+        let cardioExclusionEnabled = (await preferencesResult ?? nil)?.cardioStepExclusionEnabled ?? false
+        let excludedStepsByDate = Dictionary(grouping: await cardioStepSessionsResult ?? [], by: \.date)
+            .mapValues { $0.reduce(0) { $0 + $1.stepsDelta } }
+
+        var points: [WeeklyScorePoint] = []
+        for weekOffset in 0..<historyWeeksCount {
+            guard let weekStart = calendar.date(byAdding: .day, value: -7 * (historyWeeksCount - 1 - weekOffset), to: selectedWeekStart),
+                  let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart)
+            else { continue }
+
+            let weekNutrition = nutritionLogs.filter { log in
+                guard let date = DateFormatting.date(fromISODate: log.date) else { return false }
+                return date >= weekStart && date <= weekEnd
+            }
+            let weekStepLogs = stepLogs.filter { log in
+                guard let date = DateFormatting.date(fromISODate: log.date) else { return false }
+                return date >= weekStart && date <= weekEnd
+            }
+            let weekWorkouts = workouts.filter { $0.performedAt >= weekStart && $0.performedAt <= weekEnd }
+            let weekCheckins = checkins.filter { checkin in
+                guard let date = DateFormatting.date(fromISODate: checkin.checkinDate) else { return false }
+                return date >= weekStart && date <= weekEnd
+            }
+
+            let weeklyScore = buildWeeklyAdherence(
+                weekStart: weekStart,
+                nutritionLogs: weekNutrition,
+                stepLogs: weekStepLogs,
+                workouts: weekWorkouts,
+                checkins: weekCheckins,
+                cardioExclusionEnabled: cardioExclusionEnabled,
+                excludedStepsByDate: excludedStepsByDate
+            )
+            points.append(WeeklyScorePoint(weekStart: weekStart, overall: weeklyScore?.overall))
+        }
+        guard generation == loadGeneration else { return }
+        scoreHistory = points
     }
 
     private func average(_ values: [Double]) -> Double? {

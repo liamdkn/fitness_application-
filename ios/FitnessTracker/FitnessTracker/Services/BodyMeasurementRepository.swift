@@ -25,6 +25,18 @@ struct BodyMeasurementRepository {
             .value
     }
 
+    /// Measurements logged against a specific weekly check-in - used by the
+    /// check-in history/detail screen under Settings.
+    func fetchForWeeklyCheckin(_ weeklyCheckinId: UUID) async throws -> [BodyMeasurement] {
+        try await client
+            .from("body_measurements")
+            .select()
+            .eq("weekly_checkin_id", value: weeklyCheckinId)
+            .order("measured_at", ascending: false)
+            .execute()
+            .value
+    }
+
     @discardableResult
     func log(
         waistCm: Double?,

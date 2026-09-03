@@ -144,7 +144,7 @@ struct DailyCheckinSheet: View {
                 routineDays = try await routineRepository.fetchDays(routineId: routine.id)
             }
             if let existing = try await checkinRepository.fetch(date: Date()) {
-                weightText = existing.weightKg.map { String($0) } ?? ""
+                weightText = existing.weightKg.map { String(format: "%.1f", $0) } ?? ""
                 energyLevel = existing.energyLevel ?? 3
                 sorenessLevel = existing.sorenessLevel ?? 3
                 yesterdayWaterText = existing.yesterdayWaterMl.map { String($0) } ?? ""

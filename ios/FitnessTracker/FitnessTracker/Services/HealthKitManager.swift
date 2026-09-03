@@ -90,6 +90,18 @@ final class HealthKitManager {
             let day = calendar.startOfDay(for: sample.startDate)
             totals[day, default: 0] += Int(sample.quantity.doubleValue(for: .count()))
         }
+
+        // A day with zero Watch samples (dead battery, watch not worn that
+        // day, etc.) would otherwise just be absent from the result -
+        // "Apple Watch" stays the default source (this function still runs
+        // first, and any day the Watch actually recorded something wins),
+        // but a day it recorded nothing falls back to the merged Health
+        // total for that day only, rather than silently reading as
+        // no-data/zero.
+        let mergedTotals = try await fetchMergedDailySteps(daysBack: daysBack)
+        for (day, mergedCount) in mergedTotals where totals[day] == nil {
+            totals[day] = mergedCount
+        }
         return totals
     }
 

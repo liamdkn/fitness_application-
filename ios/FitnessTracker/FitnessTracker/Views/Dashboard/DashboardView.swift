@@ -35,7 +35,7 @@ struct DashboardView: View {
                         onTapWeekly: { activeSheet = .weeklyCheckin }
                     )
 
-                    AdherenceScoreCard(score: viewModel.adherenceScore)
+                    WeeklyInsightsLinkCard()
 
                     if let insight = viewModel.nutritionInsight {
                         NutritionInsightCard(
@@ -98,18 +98,28 @@ struct DashboardView: View {
                                     .foregroundStyle(.secondary)
                             } else {
                                 Chart {
+                                    // Raw scale readings as dots only now -
+                                    // the smoothed Trend line (below) carries
+                                    // the "line" visual, so day-to-day noise
+                                    // in the actual weigh-ins doesn't read as
+                                    // a jagged trend on its own.
                                     ForEach(viewModel.recentWeights) { log in
-                                        LineMark(
-                                            x: .value("Date", log.loggedAt),
-                                            y: .value("Weight (kg)", log.weightKg),
-                                            series: .value("Series", "Actual")
-                                        )
-                                        .foregroundStyle(by: .value("Series", "Actual"))
                                         PointMark(
                                             x: .value("Date", log.loggedAt),
                                             y: .value("Weight (kg)", log.weightKg)
                                         )
                                         .foregroundStyle(by: .value("Series", "Actual"))
+                                        .symbolSize(30)
+                                    }
+                                    if showTrendLine {
+                                        ForEach(viewModel.weightTrendPoints) { point in
+                                            LineMark(
+                                                x: .value("Date", point.date),
+                                                y: .value("Weight (kg)", point.weightKg),
+                                                series: .value("Series", "Trend")
+                                            )
+                                            .foregroundStyle(by: .value("Series", "Trend"))
+                                        }
                                     }
                                     if showGoalLine {
                                         ForEach(goalLinePoints) { point in
@@ -124,7 +134,8 @@ struct DashboardView: View {
                                     }
                                 }
                                 .chartForegroundStyleScale([
-                                    "Actual": Color.blue,
+                                    "Actual": Color.blue.opacity(0.45),
+                                    "Trend": Color.blue,
                                     "Goal": Color.red.opacity(0.6)
                                 ])
                                 .chartYScale(domain: weightChartDomain)
@@ -183,8 +194,15 @@ struct DashboardView: View {
         return max(todaySteps - viewModel.cardioStepsExcludedToday, 0)
     }
 
+    /// At least 3 trend points before showing the smoothed line - fewer
+    /// than that and the EWMA hasn't had a chance to diverge from a flat
+    /// "trend = first weigh-in" line, so it wouldn't add anything over the
+    /// raw dots yet.
+    private var showTrendLine: Bool { viewModel.weightTrendPoints.count >= 3 }
+
     private var weightChartDomain: ClosedRange<Double> {
         var weights = viewModel.recentWeights.map(\.weightKg)
+        weights.append(contentsOf: viewModel.weightTrendPoints.map(\.weightKg))
         if showGoalLine {
             weights.append(contentsOf: goalLinePoints.map(\.weightKg))
         }
@@ -262,61 +280,19 @@ private struct CheckInsCard: View {
     }
 }
 
-/// Today's (or the selected day's) adherence score - how closely calories,
-/// protein, steps, and training matched the current phase's targets.
-/// Renders as one `ScoreRingView` (the same Apple Watch-style ring used for
-/// macros) plus a compact per-component breakdown; a component reading "-"
-/// means it's excluded from the average (not logged yet, or a rest day),
-/// not that it scored zero.
-private struct AdherenceScoreCard: View {
-    let score: DailyAdherenceScore?
-
-    private var ringColor: Color {
-        guard let overall = score?.overall else { return .secondary }
-        switch overall {
-        case 85...: return .green
-        case 65..<85: return .orange
-        default: return .red
-        }
-    }
-
+/// Adherence is scored weekly now (see `WeeklyInsightsView`), not daily -
+/// this is just the Dashboard's entry point into that screen.
+private struct WeeklyInsightsLinkCard: View {
     var body: some View {
-        DashboardCard(title: "Adherence Score") {
-            VStack(alignment: .leading, spacing: 12) {
-                if let score, let overall = score.overall {
-                    HStack(alignment: .center, spacing: 20) {
-                        ScoreRingView(score: overall, color: ringColor, diameter: 84, ringWidth: 11)
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(score.components) { component in
-                                HStack {
-                                    Text(component.component.label)
-                                        .font(.caption)
-                                    Spacer()
-                                    Text(component.score.map { "\(Int($0.rounded()))" } ?? "-")
-                                        .font(.caption)
-                                        .fontWeight(.semibold)
-                                        .foregroundStyle(component.score == nil ? .secondary : .primary)
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    Text("Log today's calories, protein, and steps to see your adherence score.")
-                        .font(.caption)
+        DashboardCard {
+            NavigationLink {
+                WeeklyInsightsView()
+            } label: {
+                HStack {
+                    Text("Weekly Insights")
+                    Spacer()
+                    Image(systemName: "chevron.right")
                         .foregroundStyle(.secondary)
-                }
-
-                Divider()
-
-                NavigationLink {
-                    WeeklyInsightsView()
-                } label: {
-                    HStack {
-                        Text("Weekly Insights")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
                 }
             }
         }

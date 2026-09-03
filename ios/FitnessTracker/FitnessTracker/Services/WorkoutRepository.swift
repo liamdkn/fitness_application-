@@ -255,10 +255,18 @@ struct WorkoutRepository {
     func fetchWeeklyVolumeKg() async throws -> Double {
         let calendar = Calendar.current
         let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
+        return try await fetchVolumeKg(from: startOfWeek, to: Date())
+    }
+
+    /// Same as `fetchWeeklyVolumeKg()` but for an arbitrary range - lets
+    /// Weekly Insights show training volume for a past week, not just the
+    /// current one.
+    func fetchVolumeKg(from: Date, to: Date) async throws -> Double {
         let points: [ExerciseProgressionPoint] = try await client
             .from("v_exercise_progression")
             .select()
-            .gte("performed_at", value: startOfWeek.ISO8601Format())
+            .gte("performed_at", value: from.ISO8601Format())
+            .lte("performed_at", value: to.ISO8601Format())
             .execute()
             .value
         return points.reduce(0) { $0 + $1.totalVolumeKg }

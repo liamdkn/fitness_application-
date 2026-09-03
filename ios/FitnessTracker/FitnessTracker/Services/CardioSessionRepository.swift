@@ -176,4 +176,18 @@ struct CardioSessionRepository {
             .execute()
             .value
     }
+
+    /// Range-filtered at the DB level, unlike `fetchHistory(limit:)` - lets
+    /// Weekly Insights look at an arbitrary past week without needing that
+    /// week to fall inside the most-recent-N sessions.
+    func fetchHistory(from: Date, to: Date) async throws -> [CardioTrackingSession] {
+        try await client
+            .from("cardio_tracking_sessions")
+            .select()
+            .gte("started_at", value: from.ISO8601Format())
+            .lte("started_at", value: to.ISO8601Format())
+            .order("started_at")
+            .execute()
+            .value
+    }
 }

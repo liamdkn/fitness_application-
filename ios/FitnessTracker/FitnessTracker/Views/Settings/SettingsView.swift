@@ -34,6 +34,9 @@ struct SettingsView: View {
                     if let preferencesError {
                         Text(preferencesError).foregroundStyle(.red)
                     }
+                    NavigationLink("Check-In History") {
+                        WeeklyCheckinHistoryView()
+                    }
                 }
 
                 Section("Cardio Step Exclusion") {

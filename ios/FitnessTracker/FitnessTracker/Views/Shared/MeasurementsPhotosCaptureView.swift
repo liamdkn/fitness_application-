@@ -2,8 +2,8 @@ import PhotosUI
 import SwiftUI
 
 struct MeasurementsPhotosCaptureView: View {
-    let onSaveMeasurement: (_ waistCm: Double?, _ leftBicepCm: Double?, _ rightBicepCm: Double?) async -> Void
-    let onSavePhoto: (Data) async -> Void
+    let onSaveMeasurement: (_ waistCm: Double?, _ leftBicepCm: Double?, _ rightBicepCm: Double?) async throws -> Void
+    let onSavePhoto: (Data) async throws -> Void
 
     @State private var waistText = ""
     @State private var leftBicepText = ""
@@ -75,7 +75,15 @@ struct MeasurementsPhotosCaptureView: View {
     private func saveMeasurement() async {
         isSavingMeasurement = true
         defer { isSavingMeasurement = false }
-        await onSaveMeasurement(Double(waistText), Double(leftBicepText), Double(rightBicepText))
+        do {
+            try await onSaveMeasurement(Double(waistText), Double(leftBicepText), Double(rightBicepText))
+            errorMessage = nil
+            waistText = ""
+            leftBicepText = ""
+            rightBicepText = ""
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func uploadPhotos(_ items: [PhotosPickerItem]) async {
@@ -91,7 +99,14 @@ struct MeasurementsPhotosCaptureView: View {
                     let data = try await item.loadTransferable(type: Data.self),
                     let compressed = ImageCompression.compress(data)
                 else { continue }
-                await onSavePhoto(compressed)
+                // Was previously called with `try?` at the call site in
+                // WeeklyCheckinFlow, which swallowed any Storage/DB error
+                // (bad bucket policy, network drop, etc.) completely - the
+                // picker would just finish "uploading" with nothing actually
+                // saved and no error shown. Now a throwing closure, so a
+                // failure lands here and is surfaced instead of vanishing.
+                try await onSavePhoto(compressed)
+                errorMessage = nil
             } catch {
                 errorMessage = error.localizedDescription
             }
