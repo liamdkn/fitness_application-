@@ -43,6 +43,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
 
     private let routineRepository = RoutineRepository()
     private let workoutRepository = WorkoutRepository()
+    private let offlineQueue = OfflineWorkoutQueue.shared
     private let exerciseRepository = ExerciseRepository()
     private var notesSaveTask: Task<Void, Never>?
 
@@ -57,15 +58,36 @@ final class ActiveWorkoutViewModel: ObservableObject {
             // Resuming a workout that already has sets logged (backgrounded
             // mid-session, or reopened after the app was killed) needs those
             // sets restored into view, not just re-loaded from the day
-            // template as if starting fresh.
-            let existingSets = try await workoutRepository.fetchSets(workoutId: workout.id)
+            // template as if starting fresh. Always local (`OfflineWorkoutQueue`
+            // is the source of truth for an active workout's own sets
+            // regardless of connectivity), so this never fails offline.
+            let existingSets = try await offlineQueue.fetchSets(workoutId: workout.id)
             let existingSetsByExercise = Dictionary(grouping: existingSets, by: \.exerciseId)
-            let allExercises = try await exerciseRepository.fetchAll()
+
+            // The exercise library and today's routine-day exercises are
+            // reference data, not something this queue owns - fall back to
+            // the last successful fetch when offline rather than failing
+            // outright, so a workout opened at the gym with no signal still
+            // renders as long as it's been loaded at least once before.
+            let allExercises: [Exercise]
+            if let fetched = try? await exerciseRepository.fetchAll() {
+                allExercises = fetched
+                OfflineReferenceCache.save(fetched, key: "exercise-library")
+            } else {
+                allExercises = OfflineReferenceCache.load([Exercise].self, key: "exercise-library") ?? []
+            }
             let byId = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.id, $0) })
 
             var templateExerciseIds: Set<UUID> = []
             if let routineDayId = workout.routineDayId {
-                let dayExercises = try await routineRepository.fetchDayExercises(routineDayId: routineDayId)
+                let dayExercisesCacheKey = "routine-day-exercises-\(routineDayId.uuidString)"
+                let dayExercises: [RoutineDayExercise]
+                if let fetched = try? await routineRepository.fetchDayExercises(routineDayId: routineDayId) {
+                    dayExercises = fetched
+                    OfflineReferenceCache.save(fetched, key: dayExercisesCacheKey)
+                } else {
+                    dayExercises = OfflineReferenceCache.load([RoutineDayExercise].self, key: dayExercisesCacheKey) ?? []
+                }
                 for dayExercise in dayExercises {
                     guard let exercise = byId[dayExercise.exerciseId] else { continue }
                     templateExerciseIds.insert(exercise.id)
@@ -115,7 +137,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
         guard let index = activeExercises.firstIndex(where: { $0.id == exerciseId }) else { return }
         activeExercises.remove(at: index)
         do {
-            try await workoutRepository.deleteSets(workoutId: workout.id, exerciseId: exerciseId)
+            try await offlineQueue.deleteSets(workoutId: workout.id, exerciseId: exerciseId)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -125,7 +147,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
         guard let index = activeExercises.firstIndex(where: { $0.id == exerciseId }) else { return }
         let nextSetIndex = activeExercises[index].loggedSets.count + 1
         do {
-            let set = try await workoutRepository.addSet(
+            let set = try await offlineQueue.addSet(
                 workoutId: workout.id,
                 exerciseId: exerciseId,
                 setIndex: nextSetIndex,
@@ -167,7 +189,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
         guard let index = activeExercises.firstIndex(where: { $0.id == exerciseId }) else { return }
         guard activeExercises[index].loggedSets.last?.id == set.id else { return }
         do {
-            try await workoutRepository.deleteSet(setId: set.id)
+            try await offlineQueue.deleteSet(setId: set.id)
             activeExercises[index].loggedSets.removeLast()
             activeExercises[index].pendingRows.insert(set.isDropSet ? .drop : .normal, at: 0)
         } catch {
@@ -200,13 +222,13 @@ final class ActiveWorkoutViewModel: ObservableObject {
         notesSaveTask = Task {
             try? await Task.sleep(nanoseconds: 800_000_000)
             guard !Task.isCancelled else { return }
-            try? await workoutRepository.updateNotes(workoutId: workoutId, notes: text)
+            try? await offlineQueue.updateNotes(workoutId: workoutId, notes: text)
         }
     }
 
     func finish(rating: Int?) async {
         do {
-            try await workoutRepository.finishWorkout(workoutId: workout.id, rating: rating)
+            try await offlineQueue.finishWorkout(workoutId: workout.id, rating: rating)
             isFinished = true
         } catch {
             errorMessage = error.localizedDescription
@@ -215,7 +237,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
 
     func cancel() async {
         do {
-            try await workoutRepository.deleteWorkout(workoutId: workout.id)
+            try await offlineQueue.deleteWorkout(workoutId: workout.id)
             isCancelled = true
         } catch {
             errorMessage = error.localizedDescription

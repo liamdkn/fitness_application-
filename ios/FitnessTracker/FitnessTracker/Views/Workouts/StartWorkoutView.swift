@@ -17,6 +17,7 @@ struct StartWorkoutView: View {
     @ObservedObject private var cardioMonitor = CardioSessionMonitor.shared
     private let routineRepository = RoutineRepository()
     private let workoutRepository = WorkoutRepository()
+    private let offlineQueue = OfflineWorkoutQueue.shared
     private let checkinRepository = DailyCheckinRepository()
     private let muscleGroupVolumeRepository = MuscleGroupVolumeRepository()
     private let cardioSessionRepository = CardioSessionRepository()
@@ -231,7 +232,10 @@ struct StartWorkoutView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
-        activeWorkout = try? await workoutRepository.fetchActive()
+        // Offline-safe: checks the local queue before ever touching the
+        // network, so a workout started at the gym with no signal still
+        // shows its Resume banner if this view reloads mid-session.
+        activeWorkout = try? await offlineQueue.fetchActive()
         let recentWorkouts = (try? await workoutRepository.fetchHistory(limit: 10)) ?? []
         todayCompletedWorkout = recentWorkouts.first { workout in
             workout.routineDayId == todayDay?.id
@@ -284,7 +288,7 @@ struct StartWorkoutView: View {
         isStarting = true
         defer { isStarting = false }
         do {
-            startedWorkout = try await workoutRepository.startWorkout(routineDayId: todayDay.id)
+            startedWorkout = try await offlineQueue.startWorkout(routineDayId: todayDay.id)
         } catch {
             errorMessage = error.localizedDescription
         }

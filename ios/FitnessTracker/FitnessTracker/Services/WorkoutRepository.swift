@@ -21,6 +21,34 @@ struct WorkoutRepository {
         let is_drop_set: Bool
     }
 
+    /// Explicit-id variant of `NewWorkout`, for `upsertWorkout` - the
+    /// offline queue generates the id client-side up front, before the row
+    /// exists on the server at all.
+    private struct UpsertWorkout: Encodable {
+        let id: UUID
+        let user_id: UUID
+        let routine_day_id: UUID?
+        let started_at: Date
+        let performed_at: Date
+        let ended_at: Date?
+        let notes: String?
+        let rating: Int?
+    }
+
+    /// Explicit-id variant of `NewWorkoutSet`, for `upsertSet`.
+    private struct UpsertWorkoutSet: Encodable {
+        let id: UUID
+        let workout_id: UUID
+        let user_id: UUID
+        let exercise_id: UUID
+        let set_index: Int
+        let reps: Int
+        let weight_kg: Double
+        let rpe: Double?
+        let is_warmup: Bool
+        let is_drop_set: Bool
+    }
+
     private struct EndWorkoutUpdate: Encodable {
         let ended_at: Date
         let rating: Int?
@@ -89,6 +117,74 @@ struct WorkoutRepository {
             throw RepositoryError.insertFailed
         }
         return workout
+    }
+
+    /// Used only by `OfflineWorkoutQueue` to push a locally-queued workout
+    /// (or its later edits - notes, rating, finishing) to Supabase. Unlike
+    /// `startWorkout`, the id is supplied by the caller and the write is an
+    /// upsert rather than a plain insert, so replaying this after a partial
+    /// failure (e.g. the app was killed right after the server accepted it
+    /// but before the local row was marked synced) just re-applies the same
+    /// row instead of erroring on a duplicate id or creating a second one.
+    func upsertWorkout(
+        id: UUID,
+        routineDayId: UUID?,
+        startedAt: Date,
+        performedAt: Date,
+        endedAt: Date?,
+        notes: String?,
+        rating: Int?
+    ) async throws {
+        let userId = try await client.auth.session.user.id
+        try await client
+            .from("workouts")
+            .upsert(
+                UpsertWorkout(
+                    id: id,
+                    user_id: userId,
+                    routine_day_id: routineDayId,
+                    started_at: startedAt,
+                    performed_at: performedAt,
+                    ended_at: endedAt,
+                    notes: notes,
+                    rating: rating
+                ),
+                onConflict: "id"
+            )
+            .execute()
+    }
+
+    /// Used only by `OfflineWorkoutQueue` - see `upsertWorkout`.
+    func upsertSet(
+        id: UUID,
+        workoutId: UUID,
+        exerciseId: UUID,
+        setIndex: Int,
+        reps: Int,
+        weightKg: Double,
+        rpe: Double?,
+        isWarmup: Bool,
+        isDropSet: Bool
+    ) async throws {
+        let userId = try await client.auth.session.user.id
+        try await client
+            .from("workout_sets")
+            .upsert(
+                UpsertWorkoutSet(
+                    id: id,
+                    workout_id: workoutId,
+                    user_id: userId,
+                    exercise_id: exerciseId,
+                    set_index: setIndex,
+                    reps: reps,
+                    weight_kg: weightKg,
+                    rpe: rpe,
+                    is_warmup: isWarmup,
+                    is_drop_set: isDropSet
+                ),
+                onConflict: "id"
+            )
+            .execute()
     }
 
     func finishWorkout(workoutId: UUID, rating: Int?) async throws {
