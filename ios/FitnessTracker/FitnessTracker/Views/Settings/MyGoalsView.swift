@@ -5,11 +5,22 @@ struct MyGoalsView: View {
     @State private var currentGoal: UserGoal?
     @State private var pastGoals: [UserGoal] = []
     @State private var tdeeHistory: [TDEEEstimate] = []
+    @State private var recentWeights: [BodyWeightLog] = []
+    /// A pending adaptive-TDEE calorie recommendation, if one's ready - see
+    /// `refreshNutritionInsight()`. Lives here (next to the maintenance
+    /// history it's derived from) rather than on the Dashboard, so "your
+    /// target should probably change" surfaces alongside the drift chart
+    /// that explains why, instead of interrupting the daily tracking view.
+    @State private var nutritionInsight: TDEEEstimate?
+    @State private var isApplyingNutritionInsight = false
     @State private var errorMessage: String?
     @State private var showingNewPhase = false
     @State private var showingEditPhase = false
     private let repository = GoalsRepository()
     private let tdeeEstimateRepository = TDEEEstimateRepository()
+    private let bodyWeightRepository = BodyWeightRepository()
+    private let nutritionRepository = NutritionRepository()
+    private let tdeeWindowDays = 21
 
     var body: some View {
         List {
@@ -26,23 +37,33 @@ struct MyGoalsView: View {
                 Button("Start New Phase") { showingNewPhase = true }
             }
 
-            if tdeeChartPoints.count >= 2 {
+            if nutritionInsight != nil || tdeeChartPoints.count >= 2 {
                 Section("Estimated Maintenance Calories") {
-                    Chart(tdeeChartPoints, id: \.date) { point in
-                        LineMark(
-                            x: .value("Date", point.date),
-                            y: .value("Estimated TDEE", point.tdee)
-                        )
-                        PointMark(
-                            x: .value("Date", point.date),
-                            y: .value("Estimated TDEE", point.tdee)
+                    if let nutritionInsight {
+                        NutritionInsightCard(
+                            insight: nutritionInsight,
+                            isApplying: isApplyingNutritionInsight,
+                            onAccept: { Task { await acceptNutritionInsight() } },
+                            onDismiss: { Task { await dismissNutritionInsight() } }
                         )
                     }
-                    .frame(height: 160)
-                    .padding(.vertical, 4)
-                    Text("From the adaptive calorie engine's weekly estimates - shows how your true maintenance has drifted over the phase.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if tdeeChartPoints.count >= 2 {
+                        Chart(tdeeChartPoints, id: \.date) { point in
+                            LineMark(
+                                x: .value("Date", point.date),
+                                y: .value("Estimated TDEE", point.tdee)
+                            )
+                            PointMark(
+                                x: .value("Date", point.date),
+                                y: .value("Estimated TDEE", point.tdee)
+                            )
+                        }
+                        .frame(height: 160)
+                        .padding(.vertical, 4)
+                        Text("From the adaptive calorie engine's weekly estimates - shows how your true maintenance has drifted over the phase.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -132,5 +153,113 @@ struct MyGoalsView: View {
         // Advisory only - a missing/broken TDEE table shouldn't block the
         // Current Phase display above.
         tdeeHistory = (try? await tdeeEstimateRepository.fetchHistory()) ?? []
+        recentWeights = (try? await bodyWeightRepository.fetchRecent(days: 30)) ?? []
+        await refreshNutritionInsight()
+    }
+
+    /// Only recomputes roughly weekly (a fresh estimate replaces a
+    /// week-old one); a still-pending recent estimate is just re-shown
+    /// rather than recalculated on every load.
+    private func refreshNutritionInsight() async {
+        guard let currentGoal else {
+            nutritionInsight = nil
+            return
+        }
+        do {
+            if let latest = try await tdeeEstimateRepository.fetchLatest(),
+               let estimatedDate = DateFormatting.date(fromISODate: latest.estimatedAt),
+               (Calendar.current.dateComponents([.day], from: estimatedDate, to: Date()).day ?? 99) < 7 {
+                nutritionInsight = latest.status == .pending ? latest : nil
+                return
+            }
+
+            guard let windowStart = Calendar.current.date(byAdding: .day, value: -tdeeWindowDays, to: Date()) else {
+                nutritionInsight = nil
+                return
+            }
+            let windowNutrition = try await nutritionRepository.fetchRange(from: windowStart, to: Date())
+
+            guard let recommendation = AdaptiveTDEEEngine.evaluate(
+                weightLogs: recentWeights,
+                nutritionLogs: windowNutrition,
+                goal: currentGoal,
+                windowDays: tdeeWindowDays
+            ), recommendation.isActionable else {
+                nutritionInsight = nil
+                return
+            }
+
+            nutritionInsight = try await tdeeEstimateRepository.save(recommendation)
+        } catch {
+            // Advisory only - don't block this screen on it failing.
+        }
+    }
+
+    private func acceptNutritionInsight() async {
+        guard let insight = nutritionInsight, let currentGoal else { return }
+        isApplyingNutritionInsight = true
+        defer { isApplyingNutritionInsight = false }
+        do {
+            self.currentGoal = try await repository.applyCalorieAdjustment(
+                to: currentGoal,
+                newCalorieTarget: insight.recommendedCalorieTarget
+            )
+            try await tdeeEstimateRepository.updateStatus(id: insight.id, status: .accepted)
+            nutritionInsight = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func dismissNutritionInsight() async {
+        guard let insight = nutritionInsight else { return }
+        do {
+            try await tdeeEstimateRepository.updateStatus(id: insight.id, status: .dismissed)
+        } catch {
+            // Non-critical - the card just won't reappear until the next
+            // weekly recompute either way.
+        }
+        nutritionInsight = nil
+    }
+}
+
+private struct NutritionInsightCard: View {
+    let insight: TDEEEstimate
+    let isApplying: Bool
+    let onAccept: () -> Void
+    let onDismiss: () -> Void
+
+    private var direction: String {
+        insight.recommendedCalorieTarget > insight.currentCalorieTarget ? "up" : "down"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Based on the last \(insight.windowDays) days, your calorie target looks like it should move \(direction), from \(Int(insight.currentCalorieTarget)) to \(Int(insight.recommendedCalorieTarget)) kcal.")
+                .font(.subheadline)
+
+            Text("Estimated maintenance: ~\(Int(insight.estimatedTDEE)) kcal/day, from \(insight.loggedDaysInWindow) logged days and a trend weight change of \(String(format: "%.2f", insight.trendWeightChangeKgPerWeek)) kg/week.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Button(action: onDismiss) {
+                    Text("Dismiss")
+                }
+                .buttonStyle(.bordered)
+                .disabled(isApplying)
+
+                Button(action: onAccept) {
+                    if isApplying {
+                        ProgressView()
+                    } else {
+                        Text("Apply New Target")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isApplying)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }

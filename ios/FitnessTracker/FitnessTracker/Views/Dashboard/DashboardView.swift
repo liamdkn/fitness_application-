@@ -6,11 +6,29 @@ struct DashboardView: View {
     @State private var activeSheet: DashboardSheet?
     @State private var selectedDate = Date()
     @State private var showGoalLine = true
+    @State private var weightChartRange: WeightChartRange = .month
     @ObservedObject private var checkinAvailability = CheckinAvailabilityService.shared
 
     private enum DashboardSheet: String, Identifiable {
         case dailyCheckin, weeklyCheckin
         var id: String { rawValue }
+    }
+
+    private enum WeightChartRange: String, CaseIterable, Identifiable {
+        case week = "W"
+        case twoWeeks = "2W"
+        case month = "M"
+        case sixMonths = "6M"
+        var id: String { rawValue }
+
+        var days: Int {
+            switch self {
+            case .week: 7
+            case .twoWeeks: 14
+            case .month: 30
+            case .sixMonths: 183
+            }
+        }
     }
 
     private var isToday: Bool {
@@ -36,15 +54,6 @@ struct DashboardView: View {
                     )
 
                     WeeklyInsightsLinkCard()
-
-                    if let insight = viewModel.nutritionInsight {
-                        NutritionInsightCard(
-                            insight: insight,
-                            isApplying: viewModel.isApplyingNutritionInsight,
-                            onAccept: { Task { await viewModel.acceptNutritionInsight() } },
-                            onDismiss: { Task { await viewModel.dismissNutritionInsight() } }
-                        )
-                    }
 
                     DashboardCard {
                         VStack(alignment: .leading, spacing: 12) {
@@ -93,6 +102,16 @@ struct DashboardView: View {
 
                     DashboardCard(title: "Weight") {
                         VStack(alignment: .leading, spacing: 12) {
+                            Picker("Range", selection: $weightChartRange) {
+                                ForEach(WeightChartRange.allCases) { range in
+                                    Text(range.rawValue).tag(range)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .onChange(of: weightChartRange) { _, newValue in
+                                Task { await viewModel.loadWeights(daysBack: newValue.days) }
+                            }
+
                             if viewModel.recentWeights.isEmpty {
                                 Text("No weigh-ins yet.")
                                     .foregroundStyle(.secondary)
@@ -157,10 +176,12 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .task {
                 await viewModel.load(date: selectedDate)
+                await viewModel.loadWeights(daysBack: weightChartRange.days)
                 await checkinAvailability.refresh()
             }
             .refreshable {
                 await viewModel.load(date: selectedDate)
+                await viewModel.loadWeights(daysBack: weightChartRange.days)
                 await checkinAvailability.refresh()
             }
             .sheet(item: $activeSheet) { sheet in
@@ -293,48 +314,6 @@ private struct WeeklyInsightsLinkCard: View {
                     Spacer()
                     Image(systemName: "chevron.right")
                         .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-}
-
-private struct NutritionInsightCard: View {
-    let insight: TDEEEstimate
-    let isApplying: Bool
-    let onAccept: () -> Void
-    let onDismiss: () -> Void
-
-    private var direction: String {
-        insight.recommendedCalorieTarget > insight.currentCalorieTarget ? "up" : "down"
-    }
-
-    var body: some View {
-        DashboardCard(title: "Nutrition Insight") {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Based on the last \(insight.windowDays) days, your calorie target looks like it should move \(direction), from \(Int(insight.currentCalorieTarget)) to \(Int(insight.recommendedCalorieTarget)) kcal.")
-                    .font(.subheadline)
-
-                Text("Estimated maintenance: ~\(Int(insight.estimatedTDEE)) kcal/day, from \(insight.loggedDaysInWindow) logged days and a trend weight change of \(String(format: "%.2f", insight.trendWeightChangeKgPerWeek)) kg/week.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                HStack {
-                    Button(action: onDismiss) {
-                        Text("Dismiss")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isApplying)
-
-                    Button(action: onAccept) {
-                        if isApplying {
-                            ProgressView()
-                        } else {
-                            Text("Apply New Target")
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isApplying)
                 }
             }
         }

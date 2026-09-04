@@ -6,10 +6,172 @@ private enum NutritionField: Hashable {
     case calories, protein, carbs, fat
 }
 
+/// Week/Month/All-Time average for each macro, side by side - a single
+/// number (like the old "avg calories this week") can't show whether
+/// you're looking at a blip or a sustained pattern, which is the whole
+/// point of adding month/all-time alongside it.
+private struct MacroAveragesTable: View {
+    let stats: NutritionTrendStats
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 8) {
+            GridRow {
+                Text("")
+                Text("Week").gridColumnAlignment(.trailing)
+                Text("Month").gridColumnAlignment(.trailing)
+                Text("All-Time").gridColumnAlignment(.trailing)
+            }
+            .font(.caption2.bold())
+            .foregroundStyle(.secondary)
+
+            row(label: "Calories", averages: stats.calories, unit: "kcal")
+            row(label: "Protein", averages: stats.protein, unit: "g")
+            row(label: "Carbs", averages: stats.carbs, unit: "g")
+            row(label: "Fat", averages: stats.fat, unit: "g")
+        }
+    }
+
+    @ViewBuilder
+    private func row(label: String, averages: PeriodAverages, unit: String) -> some View {
+        GridRow {
+            Text(label).font(.caption)
+            valueText(averages.week, unit: unit)
+            valueText(averages.month, unit: unit)
+            valueText(averages.allTime, unit: unit)
+        }
+    }
+
+    @ViewBuilder
+    private func valueText(_ value: Double?, unit: String) -> some View {
+        if let value {
+            Text(unit == "kcal" ? "\(Int(value)) kcal" : "\(Int(value))\(unit)")
+                .font(.caption)
+        } else {
+            Text("\u{2014}")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 private enum NutritionTrendMetric: String, CaseIterable, Identifiable {
     case calories = "Calories"
     case protein = "Protein"
+    case carbs = "Carbs"
+    case fat = "Fat"
     var id: String { rawValue }
+
+    var unit: String {
+        self == .calories ? "kcal" : "g"
+    }
+
+    var color: Color {
+        switch self {
+        case .calories: .orange
+        case .protein: .blue
+        case .carbs: .green
+        case .fat: .yellow
+        }
+    }
+
+    func value(for log: NutritionLog) -> Double {
+        switch self {
+        case .calories: log.calories
+        case .protein: log.proteinG
+        case .carbs: log.carbsG
+        case .fat: log.fatG
+        }
+    }
+}
+
+/// One macro's average over three rolling windows - week and month are
+/// rolling (last 7/30 days ending today), not calendar-anchored, matching
+/// how "this week" is already treated elsewhere in the app (e.g. the
+/// weekly check-in recap). `nil` means nothing was logged at all in that
+/// window, not zero.
+private struct PeriodAverages {
+    let week: Double?
+    let month: Double?
+    let allTime: Double?
+}
+
+private struct NutritionTrendStats {
+    let calories: PeriodAverages
+    let protein: PeriodAverages
+    let carbs: PeriodAverages
+    let fat: PeriodAverages
+    let caloriesTrend: TrendDirection?
+
+    func averages(for metric: NutritionTrendMetric) -> PeriodAverages {
+        switch metric {
+        case .calories: calories
+        case .protein: protein
+        case .carbs: carbs
+        case .fat: fat
+        }
+    }
+}
+
+/// Apple Health-style time-range switcher for the trend chart (its own
+/// Activity/Steps/etc. detail screens use a W/M/6M/Y segmented control to
+/// re-scope the same graph). Nutrition is logged once a day rather than
+/// continuously, so there's no meaningful "D" (day) option the way Health
+/// has one - W is the shortest range here.
+private enum NutritionChartRange: String, CaseIterable, Identifiable {
+    case week = "W"
+    case month = "M"
+    case sixMonth = "6M"
+    case year = "Y"
+    var id: String { rawValue }
+
+    var daysBack: Int {
+        switch self {
+        case .week: 7
+        case .month: 30
+        case .sixMonth: 183
+        case .year: 365
+        }
+    }
+
+    /// Health re-buckets its own longer ranges into weekly/monthly bars
+    /// rather than plotting hundreds of daily ones - matching that here is
+    /// what keeps 6M/Y readable instead of an illegible wall of bars.
+    var bucket: Calendar.Component? {
+        switch self {
+        case .week, .month: nil
+        case .sixMonth: .weekOfYear
+        case .year: .month
+        }
+    }
+
+    var barUnit: Calendar.Component {
+        bucket ?? .day
+    }
+}
+
+/// Week-over-week direction for calories specifically - the one macro
+/// where "which way is this actually moving" matters most for judging
+/// whether a cut/bulk is on track. Needs at least one logged day in both
+/// the most recent 7-day window and the 7 days before that to say
+/// anything at all.
+private enum TrendDirection {
+    case up, down, flat
+
+    var icon: String {
+        switch self {
+        case .up: "arrow.up.right"
+        case .down: "arrow.down.right"
+        case .flat: "arrow.right"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .up: "Calories trending up over the past week."
+        case .down: "Calories trending down over the past week."
+        case .flat: "Calories holding steady over the past week."
+        }
+    }
 }
 
 struct NutritionEntryView: View {
@@ -19,9 +181,14 @@ struct NutritionEntryView: View {
     @State private var carbs = ""
     @State private var fat = ""
     @State private var recentLogs: [NutritionLog] = []
+    /// A much longer history than `recentLogs` - powers the trend chart and
+    /// the week/month/all-time averages, which need more than the last 14
+    /// days to say anything meaningful about "all time."
+    @State private var allLogs: [NutritionLog] = []
     @State private var currentLogSource: String?
     @State private var goal: UserGoal?
     @State private var trendMetric: NutritionTrendMetric = .calories
+    @State private var chartRange: NutritionChartRange = .month
     @State private var showingManualEntry = false
     @State private var errorMessage: String?
     private let repository = NutritionRepository()
@@ -95,17 +262,24 @@ struct NutritionEntryView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    if trendPoints.count < 2 {
+                    Picker("Range", selection: $chartRange) {
+                        ForEach(NutritionChartRange.allCases) { range in
+                            Text(range.rawValue).tag(range)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if chartBars.count < 2 {
                         Text("Log a few more days to see a trend.")
                             .foregroundStyle(.secondary)
                     } else {
                         Chart {
-                            ForEach(trendPoints) { point in
+                            ForEach(chartBars) { bar in
                                 BarMark(
-                                    x: .value("Date", point.date, unit: .day),
-                                    y: .value(trendMetric.rawValue, trendMetric == .calories ? point.calories : point.protein)
+                                    x: .value("Date", bar.date, unit: chartRange.barUnit),
+                                    y: .value(trendMetric.rawValue, bar.value)
                                 )
-                                .foregroundStyle(trendMetric == .calories ? Color.orange : Color.blue)
+                                .foregroundStyle(trendMetric.color)
                             }
                             if let targetLine {
                                 RuleMark(y: .value("Target", targetLine))
@@ -117,33 +291,22 @@ struct NutritionEntryView: View {
                         .padding(.vertical, 4)
                     }
 
-                    if let weeklyAverage {
-                        Divider()
-                        HStack {
-                            Text("Avg calories")
-                            Spacer()
-                            Text("\(Int(weeklyAverage.calories)) kcal")
-                                .foregroundStyle(.secondary)
-                        }
-                        if let target = goal?.dailyCalorieTarget {
-                            Text(deltaText(avg: weeklyAverage.calories, target: target, unit: "kcal"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        HStack {
-                            Text("Avg protein")
-                            Spacer()
-                            Text("\(Int(weeklyAverage.protein))g")
-                                .foregroundStyle(.secondary)
-                        }
-                        if let target = goal?.proteinGTarget {
-                            Text(deltaText(avg: weeklyAverage.protein, target: target, unit: "g"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Text("Based on your last \(weeklyAverage.days) logged day\(weeklyAverage.days == 1 ? "" : "s").")
-                            .font(.caption2)
+                    if let target = targetLine, let weekAvg = trendStats?.averages(for: trendMetric).week {
+                        Text(deltaText(avg: weekAvg, target: target, unit: trendMetric.unit))
+                            .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+
+                    if let trendStats {
+                        Divider()
+                        MacroAveragesTable(stats: trendStats)
+                            .padding(.vertical, 4)
+
+                        if let direction = trendStats.caloriesTrend {
+                            Label(direction.description, systemImage: direction.icon)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -165,6 +328,7 @@ struct NutritionEntryView: View {
             .task {
                 await loadForSelectedDate()
                 await loadRecent()
+                await loadAllLogs()
                 await loadGoal()
             }
             .sheet(isPresented: $showingManualEntry) {
@@ -177,6 +341,7 @@ struct NutritionEntryView: View {
                 ) {
                     await loadForSelectedDate()
                     await loadRecent()
+                    await loadAllLogs()
                 }
             }
         }
@@ -200,34 +365,120 @@ struct NutritionEntryView: View {
         ]
     }
 
-    private struct TrendPoint: Identifiable {
+    private struct ChartBar: Identifiable {
         let id = UUID()
         let date: Date
-        let calories: Double
-        let protein: Double
+        let value: Double
     }
 
-    private var trendPoints: [TrendPoint] {
-        recentLogs.compactMap { log in
-            guard let date = DateFormatting.date(fromISODate: log.date) else { return nil }
-            return TrendPoint(date: date, calories: log.calories, protein: log.proteinG)
+    /// Sliced from `allLogs` to whichever range is selected (W/M/6M/Y).
+    /// W and M plot one bar per logged day, same as before; 6M and Y
+    /// re-bucket into weekly/monthly averages instead - a year of daily
+    /// bars would be unreadable, and averaging (not summing) is what makes
+    /// a bucketed bar comparable to a daily one on the same y-axis.
+    private var chartBars: [ChartBar] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        guard let cutoff = calendar.date(byAdding: .day, value: -(chartRange.daysBack - 1), to: today) else { return [] }
+        let logsInRange = allLogs.filter { log in
+            guard let date = DateFormatting.date(fromISODate: log.date) else { return false }
+            return date >= cutoff
+        }
+
+        guard let bucket = chartRange.bucket else {
+            return logsInRange.compactMap { log -> ChartBar? in
+                guard let date = DateFormatting.date(fromISODate: log.date) else { return nil }
+                return ChartBar(date: date, value: trendMetric.value(for: log))
+            }.sorted { $0.date < $1.date }
+        }
+
+        let grouped = Dictionary(grouping: logsInRange) { log -> Date in
+            guard let date = DateFormatting.date(fromISODate: log.date) else { return today }
+            return calendar.dateInterval(of: bucket, for: date)?.start ?? date
+        }
+        return grouped.map { bucketStart, logs in
+            let average = logs.reduce(0.0) { $0 + trendMetric.value(for: $1) } / Double(logs.count)
+            return ChartBar(date: bucketStart, value: average)
         }.sorted { $0.date < $1.date }
     }
 
     private var targetLine: Double? {
         guard let goal else { return nil }
-        return trendMetric == .calories ? goal.dailyCalorieTarget : goal.proteinGTarget
+        switch trendMetric {
+        case .calories: return goal.dailyCalorieTarget
+        case .protein: return goal.proteinGTarget
+        case .carbs: return goal.carbsGTarget
+        case .fat: return goal.fatGTarget
+        }
     }
 
-    /// Averages the most recently *logged* days (not a strict calendar
-    /// week) - `recentLogs` is already ordered most-recent-first, so this
-    /// is simply its first 7 entries.
-    private var weeklyAverage: (calories: Double, protein: Double, days: Int)? {
-        let sample = Array(recentLogs.prefix(7))
+    private var trendStats: NutritionTrendStats? {
+        guard !allLogs.isEmpty else { return nil }
+        func averages(_ metric: NutritionTrendMetric) -> PeriodAverages {
+            PeriodAverages(
+                week: average(metric, sinceDaysAgo: 7),
+                month: average(metric, sinceDaysAgo: 30),
+                allTime: average(metric, sinceDaysAgo: nil)
+            )
+        }
+        return NutritionTrendStats(
+            calories: averages(.calories),
+            protein: averages(.protein),
+            carbs: averages(.carbs),
+            fat: averages(.fat),
+            caloriesTrend: caloriesTrendDirection
+        )
+    }
+
+    /// `sinceDaysAgo: nil` means all time - no lower bound at all.
+    private func average(_ metric: NutritionTrendMetric, sinceDaysAgo days: Int?) -> Double? {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let sample: [NutritionLog]
+        if let days, let cutoff = calendar.date(byAdding: .day, value: -(days - 1), to: today) {
+            sample = allLogs.filter { log in
+                guard let date = DateFormatting.date(fromISODate: log.date) else { return false }
+                return date >= cutoff
+            }
+        } else {
+            sample = allLogs
+        }
         guard !sample.isEmpty else { return nil }
-        let avgCalories = sample.reduce(0.0) { $0 + $1.calories } / Double(sample.count)
-        let avgProtein = sample.reduce(0.0) { $0 + $1.proteinG } / Double(sample.count)
-        return (avgCalories, avgProtein, sample.count)
+        return sample.reduce(0.0) { $0 + metric.value(for: $1) } / Double(sample.count)
+    }
+
+    /// This week's average calories vs. the week before it - needs at
+    /// least one logged day in both windows to say anything; a
+    /// less-than-3%-or-30kcal difference reads as "holding steady" rather
+    /// than flip-flopping direction on noise.
+    private var caloriesTrendDirection: TrendDirection? {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        guard
+            let recentStart = calendar.date(byAdding: .day, value: -6, to: today),
+            let priorStart = calendar.date(byAdding: .day, value: -13, to: today),
+            let priorEnd = calendar.date(byAdding: .day, value: -7, to: today)
+        else { return nil }
+
+        func avgCalories(from start: Date, to end: Date) -> Double? {
+            let sample = allLogs.filter { log in
+                guard let date = DateFormatting.date(fromISODate: log.date) else { return false }
+                return date >= start && date <= end
+            }
+            guard !sample.isEmpty else { return nil }
+            return sample.reduce(0.0) { $0 + $1.calories } / Double(sample.count)
+        }
+
+        guard
+            let recentAvg = avgCalories(from: recentStart, to: today),
+            let priorAvg = avgCalories(from: priorStart, to: priorEnd)
+        else { return nil }
+
+        let diff = recentAvg - priorAvg
+        let threshold = max(priorAvg * 0.03, 30)
+        if diff > threshold { return .up }
+        if diff < -threshold { return .down }
+        return .flat
     }
 
     private func deltaText(avg: Double, target: Double, unit: String) -> String {
@@ -263,6 +514,13 @@ struct NutritionEntryView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// A generous cap (~10 years of daily logs) rather than a literal
+    /// unbounded fetch - functionally "all time" for how long anyone would
+    /// realistically use this app, without an open-ended query.
+    private func loadAllLogs() async {
+        allLogs = (try? await repository.fetchRecent(days: 3650)) ?? []
     }
 
     private func loadGoal() async {
