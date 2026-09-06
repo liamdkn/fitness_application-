@@ -49,7 +49,7 @@ struct WorkoutDetailView: View {
                 }
             }
         }
-        .navigationTitle(dayLabel ?? workout.name ?? "Workout")
+        .navigationTitle(dayLabel ?? workout.name ?? (workout.routineDayId == nil ? "Open Workout" : "Workout"))
         .task { await load() }
     }
 

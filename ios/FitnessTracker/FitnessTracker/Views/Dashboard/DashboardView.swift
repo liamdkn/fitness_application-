@@ -158,6 +158,20 @@ struct DashboardView: View {
                                     "Goal": Color.red.opacity(0.6)
                                 ])
                                 .chartYScale(domain: weightChartDomain)
+                                .chartXAxis {
+                                    // Tick density/label format follows the
+                                    // selected range, not a fixed format for
+                                    // every range - a week's worth of daily
+                                    // dots reads fine with a tick every day,
+                                    // but the same format crammed across 6
+                                    // months of dots would be unreadable, so
+                                    // that range steps by month instead.
+                                    AxisMarks(values: .stride(by: weightChartAxisUnit, count: weightChartAxisStrideCount)) { _ in
+                                        AxisGridLine()
+                                        AxisTick()
+                                        AxisValueLabel(format: weightChartAxisDateFormat)
+                                    }
+                                }
                                 .frame(height: 140)
                             }
                             if canShowGoalLine {
@@ -221,6 +235,25 @@ struct DashboardView: View {
     /// raw dots yet.
     private var showTrendLine: Bool { viewModel.weightTrendPoints.count >= 3 }
 
+    private var weightChartAxisUnit: Calendar.Component {
+        weightChartRange == .sixMonths ? .month : .day
+    }
+
+    private var weightChartAxisStrideCount: Int {
+        switch weightChartRange {
+        case .week: 1
+        case .twoWeeks: 2
+        case .month: 5
+        case .sixMonths: 1
+        }
+    }
+
+    private var weightChartAxisDateFormat: Date.FormatStyle {
+        weightChartRange == .sixMonths
+            ? .dateTime.month(.abbreviated)
+            : .dateTime.day().month(.abbreviated)
+    }
+
     private var weightChartDomain: ClosedRange<Double> {
         var weights = viewModel.recentWeights.map(\.weightKg)
         weights.append(contentsOf: viewModel.weightTrendPoints.map(\.weightKg))
@@ -244,10 +277,15 @@ struct DashboardView: View {
     }
 
     private var goalLinePoints: [GoalLinePoint] {
+        // `phaseStartedAt`, not `effectiveFrom` - `startingWeightKg` was
+        // captured once at the true start of the phase, so a mid-phase
+        // nutrition-target adjustment (a new row with a later
+        // `effectiveFrom`) shouldn't yank this projection's anchor forward
+        // to today.
         guard let goal = viewModel.goal,
               let startingWeightKg = goal.startingWeightKg,
               let weeklyRate = goal.weeklyWeightChangeKg,
-              let startDate = ISO8601DateFormatter().date(from: goal.effectiveFrom + "T00:00:00Z")
+              let startDate = ISO8601DateFormatter().date(from: goal.phaseStartedAt + "T00:00:00Z")
         else { return [] }
 
         let today = Date()

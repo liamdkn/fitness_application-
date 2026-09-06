@@ -19,6 +19,11 @@ struct UserPreferencesRepository {
         let step_source: String
     }
 
+    private struct UpsertEnabledCardioTypes: Encodable {
+        let user_id: UUID
+        let enabled_cardio_types: [String]
+    }
+
     func fetch() async throws -> UserPreferences {
         let userId = try await client.auth.session.user.id
         let rows: [UserPreferences] = try await client
@@ -28,7 +33,12 @@ struct UserPreferencesRepository {
             .limit(1)
             .execute()
             .value
-        return rows.first ?? UserPreferences(weeklyCheckinWeekday: 2, cardioStepExclusionEnabled: false, stepSource: .merged)
+        return rows.first ?? UserPreferences(
+            weeklyCheckinWeekday: 2,
+            cardioStepExclusionEnabled: false,
+            stepSource: .merged,
+            enabledCardioTypes: [CardioType.inclineTreadmill.rawValue, CardioType.stairmaster.rawValue]
+        )
     }
 
     @discardableResult
@@ -67,6 +77,21 @@ struct UserPreferencesRepository {
         let saved: [UserPreferences] = try await client
             .from("user_preferences")
             .upsert(UpsertStepSource(user_id: userId, step_source: source.rawValue), onConflict: "user_id")
+            .select()
+            .execute()
+            .value
+        guard let preferences = saved.first else {
+            throw RepositoryError.insertFailed
+        }
+        return preferences
+    }
+
+    @discardableResult
+    func setEnabledCardioTypes(_ types: [CardioType]) async throws -> UserPreferences {
+        let userId = try await client.auth.session.user.id
+        let saved: [UserPreferences] = try await client
+            .from("user_preferences")
+            .upsert(UpsertEnabledCardioTypes(user_id: userId, enabled_cardio_types: types.map(\.rawValue)), onConflict: "user_id")
             .select()
             .execute()
             .value

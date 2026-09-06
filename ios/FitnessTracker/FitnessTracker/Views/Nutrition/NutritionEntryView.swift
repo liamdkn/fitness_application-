@@ -223,7 +223,12 @@ struct NutritionEntryView: View {
                         )
                         .datePickerStyle(.compact)
                         .labelsHidden()
-                        .onChange(of: selectedDate) { _, _ in Task { await loadForSelectedDate() } }
+                        .onChange(of: selectedDate) { _, _ in
+                            Task {
+                                await loadForSelectedDate()
+                                await loadGoal()
+                            }
+                        }
                         Spacer()
                         Button {
                             changeDay(by: 1)
@@ -350,7 +355,10 @@ struct NutritionEntryView: View {
     private func changeDay(by offset: Int) {
         guard let newDate = Calendar.current.date(byAdding: .day, value: offset, to: selectedDate) else { return }
         selectedDate = newDate
-        Task { await loadForSelectedDate() }
+        Task {
+            await loadForSelectedDate()
+            await loadGoal()
+        }
     }
 
     /// Rings reflect whichever date is selected - the currently loaded
@@ -523,8 +531,15 @@ struct NutritionEntryView: View {
         allLogs = (try? await repository.fetchRecent(days: 3650)) ?? []
     }
 
+    /// Point-in-time, not "whatever's active today" - the date picker
+    /// above lets you look at a past day, and its macro rings/targets
+    /// should reflect whatever phase was actually active then, not
+    /// today's (possibly since-adjusted) numbers.
     private func loadGoal() async {
-        goal = try? await goalsRepository.fetchCurrentGoal()
+        let allGoals = ((try? await goalsRepository.fetchPastGoals(limit: 100)) ?? [])
+            .sorted { $0.effectiveFrom < $1.effectiveFrom }
+        let isoDate = DateFormatting.isoDate(selectedDate)
+        goal = allGoals.last { $0.effectiveFrom <= isoDate }
     }
 }
 

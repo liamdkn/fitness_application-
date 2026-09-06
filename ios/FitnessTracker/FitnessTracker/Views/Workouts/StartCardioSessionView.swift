@@ -1,12 +1,15 @@
 import SwiftUI
 
 struct StartCardioSessionView: View {
-    @State private var cardioType: CardioType = .treadmill
+    @State private var cardioType: CardioType = .inclineTreadmill
+    @State private var enabledTypes: [CardioType] = [.inclineTreadmill, .stairmaster]
+    @State private var showingManageTypes = false
     @State private var stepsBeforeText = ""
     @State private var errorMessage: String?
     @State private var isStarting = false
     @State private var startedSession: CardioTrackingSession?
     private let repository = CardioSessionRepository()
+    private let preferencesRepository = UserPreferencesRepository()
 
     private var stepsBeforeValue: Int? { Int(stepsBeforeText) }
 
@@ -18,9 +21,12 @@ struct StartCardioSessionView: View {
         Form {
             Section("Cardio Type") {
                 Picker("Type", selection: $cardioType) {
-                    ForEach(CardioType.allCases) { type in
+                    ForEach(enabledTypes) { type in
                         Text(type.displayName).tag(type)
                     }
+                }
+                Button("Add to List") {
+                    showingManageTypes = true
                 }
             }
 
@@ -58,6 +64,41 @@ struct StartCardioSessionView: View {
         .scrollDismissesKeyboard(.interactively)
         .navigationDestination(item: $startedSession) { session in
             CardioSessionLiveView(session: session)
+        }
+        .task { await loadEnabledTypes() }
+        .sheet(isPresented: $showingManageTypes) {
+            ManageCardioTypesView(enabledTypes: enabledTypes) { updated in
+                await saveEnabledTypes(updated)
+            }
+        }
+    }
+
+    private func loadEnabledTypes() async {
+        do {
+            let preferences = try await preferencesRepository.fetch()
+            let types = preferences.enabledCardioTypes.compactMap(CardioType.init(rawValue:))
+            applyEnabledTypes(types.isEmpty ? [.inclineTreadmill, .stairmaster] : types)
+        } catch {
+            // Advisory only - the built-in default list still works offline.
+        }
+    }
+
+    private func saveEnabledTypes(_ types: [CardioType]) async {
+        applyEnabledTypes(types)
+        do {
+            try await preferencesRepository.setEnabledCardioTypes(types)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Keeps the current selection valid whenever the enabled list changes -
+    /// otherwise unchecking the currently-selected type in "Add to List"
+    /// would leave `cardioType` pointing at a type no longer in the picker.
+    private func applyEnabledTypes(_ types: [CardioType]) {
+        enabledTypes = types
+        if !types.contains(cardioType) {
+            cardioType = types.first ?? .other
         }
     }
 

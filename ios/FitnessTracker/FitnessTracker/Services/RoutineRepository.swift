@@ -284,6 +284,23 @@ struct RoutineRepository {
             .eq("id", value: dayExerciseId)
             .execute()
     }
+
+    private struct ReorderParams: Encodable {
+        let p_routine_day_id: UUID
+        let p_ordered_ids: [UUID]
+    }
+
+    /// Persists a drag-to-reorder - `orderedIds` is every exercise in the
+    /// day, in its new display order. One RPC call rather than N separate
+    /// position updates, since a naive per-row update sequence can collide
+    /// with the day's own (routine_day_id, position) unique constraint
+    /// mid-reshuffle; see the migration for why the single-statement
+    /// version doesn't have that problem.
+    func reorderExercises(routineDayId: UUID, orderedIds: [UUID]) async throws {
+        try await client
+            .rpc("reorder_routine_day_exercises", params: ReorderParams(p_routine_day_id: routineDayId, p_ordered_ids: orderedIds))
+            .execute()
+    }
 }
 
 enum RepositoryError: Error {

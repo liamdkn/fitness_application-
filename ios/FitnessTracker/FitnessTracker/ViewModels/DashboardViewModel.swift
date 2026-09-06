@@ -30,7 +30,7 @@ final class DashboardViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        async let goalResult = try? goalsRepository.fetchCurrentGoal()
+        async let pastGoalsResult = try? goalsRepository.fetchPastGoals(limit: 100)
         async let nutritionResult = try? nutritionRepository.fetchLog(date: date)
         async let stepsResult = try? healthRepository.fetchStepLog(date: date)
         async let sleepResult = try? healthRepository.fetchSleepLog(date: date)
@@ -38,7 +38,13 @@ final class DashboardViewModel: ObservableObject {
         async let preferencesResult = try? preferencesRepository.fetch()
         async let cardioSessionsResult = try? cardioStepSessionRepository.fetchSessions(date: date)
 
-        goal = await goalResult ?? nil
+        // Point-in-time, not "whatever's active today" - the day-selector
+        // chevrons let you look at a past day, and that day's calorie/
+        // protein/etc. targets should reflect whatever phase was actually
+        // active then, not today's (possibly since-adjusted) numbers.
+        let allGoals = (await pastGoalsResult ?? []).sorted { $0.effectiveFrom < $1.effectiveFrom }
+        let isoDate = DateFormatting.isoDate(date)
+        goal = allGoals.last { $0.effectiveFrom <= isoDate }
         todayNutrition = await nutritionResult ?? nil
         todaySteps = (await stepsResult ?? nil)?.stepCount
         lastNightSleepMinutes = (await sleepResult ?? nil)?.totalSleepMinutes

@@ -2,6 +2,7 @@ import Foundation
 
 enum CardioType: String, CaseIterable, Identifiable, Codable {
     case treadmill
+    case inclineTreadmill = "incline_treadmill"
     case outdoorRun = "outdoor_run"
     case outdoorWalk = "outdoor_walk"
     case stairmaster
@@ -16,6 +17,7 @@ enum CardioType: String, CaseIterable, Identifiable, Codable {
     var displayName: String {
         switch self {
         case .treadmill: return "Treadmill"
+        case .inclineTreadmill: return "Incline Walk"
         case .outdoorRun: return "Run"
         case .outdoorWalk: return "Walk"
         case .stairmaster: return "Stairmaster"
@@ -33,7 +35,7 @@ enum CardioType: String, CaseIterable, Identifiable, Codable {
     /// step total. Bike/elliptical/rowing/swimming don't generate steps.
     var involvesSteps: Bool {
         switch self {
-        case .treadmill, .outdoorRun, .outdoorWalk, .stairmaster: return true
+        case .treadmill, .inclineTreadmill, .outdoorRun, .outdoorWalk, .stairmaster: return true
         case .bike, .elliptical, .rowing, .swimming, .other: return false
         }
     }

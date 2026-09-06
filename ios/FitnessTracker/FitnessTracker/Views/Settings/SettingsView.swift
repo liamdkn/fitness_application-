@@ -22,6 +22,12 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Health") {
+                    NavigationLink("Injuries") {
+                        InjuriesView()
+                    }
+                }
+
                 Section("Weekly Check-In") {
                     Picker("Check-In Day", selection: $weeklyCheckinWeekday) {
                         ForEach(1...7, id: \.self) { weekday in

@@ -108,6 +108,15 @@ struct EditableSetRow: View {
     @State private var kgText = ""
     @State private var repsText = ""
     @State private var rpeText = ""
+    /// Debounced copies of `kgText`/`repsText`, used only to decide whether
+    /// to show the "looks off" warning - typing "18" passes through "1"
+    /// first, which alone genuinely looks way off from a reference of say
+    /// 10, so judging the warning against every keystroke flashed it on
+    /// briefly before the rest of the number arrived. `resolvedWeight`/
+    /// `resolvedReps` (what actually gets saved) still read the live text
+    /// with no delay - only the warning waits.
+    @State private var debouncedKgText = ""
+    @State private var debouncedRepsText = ""
 
     private var resolvedWeight: Double? {
         Double(kgText) ?? placeholder?.weightKg
@@ -128,13 +137,13 @@ struct EditableSetRow: View {
     private var repsReference: Int? { placeholder?.reps ?? previous?.reps }
 
     private var weightLooksOff: Bool {
-        guard let entered = Double(kgText), let reference = weightReference, reference > 0 else { return false }
+        guard let entered = Double(debouncedKgText), let reference = weightReference, reference > 0 else { return false }
         let ratio = entered / reference
         return ratio > 1.8 || ratio < 0.5
     }
 
     private var repsLooksOff: Bool {
-        guard let entered = Int(repsText), let reference = repsReference, reference > 0 else { return false }
+        guard let entered = Int(debouncedRepsText), let reference = repsReference, reference > 0 else { return false }
         let ratio = Double(entered) / Double(reference)
         return ratio > 2.5 || ratio < 0.35
     }
@@ -207,6 +216,12 @@ struct EditableSetRow: View {
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.center)
                 .frame(width: 56)
+            // Blank, but reserved at the same 50pt width as `ConfirmedSetRow`'s
+            // "+Drop" slot - without this, an editable row has less
+            // fixed-width content than a confirmed row does, so the two
+            // don't line up under the same header (see `SetGridHeader`'s
+            // matching placeholder for the full explanation).
+            Color.clear.frame(width: 50, height: 1)
             Button {
                 guard let reps = resolvedReps, let weight = resolvedWeight else { return }
                 onConfirm(reps, weight, resolvedRPE, kind == .drop)
@@ -218,6 +233,16 @@ struct EditableSetRow: View {
             .disabled(resolvedReps == nil || resolvedWeight == nil)
         }
         .padding(.vertical, 2)
+        .task(id: kgText) {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            debouncedKgText = kgText
+        }
+        .task(id: repsText) {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            debouncedRepsText = repsText
+        }
     }
 
 }
@@ -313,6 +338,13 @@ struct SetGridHeader: View {
                 }
             }
             .frame(width: 56, alignment: .center)
+            // Reserves the same 50pt `ConfirmedSetRow` gives its "+Drop"
+            // slot (always present there, shown or not) - without an
+            // equal-width placeholder here, a confirmed row has 50pt more
+            // fixed-width content than this header, so its own `Spacer`
+            // shrinks to compensate and every column after it lands 50pt
+            // left of where the header says it should be.
+            Color.clear.frame(width: 50, height: 1)
             Image(systemName: "checkmark").frame(width: 24).opacity(0)
         }
         .font(.caption2)

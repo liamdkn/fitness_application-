@@ -20,7 +20,19 @@ struct WorkoutRatingSheet: View {
                     .labelsHidden()
                 }
 
-                Section {
+            }
+            .navigationTitle("Workout Finished")
+            .interactiveDismissDisabled()
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Skip") {
+                        Task {
+                            await onSave(nil)
+                            dismiss()
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         isSaving = true
                         Task {
@@ -36,18 +48,6 @@ struct WorkoutRatingSheet: View {
                         }
                     }
                     .disabled(isSaving)
-                }
-            }
-            .navigationTitle("Workout Finished")
-            .interactiveDismissDisabled()
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Skip") {
-                        Task {
-                            await onSave(nil)
-                            dismiss()
-                        }
-                    }
                 }
             }
         }

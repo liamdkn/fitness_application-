@@ -11,6 +11,7 @@ struct GoalsRepository {
     private struct UserGoalRPCResult: Decodable {
         let id: UUID?
         let effectiveFrom: String?
+        let phaseStartedAt: String?
         let phaseType: GoalPhaseType?
         let startingWeightKg: Double?
         let durationWeeks: Int?
@@ -30,6 +31,7 @@ struct GoalsRepository {
         enum CodingKeys: String, CodingKey {
             case id
             case effectiveFrom = "effective_from"
+            case phaseStartedAt = "phase_started_at"
             case phaseType = "phase_type"
             case startingWeightKg = "starting_weight_kg"
             case durationWeeks = "duration_weeks"
@@ -55,6 +57,7 @@ struct GoalsRepository {
             return UserGoal(
                 id: id,
                 effectiveFrom: effectiveFrom,
+                phaseStartedAt: phaseStartedAt ?? effectiveFrom,
                 phaseType: phaseType,
                 startingWeightKg: startingWeightKg,
                 durationWeeks: durationWeeks,
@@ -77,6 +80,7 @@ struct GoalsRepository {
     private struct UpsertGoal: Encodable {
         let user_id: UUID
         let effective_from: String
+        let phase_started_at: String
         let phase_type: GoalPhaseType
         let starting_weight_kg: Double?
         let duration_weeks: Int
@@ -116,6 +120,7 @@ struct GoalsRepository {
     private struct FetchedUserGoal: Decodable {
         let id: UUID
         let effectiveFrom: String
+        let phaseStartedAt: String?
         let phaseType: GoalPhaseType
         let startingWeightKg: Double?
         let durationWeeks: Int
@@ -135,6 +140,7 @@ struct GoalsRepository {
         enum CodingKeys: String, CodingKey {
             case id
             case effectiveFrom = "effective_from"
+            case phaseStartedAt = "phase_started_at"
             case phaseType = "phase_type"
             case startingWeightKg = "starting_weight_kg"
             case durationWeeks = "duration_weeks"
@@ -156,6 +162,7 @@ struct GoalsRepository {
             UserGoal(
                 id: id,
                 effectiveFrom: effectiveFrom,
+                phaseStartedAt: phaseStartedAt ?? effectiveFrom,
                 phaseType: phaseType,
                 startingWeightKg: startingWeightKg,
                 durationWeeks: durationWeeks,
@@ -177,13 +184,16 @@ struct GoalsRepository {
 
     /// Applies an adaptive-TDEE calorie recommendation to the current goal:
     /// writes a new phase row effective today with every field carried over
-    /// unchanged except the calorie target - the same "start a phase" shape
+    /// unchanged except the calorie target (and `phaseStartedAt`, which
+    /// stays put rather than resetting to today - this is the same phase,
+    /// just a mid-phase adjustment) - the same "start a phase" shape
     /// `StartNewPhaseView` writes, so the change shows up in phase history
     /// rather than silently mutating an existing row.
     @discardableResult
     func applyCalorieAdjustment(to goal: UserGoal, newCalorieTarget: Double) async throws -> UserGoal {
         try await saveGoal(
             effectiveFrom: Date(),
+            phaseStartedAt: DateFormatting.date(fromISODate: goal.phaseStartedAt) ?? Date(),
             phaseType: goal.phaseType,
             startingWeightKg: goal.startingWeightKg,
             durationWeeks: goal.durationWeeks,
@@ -224,6 +234,7 @@ struct GoalsRepository {
     @discardableResult
     func saveGoal(
         effectiveFrom: Date,
+        phaseStartedAt: Date,
         phaseType: GoalPhaseType,
         startingWeightKg: Double?,
         durationWeeks: Int,
@@ -244,6 +255,7 @@ struct GoalsRepository {
         let payload = UpsertGoal(
             user_id: userId,
             effective_from: DateFormatting.isoDate(effectiveFrom),
+            phase_started_at: DateFormatting.isoDate(phaseStartedAt),
             phase_type: phaseType,
             starting_weight_kg: startingWeightKg,
             duration_weeks: durationWeeks,

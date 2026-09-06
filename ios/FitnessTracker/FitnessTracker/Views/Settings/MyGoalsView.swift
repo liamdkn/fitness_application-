@@ -16,6 +16,7 @@ struct MyGoalsView: View {
     @State private var errorMessage: String?
     @State private var showingNewPhase = false
     @State private var showingEditPhase = false
+    @State private var showingAdjustNutrition = false
     private let repository = GoalsRepository()
     private let tdeeEstimateRepository = TDEEEstimateRepository()
     private let bodyWeightRepository = BodyWeightRepository()
@@ -30,6 +31,7 @@ struct MyGoalsView: View {
                 } else if let currentGoal {
                     currentPhaseCard(currentGoal)
                     Button("Edit Phase") { showingEditPhase = true }
+                    Button("Adjust Nutrition Targets") { showingAdjustNutrition = true }
                 } else {
                     Text("No active phase.")
                         .foregroundStyle(.secondary)
@@ -91,6 +93,13 @@ struct MyGoalsView: View {
         .sheet(isPresented: $showingEditPhase) {
             if let currentGoal {
                 EditPhaseView(goal: currentGoal) { _ in
+                    Task { await load() }
+                }
+            }
+        }
+        .sheet(isPresented: $showingAdjustNutrition) {
+            if let currentGoal {
+                AdjustNutritionTargetsView(currentGoal: currentGoal) { _ in
                     Task { await load() }
                 }
             }

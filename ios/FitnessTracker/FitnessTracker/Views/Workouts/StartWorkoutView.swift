@@ -10,6 +10,7 @@ struct StartWorkoutView: View {
     @State private var activeWorkout: Workout?
     @State private var todayCompletedWorkout: Workout?
     @State private var isStarting = false
+    @State private var isStartingOpen = false
     @State private var deloadSignal: DeloadSignal?
     @State private var volumeFlags: [MuscleGroupVolumeFlag] = []
     @State private var weeklyCardioMinutes = 0
@@ -137,6 +138,25 @@ struct StartWorkoutView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    // Always available (even on a rest day, or with no split
+                    // set up) so an unplanned gym session isn't blocked on
+                    // today's scheduled day - hidden only while another
+                    // workout is already active, same rule as the split's
+                    // own Start button.
+                    if activeWorkout == nil {
+                        Button {
+                            Task { await startOpenWorkout() }
+                        } label: {
+                            if isStartingOpen {
+                                ProgressView()
+                            } else {
+                                Label("Start Open Workout", systemImage: "bolt.fill")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isStartingOpen)
                     }
 
                     DashboardCard(title: "Cardio") {
@@ -289,6 +309,17 @@ struct StartWorkoutView: View {
         defer { isStarting = false }
         do {
             startedWorkout = try await offlineQueue.startWorkout(routineDayId: todayDay.id)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func startOpenWorkout() async {
+        guard activeWorkout == nil else { return }
+        isStartingOpen = true
+        defer { isStartingOpen = false }
+        do {
+            startedWorkout = try await offlineQueue.startWorkout(routineDayId: nil)
         } catch {
             errorMessage = error.localizedDescription
         }

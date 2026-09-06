@@ -180,6 +180,7 @@ struct StartNewPhaseView: View {
         do {
             let goal = try await repository.saveGoal(
                 effectiveFrom: startDate,
+                phaseStartedAt: startDate,
                 phaseType: phaseType,
                 startingWeightKg: Double(startingWeightKg),
                 durationWeeks: weeks,

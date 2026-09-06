@@ -38,6 +38,10 @@ final class ActiveWorkoutViewModel: ObservableObject {
     @Published var isFinished = false
     @Published var isCancelled = false
     @Published var restTimerEndDate: Date?
+    /// Muscle groups with a currently-unresolved injury - lets the view warn
+    /// on any exercise whose `primaryMuscleGroup` matches, without the view
+    /// itself needing to know about injuries at all.
+    @Published var activeInjuryMuscleGroups: Set<String> = []
 
     let restDurationSeconds: TimeInterval = 120
 
@@ -45,6 +49,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
     private let workoutRepository = WorkoutRepository()
     private let offlineQueue = OfflineWorkoutQueue.shared
     private let exerciseRepository = ExerciseRepository()
+    private let injuryRepository = InjuryRepository()
     private var notesSaveTask: Task<Void, Never>?
 
     init(workout: Workout) {
@@ -112,6 +117,9 @@ final class ActiveWorkoutViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+        // Advisory only - never blocks the workout from loading if this
+        // fails (offline, or any other error).
+        activeInjuryMuscleGroups = (try? await injuryRepository.fetchActiveMuscleGroups()) ?? []
     }
 
     /// Marks a resumed exercise's already-logged sets as confirmed and

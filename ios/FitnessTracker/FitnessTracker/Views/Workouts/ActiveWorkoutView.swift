@@ -173,6 +173,12 @@ struct ActiveWorkoutView: View {
 
     @ViewBuilder
     private func exerciseContext(for activeExercise: ActiveExercise) -> some View {
+        if let muscleGroup = activeExercise.exercise.primaryMuscleGroup,
+           viewModel.activeInjuryMuscleGroups.contains(muscleGroup) {
+            Label("You've logged an active \(MuscleGroup(rawValue: muscleGroup)?.displayName ?? muscleGroup.capitalized) injury - go easy here.", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
         if let suggestion = activeExercise.suggestion {
             VStack(alignment: .leading, spacing: 2) {
                 Text(suggestionHeadline(suggestion))

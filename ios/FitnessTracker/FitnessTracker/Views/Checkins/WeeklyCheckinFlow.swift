@@ -238,8 +238,12 @@ struct WeeklyCheckinFlow: View {
         do {
             activeGoal = try await goalsRepository.fetchCurrentGoal()
             if let activeGoal {
-                let effectiveFromDate = ISO8601DateFormatter().date(from: activeGoal.effectiveFrom + "T00:00:00Z") ?? Date()
-                let days = Calendar.current.dateComponents([.day], from: effectiveFromDate, to: Date()).day ?? 0
+                // `phaseStartedAt`, not `effectiveFrom` - a mid-phase
+                // nutrition-target adjustment inserts a new row with a
+                // later `effectiveFrom`, and week-counting shouldn't reset
+                // just because the numbers changed partway through.
+                let phaseStartedAtDate = ISO8601DateFormatter().date(from: activeGoal.phaseStartedAt + "T00:00:00Z") ?? Date()
+                let days = Calendar.current.dateComponents([.day], from: phaseStartedAtDate, to: Date()).day ?? 0
                 weekNumber = max(1, days / 7 + 1)
             }
             if let mostRecent = try await checkinRepository.fetchMostRecent(), let weight = mostRecent.weightKg {

@@ -27,7 +27,7 @@ struct WorkoutHistoryView: View {
                                 WorkoutDetailView(workout: workout)
                             } label: {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(workout.routineDayId.flatMap { dayLabels[$0] } ?? workout.name ?? "Workout")
+                                    Text(workout.routineDayId.flatMap { dayLabels[$0] } ?? workout.name ?? (workout.routineDayId == nil ? "Open Workout" : "Workout"))
                                         .font(.subheadline.bold())
                                         .foregroundStyle(.primary)
                                     HStack {
@@ -71,15 +71,26 @@ struct WorkoutHistoryView: View {
 
     private func load() async {
         do {
-            workouts = try await workoutRepository.fetchHistory()
-            let routineDayIds = Set(workouts.compactMap(\.routineDayId))
+            let fetched = try await workoutRepository.fetchHistory()
+            workouts = fetched
+            OfflineReferenceCache.save(fetched, key: "workout-history")
+            let routineDayIds = Set(fetched.compactMap(\.routineDayId))
             for dayId in routineDayIds where dayLabels[dayId] == nil {
                 if let day = try? await routineRepository.fetchDay(id: dayId) {
                     dayLabels[dayId] = day.label
                 }
             }
+            OfflineReferenceCache.save(dayLabels, key: "workout-history-day-labels")
         } catch {
-            errorMessage = error.localizedDescription
+            // Offline fallback: show the last successfully loaded list
+            // (same "last known good" pattern ActiveWorkoutViewModel uses
+            // for the exercise library) rather than an empty error screen.
+            if let cached = OfflineReferenceCache.load([Workout].self, key: "workout-history") {
+                workouts = cached
+                dayLabels = OfflineReferenceCache.load([UUID: String].self, key: "workout-history-day-labels") ?? [:]
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

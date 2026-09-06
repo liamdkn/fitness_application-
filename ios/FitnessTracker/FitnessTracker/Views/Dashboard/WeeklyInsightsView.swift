@@ -134,6 +134,25 @@ struct WeeklyInsightsView: View {
                         Text("No nutrition logged this week.")
                             .foregroundStyle(.secondary)
                     }
+
+                    if let nutritionDebt = viewModel.nutritionDebt, nutritionDebt.hasAny {
+                        Divider()
+                        Text("To Hit This Week's Goal")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                        if let debt = nutritionDebt.calories {
+                            MacroDebtRow(debt: debt, label: "Calories", unit: "kcal")
+                        }
+                        if let debt = nutritionDebt.protein {
+                            MacroDebtRow(debt: debt, label: "Protein", unit: "g")
+                        }
+                        if let debt = nutritionDebt.carbs {
+                            MacroDebtRow(debt: debt, label: "Carbs", unit: "g")
+                        }
+                        if let debt = nutritionDebt.fat {
+                            MacroDebtRow(debt: debt, label: "Fat", unit: "g")
+                        }
+                    }
                 }
 
                 Section("Weight") {
@@ -341,6 +360,38 @@ private struct StepsDebtView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// One macro's "how much per day for the rest of the week" figure - no
+/// ahead/behind-pace framing the way `StepsDebtView` has, since a low
+/// number here doesn't universally mean "good" (it can mean "you've
+/// already hit your share" just as easily as "ease off, you're over").
+private struct MacroDebtRow: View {
+    let debt: MacroDebt
+    let label: String
+    let unit: String
+
+    private func formatted(_ value: Double) -> String {
+        unit == "kcal" ? "\(Int(value.rounded())) kcal" : "\(Int(value.rounded()))\(unit)"
+    }
+
+    private var text: String {
+        if debt.completedDays == 0 { return "Week just started." }
+        guard debt.remainingDays > 0 else { return "Week complete." }
+        return "Need \(formatted(debt.requiredPerDayForRest))/day through Sunday to average \(formatted(debt.target)) (\(debt.remainingDays) day\(debt.remainingDays == 1 ? "" : "s") left)."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption)
+                .fontWeight(.semibold)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 1)
     }
 }
 

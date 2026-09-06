@@ -27,34 +27,10 @@ struct RoutineDayEditorView: View {
                 row(for: dayExercise)
             }
             .onDelete(perform: isLinking ? nil : { offsets in removeExercises(at: offsets) })
+            .onMove(perform: isLinking ? nil : { source, destination in moveExercises(from: source, to: destination) })
         }
         .navigationTitle(day.label)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    isLinking.toggle()
-                    selectedForLink = []
-                } label: {
-                    Image(systemName: isLinking ? "link.circle.fill" : "link")
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    if isLinking {
-                        Task { await pair() }
-                    } else {
-                        showingPicker = true
-                    }
-                } label: {
-                    if isLinking {
-                        Text("Pair")
-                    } else {
-                        Image(systemName: "plus")
-                    }
-                }
-                .disabled(isLinking && selectedForLink.count != 2)
-            }
-        }
+        .toolbar { toolbarContent }
         .task { await load() }
         .sheet(isPresented: $showingPicker) {
             ExercisePickerView { exercise in
@@ -76,6 +52,37 @@ struct RoutineDayEditorView: View {
             ) { sets, low, high, increment in
                 Task { await updateExercise(dayExercise, targetSets: sets, repRangeLow: low, repRangeHigh: high, weightIncrementKg: increment) }
             }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            EditButton()
+        }
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                isLinking.toggle()
+                selectedForLink = []
+            } label: {
+                Image(systemName: isLinking ? "link.circle.fill" : "link")
+            }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                if isLinking {
+                    Task { await pair() }
+                } else {
+                    showingPicker = true
+                }
+            } label: {
+                if isLinking {
+                    Text("Pair")
+                } else {
+                    Image(systemName: "plus")
+                }
+            }
+            .disabled(isLinking && selectedForLink.count != 2)
         }
     }
 
@@ -214,6 +221,22 @@ struct RoutineDayEditorView: View {
             }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Reorders locally first (instant drag feedback), then persists the
+    /// whole new order in one call - see `RoutineRepository.reorderExercises`
+    /// for why this has to be a single batch rather than N position updates.
+    private func moveExercises(from source: IndexSet, to destination: Int) {
+        dayExercises.move(fromOffsets: source, toOffset: destination)
+        let orderedIds = dayExercises.map(\.id)
+        Task {
+            do {
+                try await routineRepository.reorderExercises(routineDayId: day.id, orderedIds: orderedIds)
+            } catch {
+                errorMessage = error.localizedDescription
+                await load()
+            }
         }
     }
 

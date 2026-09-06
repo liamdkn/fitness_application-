@@ -47,6 +47,34 @@ struct MaintenanceInsight {
     var surplusOrDeficit: Double { avgCaloriesPerDay - estimatedTDEE }
 }
 
+/// Same "debt" framing as `StepsDebt`, applied to one nutrition macro -
+/// given what's been logged across this week's completed days (today's
+/// count, if anything's already been logged, folded in too, same as
+/// steps), how much this macro would need to average per day for the rest
+/// of the week to land the week on `target`. Unlike steps (always "more is
+/// fine"), a low `requiredPerDayForRest` can mean either "you've already
+/// hit your share" (calories/protein/carbs/fat all read this way when
+/// under target) or "ease off, you're already over" - the raw number
+/// doesn't carry that judgment on its own, which is why the UI states it
+/// plainly rather than framing it as "ahead/behind pace" the way steps does.
+struct MacroDebt {
+    let target: Double
+    let completedDays: Int
+    let remainingDays: Int
+    let requiredPerDayForRest: Double
+}
+
+struct NutritionDebtSummary {
+    let calories: MacroDebt?
+    let protein: MacroDebt?
+    let carbs: MacroDebt?
+    let fat: MacroDebt?
+
+    var hasAny: Bool {
+        calories != nil || protein != nil || carbs != nil || fat != nil
+    }
+}
+
 /// One week's overall adherence score, used to plot a multi-week trend at
 /// the top of Weekly Insights - `overall` is nil for a week that didn't
 /// have enough logged data to score at all (same "not enough data" meaning
@@ -64,6 +92,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
     @Published var summary: WeeklySummary?
     @Published var dailySteps: [DailyStepEntry] = []
     @Published var stepsDebt: StepsDebt?
+    @Published var nutritionDebt: NutritionDebtSummary?
     @Published var maintenanceInsight: MaintenanceInsight?
     @Published var weeklyAdherence: WeeklyAdherenceScore?
     /// Last `historyWeeksCount` weeks' overall scores, oldest first, ending
@@ -103,6 +132,20 @@ final class WeeklyInsightsViewModel: ObservableObject {
     /// the call that's still the most recent one when it finishes is
     /// allowed to commit its results.
     private var loadGeneration = 0
+
+    /// The phase actually in effect on a given date - the latest
+    /// `user_goals` row whose `effectiveFrom` is on or before that date.
+    /// `allGoals` must already be sorted ascending by `effectiveFrom` (see
+    /// `fetchPastGoals`) - this is pure client-side resolution, so a whole
+    /// week (or the trailing-history trend's several weeks) can reuse one
+    /// fetched list rather than a query per lookup. Point-in-time, not
+    /// "whatever's active today": navigating to a past week, or a
+    /// mid-phase nutrition-target adjustment since, shouldn't judge that
+    /// week against a target that didn't exist yet when it happened.
+    private func goalEffective(in allGoals: [UserGoal], asOf date: Date) -> UserGoal? {
+        let isoDate = DateFormatting.isoDate(date)
+        return allGoals.last { $0.effectiveFrom <= isoDate }
+    }
 
     /// `.weekday` is always 1=Sunday...7=Saturday regardless of the
     /// device's locale/first-weekday setting, so this arithmetic is
@@ -155,7 +198,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
         let daysElapsed = calendar.dateComponents([.day], from: weekStart, to: min(today, sundayThisWeek)).day ?? 0
         let completedDays = max(0, min(7, daysElapsed))
 
-        async let goalResult = try? goalsRepository.fetchCurrentGoal()
+        async let pastGoalsResult = try? goalsRepository.fetchPastGoals(limit: 100)
         async let volumeResult = try? workoutRepository.fetchVolumeKg(from: weekStart, to: sundayThisWeek)
         // Whole Monday-Sunday week in one fetch, reused for both the
         // day-by-day breakdown and the weekly adherence score - a single
@@ -177,7 +220,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
         // check below passes, so a stale, slower call from an earlier week
         // can never partially overwrite what a newer one already
         // committed (or is about to).
-        let resolvedGoal = await goalResult ?? nil
+        let allGoals = (await pastGoalsResult ?? []).sorted { $0.effectiveFrom < $1.effectiveFrom }
+        let resolvedGoal = goalEffective(in: allGoals, asOf: min(today, sundayThisWeek))
 
         // Mirrors the Dashboard's "exclude machine-counted cardio steps"
         // adjustment (DashboardView's `displaySteps`), which otherwise only
@@ -270,6 +314,32 @@ final class WeeklyInsightsViewModel: ObservableObject {
             )
         }()
 
+        // Same "banked so far, including today's live count" idea as steps,
+        // applied to each macro - built from `nutritionLogs` (already
+        // fetched above) rather than a separate query.
+        let nutritionByDate = Dictionary(uniqueKeysWithValues: nutritionLogs.map { ($0.date, $0) })
+        func macroDebt(target: Double?, keyPath: KeyPath<NutritionLog, Double>) -> MacroDebt? {
+            guard let target, target > 0 else { return nil }
+            var completedTotal = 0.0
+            for offset in 0..<completedDays {
+                guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else { continue }
+                if let log = nutritionByDate[DateFormatting.isoDate(date)] {
+                    completedTotal += log[keyPath: keyPath]
+                }
+            }
+            let todaysSoFar = isThisWeekCurrent ? (nutritionByDate[DateFormatting.isoDate(today)]?[keyPath: keyPath] ?? 0) : 0
+            let banked = completedTotal + todaysSoFar
+            let remainingDays = 7 - completedDays
+            let requiredPerDayForRest = remainingDays > 0 ? max(0, (target * 7 - banked) / Double(remainingDays)) : 0
+            return MacroDebt(target: target, completedDays: completedDays, remainingDays: remainingDays, requiredPerDayForRest: requiredPerDayForRest)
+        }
+        let resolvedNutritionDebt = NutritionDebtSummary(
+            calories: macroDebt(target: resolvedGoal?.dailyCalorieTarget, keyPath: \.calories),
+            protein: macroDebt(target: resolvedGoal?.proteinGTarget, keyPath: \.proteinG),
+            carbs: macroDebt(target: resolvedGoal?.carbsGTarget, keyPath: \.carbsG),
+            fat: macroDebt(target: resolvedGoal?.fatGTarget, keyPath: \.fatG)
+        )
+
         // Only meaningful for the current week - it's a real-time "at your
         // recent rate" recommendation, not a historical figure a past week
         // can be judged against. Checked against `weekStart` (this call's
@@ -304,6 +374,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
             weightChangeThisWeekKg: weightChange
         )
         stepsDebt = resolvedStepsDebt
+        nutritionDebt = resolvedNutritionDebt
         maintenanceInsight = resolvedMaintenanceInsight
         weeklyAdherence = buildWeeklyAdherence(
             weekStart: weekStart,
@@ -312,11 +383,12 @@ final class WeeklyInsightsViewModel: ObservableObject {
             workouts: weekWorkouts,
             checkins: weekCheckins,
             cardioExclusionEnabled: cardioExclusionEnabled,
-            excludedStepsByDate: excludedStepsByDate
+            excludedStepsByDate: excludedStepsByDate,
+            allGoals: allGoals
         )
         weeklyCheckin = resolvedWeeklyCheckin
 
-        await loadScoreHistory(selectedWeekStart: weekStart, generation: generation)
+        await loadScoreHistory(selectedWeekStart: weekStart, generation: generation, allGoals: allGoals)
     }
 
     /// One `DailyAdherenceScore` per day of the selected Monday-Sunday week,
@@ -331,10 +403,13 @@ final class WeeklyInsightsViewModel: ObservableObject {
         workouts: [Workout],
         checkins: [DailyCheckin],
         cardioExclusionEnabled: Bool,
-        excludedStepsByDate: [String: Int]
+        excludedStepsByDate: [String: Int],
+        allGoals: [UserGoal]
     ) -> WeeklyAdherenceScore? {
-        guard goal != nil else { return nil }
         let calendar = Calendar.current
+        let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+        let weekGoal = goalEffective(in: allGoals, asOf: weekEnd)
+        guard weekGoal != nil else { return nil }
 
         let nutritionByDate = Dictionary(uniqueKeysWithValues: nutritionLogs.map { ($0.date, $0) })
         let checkinByDate = Dictionary(uniqueKeysWithValues: checkins.map { ($0.checkinDate, $0) })
@@ -353,7 +428,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
             if didWorkout { sessionsCompleted += 1 }
             dailyScores.append(AdherenceScoreEngine.dailyScore(
                 date: date,
-                goal: goal,
+                goal: goalEffective(in: allGoals, asOf: date),
                 nutrition: nutritionByDate[isoDate],
                 steps: stepsByDate[isoDate],
                 didWorkout: didWorkout,
@@ -361,7 +436,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
             ))
         }
 
-        let requiredSessions = goal?.strengthSessionsPerWeek.map { $0 - (goal?.strengthOptionalSessions ?? 0) }
+        let requiredSessions = weekGoal?.strengthSessionsPerWeek.map { $0 - (weekGoal?.strengthOptionalSessions ?? 0) }
         return AdherenceScoreEngine.weeklyScore(
             dailyScores: dailyScores,
             sessionsCompleted: sessionsCompleted,
@@ -377,8 +452,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
     /// independently of the rest of `load()` (a little overlap with the
     /// selected week's own fetch) so this stays simple and can't
     /// accidentally disagree with a differently-scoped query.
-    private func loadScoreHistory(selectedWeekStart: Date, generation: Int) async {
-        guard goal != nil else {
+    private func loadScoreHistory(selectedWeekStart: Date, generation: Int, allGoals: [UserGoal]) async {
+        guard !allGoals.isEmpty else {
             if generation == loadGeneration { scoreHistory = [] }
             return
         }
@@ -432,7 +507,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
                 workouts: weekWorkouts,
                 checkins: weekCheckins,
                 cardioExclusionEnabled: cardioExclusionEnabled,
-                excludedStepsByDate: excludedStepsByDate
+                excludedStepsByDate: excludedStepsByDate,
+                allGoals: allGoals
             )
             points.append(WeeklyScorePoint(weekStart: weekStart, overall: weeklyScore?.overall))
         }
