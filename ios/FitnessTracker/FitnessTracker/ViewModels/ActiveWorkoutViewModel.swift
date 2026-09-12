@@ -145,7 +145,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
         guard let index = activeExercises.firstIndex(where: { $0.id == exerciseId }) else { return }
         activeExercises.remove(at: index)
         do {
-            try await offlineQueue.deleteSets(workoutId: workout.id, exerciseId: exerciseId)
+            try await offlineQueue.deleteSets(workout: workout, exerciseId: exerciseId)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -156,7 +156,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
         let nextSetIndex = activeExercises[index].loggedSets.count + 1
         do {
             let set = try await offlineQueue.addSet(
-                workoutId: workout.id,
+                workout: workout,
                 exerciseId: exerciseId,
                 setIndex: nextSetIndex,
                 reps: reps,
@@ -226,17 +226,17 @@ final class ActiveWorkoutViewModel: ObservableObject {
     func saveNotes(_ text: String) {
         notes = text
         notesSaveTask?.cancel()
-        let workoutId = workout.id
+        let currentWorkout = workout
         notesSaveTask = Task {
             try? await Task.sleep(nanoseconds: 800_000_000)
             guard !Task.isCancelled else { return }
-            try? await offlineQueue.updateNotes(workoutId: workoutId, notes: text)
+            try? await offlineQueue.updateNotes(workout: currentWorkout, notes: text)
         }
     }
 
     func finish(rating: Int?) async {
         do {
-            try await offlineQueue.finishWorkout(workoutId: workout.id, rating: rating)
+            try await offlineQueue.finishWorkout(workout: workout, rating: rating)
             isFinished = true
         } catch {
             errorMessage = error.localizedDescription

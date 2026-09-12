@@ -86,6 +86,20 @@ struct DailyCheckinRepository {
             .value
     }
 
+    /// Every check-in that flagged the previous day as off-plan, oldest
+    /// first - a targeted query rather than fetching full history and
+    /// filtering client-side, since `OffPlanWeightAdvisor`'s historical
+    /// stat wants every occurrence, not a recent window.
+    func fetchOffPlanDays() async throws -> [DailyCheckin] {
+        try await client
+            .from("daily_checkins")
+            .select()
+            .eq("yesterday_off_plan", value: true)
+            .order("checkin_date")
+            .execute()
+            .value
+    }
+
     @discardableResult
     func save(
         date: Date,

@@ -538,8 +538,13 @@ private struct AdherenceTrendChart: View {
             }
         }
         .chartYScale(domain: 0...100)
-        .chartXAxis(.hidden)
-        .frame(height: 90)
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .day, count: 7)) { _ in
+                AxisGridLine()
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+            }
+        }
+        .frame(height: 110)
         .padding(.vertical, 4)
     }
 }

@@ -117,7 +117,7 @@ enum OfflineQueueSelfTest {
             var setIds: [UUID] = []
             for i in 1...3 {
                 let set = try await queue.addSet(
-                    workoutId: workout.id,
+                    workout: workout,
                     exerciseId: exercise.id,
                     setIndex: i,
                     reps: 10 + i,
@@ -129,7 +129,7 @@ enum OfflineQueueSelfTest {
                 setIds.append(set.id)
                 log("Logged set \(i) locally: id=\(set.id) reps=\(set.reps) weightKg=\(set.weightKg)")
             }
-            try await queue.finishWorkout(workoutId: workout.id, rating: 4)
+            try await queue.finishWorkout(workout: workout, rating: 4)
             log("Finished workout locally")
 
             try? JSONEncoder().encode(TestState(workoutId: workout.id, setIds: setIds)).write(to: stateURL)
@@ -180,7 +180,7 @@ enum OfflineQueueSelfTest {
         do {
             let workout = try await queue.startWorkout(routineDayId: nil)
             let set = try await queue.addSet(
-                workoutId: workout.id,
+                workout: workout,
                 exerciseId: exercise.id,
                 setIndex: 1,
                 reps: 12,

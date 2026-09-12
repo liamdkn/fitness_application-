@@ -1,16 +1,6 @@
 import Foundation
 import SwiftData
 
-enum OfflineWorkoutError: LocalizedError {
-    case workoutNotFound
-
-    var errorDescription: String? {
-        switch self {
-        case .workoutNotFound: "That workout isn't available locally."
-        }
-    }
-}
-
 /// Local-first write path for an active workout, so logging at the gym (no
 /// wifi, weak signal) never has to wait on or fail from a network call.
 /// Every mutation lands in the local SwiftData store first - fast, durable,
@@ -136,7 +126,7 @@ final class OfflineWorkoutQueue {
 
     @discardableResult
     func addSet(
-        workoutId: UUID,
+        workout: Workout,
         exerciseId: UUID,
         setIndex: Int,
         reps: Int,
@@ -145,9 +135,7 @@ final class OfflineWorkoutQueue {
         isWarmup: Bool,
         isDropSet: Bool
     ) async throws -> WorkoutSet {
-        guard let workout = try fetchLocalWorkout(id: workoutId) else {
-            throw OfflineWorkoutError.workoutNotFound
-        }
+        let localWorkout = try ensureLocalWorkout(matching: workout)
         let set = QueuedWorkoutSet(
             id: UUID(),
             exerciseId: exerciseId,
@@ -159,11 +147,11 @@ final class OfflineWorkoutQueue {
             isDropSet: isDropSet,
             syncState: .pending
         )
-        set.workout = workout
+        set.workout = localWorkout
         context.insert(set)
         try context.save()
         scheduleFlush()
-        return set.asWorkoutSet(workoutId: workoutId)
+        return set.asWorkoutSet(workoutId: workout.id)
     }
 
     func deleteSet(setId: UUID) async throws {
@@ -173,30 +161,28 @@ final class OfflineWorkoutQueue {
         scheduleFlush()
     }
 
-    func deleteSets(workoutId: UUID, exerciseId: UUID) async throws {
-        guard let workout = try fetchLocalWorkout(id: workoutId) else { return }
-        for set in workout.sets where set.exerciseId == exerciseId {
+    func deleteSets(workout: Workout, exerciseId: UUID) async throws {
+        let localWorkout = try ensureLocalWorkout(matching: workout)
+        for set in localWorkout.sets where set.exerciseId == exerciseId {
             removeOrTombstone(set)
         }
         try context.save()
         scheduleFlush()
     }
 
-    func updateNotes(workoutId: UUID, notes: String) async throws {
-        guard let workout = try fetchLocalWorkout(id: workoutId) else { return }
-        workout.notes = notes
-        workout.syncState = .pending
+    func updateNotes(workout: Workout, notes: String) async throws {
+        let localWorkout = try ensureLocalWorkout(matching: workout)
+        localWorkout.notes = notes
+        localWorkout.syncState = .pending
         try context.save()
         scheduleFlush()
     }
 
-    func finishWorkout(workoutId: UUID, rating: Int?) async throws {
-        guard let workout = try fetchLocalWorkout(id: workoutId) else {
-            throw OfflineWorkoutError.workoutNotFound
-        }
-        workout.endedAt = Date()
-        workout.rating = rating
-        workout.syncState = .pending
+    func finishWorkout(workout: Workout, rating: Int?) async throws {
+        let localWorkout = try ensureLocalWorkout(matching: workout)
+        localWorkout.endedAt = Date()
+        localWorkout.rating = rating
+        localWorkout.syncState = .pending
         try context.save()
         scheduleFlush()
     }
@@ -234,6 +220,35 @@ final class OfflineWorkoutQueue {
         var descriptor = FetchDescriptor<QueuedWorkout>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
         return try context.fetch(descriptor).first
+    }
+
+    /// Recreates the local row from `workout` if it's ever gone missing
+    /// (e.g. a device/store reset while this workout was still active)
+    /// instead of letting every further edit to it fail or silently no-op
+    /// - a workout's local mirror should never actually vanish mid-session
+    /// given how this queue is supposed to work, but self-healing here
+    /// means a real edit (a swapped-out exercise, a logged set) never gets
+    /// silently lost to that state ever again if it somehow does. Safe to
+    /// call when the row already exists - it's a plain fetch-or-create, and
+    /// re-marking an already-synced row `.pending` just costs one harmless
+    /// extra upsert on the next flush.
+    private func ensureLocalWorkout(matching workout: Workout) throws -> QueuedWorkout {
+        if let existing = try fetchLocalWorkout(id: workout.id) {
+            return existing
+        }
+        let recreated = QueuedWorkout(
+            id: workout.id,
+            routineDayId: workout.routineDayId,
+            startedAt: workout.startedAt,
+            performedAt: workout.performedAt,
+            syncState: .pending
+        )
+        recreated.notes = workout.notes
+        recreated.rating = workout.rating
+        recreated.endedAt = workout.endedAt
+        context.insert(recreated)
+        try context.save()
+        return recreated
     }
 
     private func fetchLocalSet(id: UUID) throws -> QueuedWorkoutSet? {

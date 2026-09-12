@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var weeklyCheckinWeekday = 2
     @State private var cardioStepExclusionEnabled = false
     @State private var stepSource: StepSource = .merged
+    @State private var nutritionSource: NutritionSource = .healthkitManual
     @State private var preferencesError: String?
     private let preferencesRepository = UserPreferencesRepository()
 
@@ -71,6 +72,30 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section("Nutrition Logging") {
+                    Picker("Nutrition Source", selection: $nutritionSource) {
+                        Text("Meal Log").tag(NutritionSource.inHouse)
+                        Text("Apple Health").tag(NutritionSource.healthkitManual)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .onChange(of: nutritionSource) { _, newValue in
+                        Task { await saveNutritionSource(newValue) }
+                    }
+                    if nutritionSource == .inHouse {
+                        NavigationLink("Meal Slots") {
+                            MealSlotsSettingsView()
+                        }
+                        Text("Log food per meal from the catalog. Apple Health's dietary sync is paused while this is on.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Calories/macros sync in from Apple Health (e.g. MyFitnessPal) once a day is manually logged there, same as before.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section("Apple Health") {
                     healthStatusRow
                     Button("Sync Now") {
@@ -112,6 +137,7 @@ struct SettingsView: View {
             weeklyCheckinWeekday = preferences.weeklyCheckinWeekday
             cardioStepExclusionEnabled = preferences.cardioStepExclusionEnabled
             stepSource = preferences.stepSource
+            nutritionSource = preferences.nutritionSource
         } catch {
             preferencesError = error.localizedDescription
         }
@@ -143,5 +169,14 @@ struct SettingsView: View {
             preferencesError = error.localizedDescription
         }
         await healthSync.requestAuthorizationAndSync()
+    }
+
+    private func saveNutritionSource(_ source: NutritionSource) async {
+        do {
+            try await preferencesRepository.setNutritionSource(source)
+            preferencesError = nil
+        } catch {
+            preferencesError = error.localizedDescription
+        }
     }
 }

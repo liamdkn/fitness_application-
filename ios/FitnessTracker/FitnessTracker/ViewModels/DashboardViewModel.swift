@@ -9,12 +9,10 @@ final class DashboardViewModel: ObservableObject {
     @Published var lastNightSleepMinutes: Int?
     @Published var weeklyVolumeKg: Double?
     @Published var recentWeights: [BodyWeightLog] = []
-    /// Noise-filtered EWMA trend line for `recentWeights`, plotted
-    /// alongside the raw scale readings on the Dashboard's weight chart -
-    /// see `TrendWeightCalculator`.
-    @Published var weightTrendPoints: [TrendWeightPoint] = []
     @Published var cardioExclusionEnabled = false
     @Published var cardioStepsExcludedToday = 0
+    @Published var offPlanRecentInsight: OffPlanWeightAdvisor.RecentFlagInsight?
+    @Published var offPlanHistoricalStat: OffPlanWeightAdvisor.HistoricalStat?
     @Published var errorMessage: String?
     @Published var isLoading = false
 
@@ -25,6 +23,14 @@ final class DashboardViewModel: ObservableObject {
     private let bodyWeightRepository = BodyWeightRepository()
     private let preferencesRepository = UserPreferencesRepository()
     private let cardioStepSessionRepository = CardioStepSessionRepository()
+    private let dailyCheckinRepository = DailyCheckinRepository()
+    /// How far back `evaluateRecentFlag` gets to warm up the EWMA trend -
+    /// independent of the Weight card's own W/2W/M/6M picker, so the note
+    /// doesn't disappear just because someone's viewing the 1-week chart.
+    private let offPlanTrendWindowDays = 30
+    /// A few days is enough to catch "flagged Tue and Wed" - anything
+    /// older than that is the historical stat's territory, not this note's.
+    private let recentFlagLookbackDays = 3
 
     func load(date: Date = Date()) async {
         isLoading = true
@@ -62,6 +68,32 @@ final class DashboardViewModel: ObservableObject {
     /// to refresh, and whenever that picker changes.
     func loadWeights(daysBack: Int) async {
         recentWeights = (try? await bodyWeightRepository.fetchRecent(days: daysBack)) ?? []
-        weightTrendPoints = TrendWeightCalculator.compute(from: recentWeights)
+    }
+
+    /// Both halves of `OffPlanWeightAdvisor`, independent of `selectedDate`
+    /// and the Weight card's own chart range - advisory only, so any
+    /// failure here just leaves both nil rather than surfacing an error.
+    func loadOffPlanInsights() async {
+        async let trendWeightsResult = try? bodyWeightRepository.fetchRecent(days: offPlanTrendWindowDays)
+        async let recentCheckinsResult = try? dailyCheckinRepository.fetchRecent(days: recentFlagLookbackDays)
+        let trendWeights = await trendWeightsResult ?? []
+        let recentCheckins = await recentCheckinsResult ?? []
+        offPlanRecentInsight = OffPlanWeightAdvisor.evaluateRecentFlag(weights: trendWeights, recentCheckins: recentCheckins)
+
+        guard let offPlanDays = try? await dailyCheckinRepository.fetchOffPlanDays(), !offPlanDays.isEmpty else {
+            offPlanHistoricalStat = nil
+            return
+        }
+        let calendar = Calendar.current
+        guard let earliestCheckinDate = offPlanDays.compactMap({ DateFormatting.date(fromISODate: $0.checkinDate) }).min(),
+              let earliestOffPlanDay = calendar.date(byAdding: .day, value: -1, to: earliestCheckinDate)
+        else {
+            offPlanHistoricalStat = nil
+            return
+        }
+        let weights = (try? await bodyWeightRepository.fetchRange(from: earliestOffPlanDay, to: Date())) ?? []
+        let weightsByDate = Dictionary(grouping: weights) { calendar.startOfDay(for: $0.loggedAt) }
+            .mapValues { logs in logs.reduce(0) { $0 + $1.weightKg } / Double(logs.count) }
+        offPlanHistoricalStat = OffPlanWeightAdvisor.evaluateHistory(offPlanCheckins: offPlanDays, weightsByDate: weightsByDate)
     }
 }

@@ -55,11 +55,21 @@ final class HealthSyncService: ObservableObject {
     private func performSync() async throws {
         try await healthKit.requestAuthorization()
         let userId = try await SupabaseService.shared.client.auth.session.user.id
-        let stepSource = try await preferencesRepository.fetch().stepSource
+        let preferences = try await preferencesRepository.fetch()
+        let stepSource = preferences.stepSource
+        // Once a user has cut over to the in-house per-meal food log,
+        // Health's dietary totals are MFP's numbers (or whatever other app
+        // is writing them), not ours - syncing them in would either
+        // silently overwrite real per-meal data or coexist confusingly
+        // with it. Only pull nutrition from Health while that user is
+        // still on the legacy whole-day path.
+        let shouldSyncNutrition = preferences.nutritionSource == .healthkitManual
 
         async let steps = healthKit.fetchDailySteps(daysBack: daysBack, source: stepSource)
         async let sleep = healthKit.fetchDailySleep(daysBack: daysBack)
-        async let nutrition = healthKit.fetchDailyNutrition(daysBack: daysBack)
+        async let nutrition: [Date: DailyNutrition] = shouldSyncNutrition
+            ? healthKit.fetchDailyNutrition(daysBack: daysBack)
+            : [:]
 
         let stepLogs = try await steps.map { date, count in
             StepLog(userId: userId, date: DateFormatting.isoDate(date), stepCount: count, source: "healthkit")
@@ -85,6 +95,8 @@ final class HealthSyncService: ObservableObject {
 
         try await repository.upsertSteps(stepLogs)
         try await repository.upsertSleep(sleepLogs)
-        try await nutritionRepository.upsertLogs(nutritionLogs)
+        if shouldSyncNutrition {
+            try await nutritionRepository.upsertLogs(nutritionLogs)
+        }
     }
 }

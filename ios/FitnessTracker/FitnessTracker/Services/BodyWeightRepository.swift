@@ -35,6 +35,27 @@ struct BodyWeightRepository {
             .value
     }
 
+    /// Most recent first - the weigh-in history list. Unlike
+    /// `fetchRecent(days:)`/`fetchRange(from:to:)` (both oldest-first, for
+    /// charts), a history list reads naturally newest-on-top.
+    func fetchHistory(limit: Int = 200) async throws -> [BodyWeightLog] {
+        try await client
+            .from("body_weight_logs")
+            .select()
+            .order("logged_at", ascending: false)
+            .limit(limit)
+            .execute()
+            .value
+    }
+
+    func deleteLog(id: UUID) async throws {
+        try await client
+            .from("body_weight_logs")
+            .delete()
+            .eq("id", value: id)
+            .execute()
+    }
+
     func hasLoggedToday() async throws -> Bool {
         let startOfToday = Calendar.current.startOfDay(for: Date())
         let logs: [BodyWeightLog] = try await client

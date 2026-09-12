@@ -102,6 +102,17 @@ struct DashboardView: View {
 
                     DashboardCard(title: "Weight") {
                         VStack(alignment: .leading, spacing: 12) {
+                            if let note = offPlanNoteText {
+                                Text(note)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let stat = offPlanHistoricalStatText {
+                                Text(stat)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+
                             Picker("Range", selection: $weightChartRange) {
                                 ForEach(WeightChartRange.allCases) { range in
                                     Text(range.rawValue).tag(range)
@@ -117,28 +128,19 @@ struct DashboardView: View {
                                     .foregroundStyle(.secondary)
                             } else {
                                 Chart {
-                                    // Raw scale readings as dots only now -
-                                    // the smoothed Trend line (below) carries
-                                    // the "line" visual, so day-to-day noise
-                                    // in the actual weigh-ins doesn't read as
-                                    // a jagged trend on its own.
                                     ForEach(viewModel.recentWeights) { log in
+                                        LineMark(
+                                            x: .value("Date", log.loggedAt),
+                                            y: .value("Weight (kg)", log.weightKg),
+                                            series: .value("Series", "Actual")
+                                        )
+                                        .foregroundStyle(by: .value("Series", "Actual"))
                                         PointMark(
                                             x: .value("Date", log.loggedAt),
                                             y: .value("Weight (kg)", log.weightKg)
                                         )
                                         .foregroundStyle(by: .value("Series", "Actual"))
                                         .symbolSize(30)
-                                    }
-                                    if showTrendLine {
-                                        ForEach(viewModel.weightTrendPoints) { point in
-                                            LineMark(
-                                                x: .value("Date", point.date),
-                                                y: .value("Weight (kg)", point.weightKg),
-                                                series: .value("Series", "Trend")
-                                            )
-                                            .foregroundStyle(by: .value("Series", "Trend"))
-                                        }
                                     }
                                     if showGoalLine {
                                         ForEach(goalLinePoints) { point in
@@ -153,8 +155,7 @@ struct DashboardView: View {
                                     }
                                 }
                                 .chartForegroundStyleScale([
-                                    "Actual": Color.blue.opacity(0.45),
-                                    "Trend": Color.blue,
+                                    "Actual": Color.blue,
                                     "Goal": Color.red.opacity(0.6)
                                 ])
                                 .chartYScale(domain: weightChartDomain)
@@ -178,6 +179,11 @@ struct DashboardView: View {
                                 Toggle("Show goal line", isOn: $showGoalLine)
                                     .font(.caption)
                             }
+
+                            NavigationLink("Weigh-In History") {
+                                WeightHistoryView()
+                            }
+                            .font(.footnote)
                         }
                     }
 
@@ -191,11 +197,13 @@ struct DashboardView: View {
             .task {
                 await viewModel.load(date: selectedDate)
                 await viewModel.loadWeights(daysBack: weightChartRange.days)
+                await viewModel.loadOffPlanInsights()
                 await checkinAvailability.refresh()
             }
             .refreshable {
                 await viewModel.load(date: selectedDate)
                 await viewModel.loadWeights(daysBack: weightChartRange.days)
+                await viewModel.loadOffPlanInsights()
                 await checkinAvailability.refresh()
             }
             .sheet(item: $activeSheet) { sheet in
@@ -229,11 +237,20 @@ struct DashboardView: View {
         return max(todaySteps - viewModel.cardioStepsExcludedToday, 0)
     }
 
-    /// At least 3 trend points before showing the smoothed line - fewer
-    /// than that and the EWMA hasn't had a chance to diverge from a flat
-    /// "trend = first weigh-in" line, so it wouldn't add anything over the
-    /// raw dots yet.
-    private var showTrendLine: Bool { viewModel.weightTrendPoints.count >= 3 }
+    private var offPlanNoteText: String? {
+        guard let insight = viewModel.offPlanRecentInsight else { return nil }
+        let dayList = ListFormatter.localizedString(byJoining: insight.offPlanDayLabels)
+        let deltaText = String(format: "%.1f", insight.deltaKg)
+        let trendClause = insight.trendHasMoved ? "" : ", your trend line hasn't moved"
+        return "Up \(deltaText)kg vs. trend - off-plan flagged \(dayList); typically water weight, settles in 2-3 days\(trendClause)."
+    }
+
+    private var offPlanHistoricalStatText: String? {
+        guard let stat = viewModel.offPlanHistoricalStat else { return nil }
+        let direction = stat.averageDeltaKg >= 0 ? "+" : ""
+        let deltaText = String(format: "%@%.1f", direction, stat.averageDeltaKg)
+        return "You're averaging \(deltaText)kg the day after an off-plan flag, based on \(stat.occurrenceCount) times."
+    }
 
     private var weightChartAxisUnit: Calendar.Component {
         weightChartRange == .sixMonths ? .month : .day
@@ -256,7 +273,6 @@ struct DashboardView: View {
 
     private var weightChartDomain: ClosedRange<Double> {
         var weights = viewModel.recentWeights.map(\.weightKg)
-        weights.append(contentsOf: viewModel.weightTrendPoints.map(\.weightKg))
         if showGoalLine {
             weights.append(contentsOf: goalLinePoints.map(\.weightKg))
         }
@@ -285,15 +301,29 @@ struct DashboardView: View {
         guard let goal = viewModel.goal,
               let startingWeightKg = goal.startingWeightKg,
               let weeklyRate = goal.weeklyWeightChangeKg,
-              let startDate = ISO8601DateFormatter().date(from: goal.phaseStartedAt + "T00:00:00Z")
+              let phaseStart = ISO8601DateFormatter().date(from: goal.phaseStartedAt + "T00:00:00Z")
         else { return [] }
 
+        let calendar = Calendar.current
         let today = Date()
-        let daysSince = Calendar.current.dateComponents([.day], from: startDate, to: today).day ?? 0
-        let projectedToday = startingWeightKg + weeklyRate / 7 * Double(daysSince)
+
+        func projectedWeight(on date: Date) -> Double {
+            let daysSince = calendar.dateComponents([.day], from: phaseStart, to: date).day ?? 0
+            return startingWeightKg + weeklyRate / 7 * Double(daysSince)
+        }
+
+        // Clipped to the selected chart range - a full-phase goal line
+        // (weeks wide) plotted alongside a "W"/"2W" range's handful of
+        // daily points forces Swift Charts to auto-scale the x-axis to fit
+        // the wider series, cramming far more daily ticks into the width
+        // than it has room for and truncating every label to "...". The
+        // line's rate/slope is unaffected - only its visible extent is.
+        let windowStart = calendar.date(byAdding: .day, value: -weightChartRange.days, to: today) ?? phaseStart
+        let lineStart = Swift.max(phaseStart, windowStart)
+
         return [
-            GoalLinePoint(date: startDate, weightKg: startingWeightKg),
-            GoalLinePoint(date: today, weightKg: projectedToday)
+            GoalLinePoint(date: lineStart, weightKg: projectedWeight(on: lineStart)),
+            GoalLinePoint(date: today, weightKg: projectedWeight(on: today))
         ]
     }
 }

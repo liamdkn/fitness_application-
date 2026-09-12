@@ -62,6 +62,17 @@ struct MyGoalsView: View {
                         }
                         .frame(height: 160)
                         .padding(.vertical, 4)
+                        if let latestTDEE = tdeeHistory.last?.estimatedTDEE {
+                            VStack(spacing: 2) {
+                                Text("\(Int(latestTDEE))")
+                                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                                Text("kcal/day estimated maintenance")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.bottom, 2)
+                        }
                         Text("From the adaptive calorie engine's weekly estimates - shows how your true maintenance has drifted over the phase.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -69,16 +80,10 @@ struct MyGoalsView: View {
                 }
             }
 
-            if pastGoals.count > 1 {
+            if !pastPhaseGroups.isEmpty {
                 Section("Past Phases") {
-                    ForEach(pastGoals.dropFirst()) { goal in
-                        HStack {
-                            Text(goal.phaseType.displayName)
-                            Spacer()
-                            Text(goal.effectiveFrom)
-                                .foregroundStyle(.secondary)
-                                .font(.caption)
-                        }
+                    ForEach(pastPhaseGroups) { group in
+                        pastPhaseRow(group)
                     }
                 }
             }
@@ -111,33 +116,66 @@ struct MyGoalsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(goal.phaseType.displayName)
                 .font(.title2.bold())
-            Text("Started \(goal.effectiveFrom) - \(goal.durationWeeks) weeks")
+
+            if let daysLeftInPhase {
+                VStack(spacing: 2) {
+                    Text("\(daysLeftInPhase)")
+                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                    Text(daysLeftInPhase == 1 ? "day left in this \(goal.phaseType.displayName.lowercased())" : "days left in this \(goal.phaseType.displayName.lowercased())")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+            }
+
+            if let phaseBrief {
+                Text(phaseBrief)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Started \(goal.phaseStartedAt)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if let startingWeightKg = goal.startingWeightKg {
-                Text("Starting weight: \(startingWeightKg, specifier: "%.1f") kg")
-                    .font(.caption)
-            }
-            if let rate = goal.weeklyWeightChangeKg, rate != 0 {
-                Text("Target rate: \(rate, specifier: "%.2f") kg/week")
-                    .font(.caption)
-            }
+
             Divider()
-            Text("\(Int(goal.dailyCalorieTarget)) kcal / \(Int(goal.proteinGTarget))g protein")
-                .font(.caption)
-            if let sessions = goal.cardioSessionsPerWeek, let minutes = goal.cardioMinutesPerSession {
-                Text("Cardio: \(sessions)x/week, \(minutes) min")
-                    .font(.caption)
-            }
-            if let sessions = goal.strengthSessionsPerWeek {
-                let optional = goal.strengthOptionalSessions ?? 0
-                Text(optional > 0
-                    ? "Training: \(sessions)x/week (\(optional) optional)"
-                    : "Training: \(sessions)x/week")
-                    .font(.caption)
+
+            VStack(alignment: .leading, spacing: 10) {
+                if let startingWeightKg = goal.startingWeightKg {
+                    phaseDetailRow(icon: "scalemass", label: "Starting Weight", value: String(format: "%.1f kg", startingWeightKg))
+                }
+                if let rate = goal.weeklyWeightChangeKg, rate != 0 {
+                    phaseDetailRow(icon: "chart.line.downtrend.xyaxis", label: "Target Rate", value: String(format: "%.2f kg/week", rate))
+                }
+                phaseDetailRow(icon: "flame.fill", label: "Calories", value: "\(Int(goal.dailyCalorieTarget)) kcal")
+                phaseDetailRow(icon: "fork.knife", label: "Protein", value: "\(Int(goal.proteinGTarget)) g")
+                if let sessions = goal.cardioSessionsPerWeek, let minutes = goal.cardioMinutesPerSession {
+                    phaseDetailRow(icon: "figure.run", label: "Cardio", value: "\(sessions)x/week, \(minutes) min")
+                }
+                if let sessions = goal.strengthSessionsPerWeek {
+                    let optional = goal.strengthOptionalSessions ?? 0
+                    phaseDetailRow(
+                        icon: "figure.strengthtraining.traditional",
+                        label: "Training",
+                        value: optional > 0 ? "\(sessions)x/week (\(optional) optional)" : "\(sessions)x/week"
+                    )
+                }
             }
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func phaseDetailRow(icon: String, label: String, value: String) -> some View {
+        HStack {
+            Label(label, systemImage: icon)
+                .font(.subheadline)
+            Spacer()
+            Text(value)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private struct TDEEChartPoint {
@@ -150,6 +188,120 @@ struct MyGoalsView: View {
             guard let date = DateFormatting.date(fromISODate: estimate.estimatedAt) else { return nil }
             return TDEEChartPoint(date: date, tdee: estimate.estimatedTDEE)
         }
+    }
+
+    private var daysLeftInPhase: Int? {
+        guard let currentGoal,
+              currentGoal.durationWeeks > 0,
+              let startDate = DateFormatting.date(fromISODate: currentGoal.phaseStartedAt)
+        else { return nil }
+        let calendar = Calendar.current
+        let elapsed = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: startDate),
+            to: calendar.startOfDay(for: Date())
+        ).day ?? 0
+        return max(0, currentGoal.durationWeeks * 7 - elapsed)
+    }
+
+    /// Every `user_goals` row that shares the current phase's start date -
+    /// each later one is a mid-phase nutrition tweak (see
+    /// `AdjustNutritionTargetsView`), not a new phase, so together they're
+    /// the full adjustment history of the phase that's currently active.
+    private var currentPhaseAdjustments: [UserGoal] {
+        guard let currentGoal else { return [] }
+        return pastGoals
+            .filter { $0.phaseStartedAt == currentGoal.phaseStartedAt }
+            .sorted { $0.effectiveFrom < $1.effectiveFrom }
+    }
+
+    private var phaseBrief: String? {
+        guard let currentGoal, let first = currentPhaseAdjustments.first,
+              currentPhaseAdjustments.count > 1
+        else { return nil }
+        let delta = currentGoal.dailyCalorieTarget - first.dailyCalorieTarget
+        let deltaText: String
+        if delta < 0 {
+            deltaText = "\(Int(-delta)) kcal below where you started"
+        } else if delta > 0 {
+            deltaText = "\(Int(delta)) kcal above where you started"
+        } else {
+            deltaText = "back to where you started"
+        }
+        let adjustmentCount = currentPhaseAdjustments.count - 1
+        let times = adjustmentCount == 1 ? "once" : "\(adjustmentCount) times"
+        return "Adjusted \(times) since this \(currentGoal.phaseType.displayName.lowercased()) began - now \(deltaText) (\(Int(first.dailyCalorieTarget)) \u{2192} \(Int(currentGoal.dailyCalorieTarget)) kcal)."
+    }
+
+    private struct PhaseGroup: Identifiable {
+        let phaseStartedAt: String
+        let phaseType: GoalPhaseType
+        /// Ascending by `effectiveFrom` - every mid-phase adjustment plus
+        /// the phase's original starting row.
+        let rows: [UserGoal]
+
+        var id: String { phaseStartedAt }
+        var initialGoal: UserGoal { rows[0] }
+        var finalGoal: UserGoal { rows[rows.count - 1] }
+    }
+
+    /// Every distinct phase (grouped by `phaseStartedAt`), current phase
+    /// included, oldest first - the basis for both `pastPhaseGroups` and
+    /// each past phase's "ended" date (the next group's start).
+    private var allPhaseGroups: [PhaseGroup] {
+        Dictionary(grouping: pastGoals, by: \.phaseStartedAt)
+            .map { phaseStartedAt, rows in
+                PhaseGroup(
+                    phaseStartedAt: phaseStartedAt,
+                    phaseType: rows[0].phaseType,
+                    rows: rows.sorted { $0.effectiveFrom < $1.effectiveFrom }
+                )
+            }
+            .sorted { $0.phaseStartedAt < $1.phaseStartedAt }
+    }
+
+    private var pastPhaseGroups: [PhaseGroup] {
+        guard let currentGoal else { return [] }
+        return allPhaseGroups
+            .filter { $0.phaseStartedAt != currentGoal.phaseStartedAt }
+            .reversed()
+    }
+
+    private func endLabel(for group: PhaseGroup) -> String {
+        let groups = allPhaseGroups
+        guard let index = groups.firstIndex(where: { $0.phaseStartedAt == group.phaseStartedAt }),
+              index + 1 < groups.count
+        else { return "Present" }
+        return groups[index + 1].phaseStartedAt
+    }
+
+    @ViewBuilder
+    private func pastPhaseRow(_ group: PhaseGroup) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(group.phaseType.displayName)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text("\(group.phaseStartedAt) - \(endLabel(for: group))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(macroSummary(group.finalGoal))
+                .font(.caption)
+            if group.rows.count > 1 {
+                Text("Adjusted \(group.rows.count - 1) time\(group.rows.count - 1 == 1 ? "" : "s") - started at \(Int(group.initialGoal.dailyCalorieTarget)) kcal")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func macroSummary(_ goal: UserGoal) -> String {
+        var parts = ["\(Int(goal.dailyCalorieTarget)) kcal", "P\(Int(goal.proteinGTarget))g"]
+        if let carbs = goal.carbsGTarget { parts.append("C\(Int(carbs))g") }
+        if let fat = goal.fatGTarget { parts.append("F\(Int(fat))g") }
+        return parts.joined(separator: " \u{00b7} ")
     }
 
     private func load() async {
