@@ -61,4 +61,19 @@ enum DateFormatting {
         let daysSince = (todayWeekday - weekday + 7) % 7
         return calendar.date(byAdding: .day, value: -daysSince, to: today) ?? today
     }
+
+    /// The Monday of the calendar week containing `date` - the strict
+    /// Monday-Sunday week boundary Weekly Insights, Weekly Log, and the
+    /// Dashboard's steps/nutrition debt all anchor to, as opposed to
+    /// `startOfCheckinWeek`'s user-configurable weekday (a different
+    /// concept: when a check-in is due, not where a week starts).
+    /// `.weekday` is always 1=Sunday...7=Saturday regardless of the
+    /// device's locale/first-weekday setting, so this arithmetic is
+    /// locale-proof.
+    static func mondayOfWeek(containing date: Date, calendar: Calendar = .current) -> Date {
+        let day = calendar.startOfDay(for: date)
+        let weekday = calendar.component(.weekday, from: day)
+        let daysSinceMonday = (weekday + 5) % 7
+        return calendar.date(byAdding: .day, value: -daysSinceMonday, to: day) ?? day
+    }
 }

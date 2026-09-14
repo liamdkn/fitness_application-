@@ -2,6 +2,11 @@ import Charts
 import SwiftUI
 
 struct WeeklyInsightsView: View {
+    /// When set (e.g. a row tapped in Weekly Log), opens straight to that
+    /// week instead of the current one - Weekly Log is the at-a-glance
+    /// index, this is where the "why" for any given week lives.
+    var initialWeekStart: Date?
+
     @StateObject private var viewModel = WeeklyInsightsViewModel()
     @State private var selectedDayScore: DailyAdherenceScore?
 
@@ -32,7 +37,13 @@ struct WeeklyInsightsView: View {
             .refreshable { await viewModel.load() }
         }
         .navigationTitle("Weekly Insights")
-        .task { await viewModel.load() }
+        .task {
+            if let initialWeekStart {
+                viewModel.selectWeek(startingAt: initialWeekStart)
+            } else {
+                await viewModel.load()
+            }
+        }
         .navigationDestination(item: $selectedDayScore) { dayScore in
             DayAdherenceDetailView(dayScore: dayScore)
         }
@@ -95,62 +106,17 @@ struct WeeklyInsightsView: View {
                     )
                 }
 
-                Section("Activity") {
-                    if let avgSteps = summary.avgStepsPerDay {
-                        InsightRow(
-                            icon: "figure.walk",
-                            label: "Avg steps/day",
-                            value: "\(avgSteps)",
-                            target: viewModel.goal?.stepTarget.map { "\($0)" }
-                        )
-                    } else {
-                        Text("No steps logged this week.")
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let debt = viewModel.stepsDebt, let stepTarget = viewModel.goal?.stepTarget {
-                        StepsDebtView(debt: debt, stepTarget: stepTarget)
-                    }
-
-                    if !viewModel.dailySteps.isEmpty {
+                // Avg steps/day, steps debt, avg calories/macros, and
+                // nutrition debt all moved off this screen - the averages
+                // to Weekly Log (one row per week, at a glance), the debts
+                // to the Dashboard (a "what do I need today" concept that
+                // only makes sense for the current week). What's left here
+                // is the day-by-day "why" detail behind this week's steps
+                // average, which Weekly Log doesn't show.
+                if !viewModel.dailySteps.isEmpty {
+                    Section("Activity") {
                         DisclosureGroup("Daily Breakdown") {
                             DailyStepsBreakdown(days: viewModel.dailySteps, stepTarget: viewModel.goal?.stepTarget)
-                        }
-                    }
-                }
-
-                Section("Nutrition") {
-                    if let avgCalories = summary.avgCaloriesPerLoggedDay {
-                        InsightRow(
-                            icon: "flame.fill",
-                            label: "Avg calories/day",
-                            value: "\(Int(avgCalories)) kcal",
-                            target: viewModel.goal.map { "\(Int($0.dailyCalorieTarget)) kcal" }
-                        )
-                        MacroLine(label: "Protein", value: summary.avgProteinG, target: viewModel.goal?.proteinGTarget)
-                        MacroLine(label: "Carbs", value: summary.avgCarbsG, target: viewModel.goal?.carbsGTarget)
-                        MacroLine(label: "Fat", value: summary.avgFatG, target: viewModel.goal?.fatGTarget)
-                    } else {
-                        Text("No nutrition logged this week.")
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let nutritionDebt = viewModel.nutritionDebt, nutritionDebt.hasAny {
-                        Divider()
-                        Text("To Hit This Week's Goal")
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                        if let debt = nutritionDebt.calories {
-                            MacroDebtRow(debt: debt, label: "Calories", unit: "kcal")
-                        }
-                        if let debt = nutritionDebt.protein {
-                            MacroDebtRow(debt: debt, label: "Protein", unit: "g")
-                        }
-                        if let debt = nutritionDebt.carbs {
-                            MacroDebtRow(debt: debt, label: "Carbs", unit: "g")
-                        }
-                        if let debt = nutritionDebt.fat {
-                            MacroDebtRow(debt: debt, label: "Fat", unit: "g")
                         }
                     }
                 }
@@ -326,75 +292,6 @@ private struct WeeklyAdherenceCard: View {
     }
 }
 
-private struct StepsDebtView: View {
-    let debt: StepsDebt
-    let stepTarget: Int
-
-    private var paceText: String {
-        if debt.completedDays == 0 {
-            return "Week just started"
-        } else if debt.stepsBehindPace < 0 {
-            return "\(-debt.stepsBehindPace) behind pace"
-        } else if debt.stepsBehindPace > 0 {
-            return "+\(debt.stepsBehindPace) ahead of pace"
-        } else {
-            return "Right on pace"
-        }
-    }
-
-    private var subtitleText: String {
-        guard debt.remainingDays > 0 else { return "Week complete." }
-        return "Need \(debt.requiredPerDayForRest)/day through Sunday to still average \(stepTarget) (\(debt.remainingDays) day\(debt.remainingDays == 1 ? "" : "s") left)."
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Label("Steps debt", systemImage: "figure.walk.motion")
-                Spacer()
-                Text(paceText)
-                    .foregroundStyle(debt.stepsBehindPace < 0 ? .red : .secondary)
-            }
-            Text(subtitleText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-/// One macro's "how much per day for the rest of the week" figure - no
-/// ahead/behind-pace framing the way `StepsDebtView` has, since a low
-/// number here doesn't universally mean "good" (it can mean "you've
-/// already hit your share" just as easily as "ease off, you're over").
-private struct MacroDebtRow: View {
-    let debt: MacroDebt
-    let label: String
-    let unit: String
-
-    private func formatted(_ value: Double) -> String {
-        unit == "kcal" ? "\(Int(value.rounded())) kcal" : "\(Int(value.rounded()))\(unit)"
-    }
-
-    private var text: String {
-        if debt.completedDays == 0 { return "Week just started." }
-        guard debt.remainingDays > 0 else { return "Week complete." }
-        return "Need \(formatted(debt.requiredPerDayForRest))/day through Sunday to average \(formatted(debt.target)) (\(debt.remainingDays) day\(debt.remainingDays == 1 ? "" : "s") left)."
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.caption)
-                .fontWeight(.semibold)
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 1)
-    }
-}
-
 /// Monday-Sunday row-per-day steps list, shown inside a `DisclosureGroup` so
 /// it doesn't crowd the summary numbers above it by default.
 private struct DailyStepsBreakdown: View {
@@ -473,34 +370,6 @@ private struct InsightRow: View {
     }
 }
 
-private struct MacroLine: View {
-    let label: String
-    let value: Double?
-    let target: Double?
-
-    var body: some View {
-        HStack {
-            Text(label)
-                .font(.caption)
-                .frame(width: 50, alignment: .leading)
-            if let target, target > 0 {
-                ProgressView(value: min((value ?? 0) / target, 1))
-            } else {
-                ProgressView(value: 0)
-            }
-            Text(macroText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 70, alignment: .trailing)
-        }
-    }
-
-    private var macroText: String {
-        let valueText = value.map { "\(Int($0))g" } ?? "-"
-        guard let target else { return valueText }
-        return "\(valueText)/\(Int(target))g"
-    }
-}
 
 /// Multi-week line of `WeeklyAdherenceScore.overall` values, oldest to
 /// newest, ending at the selected week - a single week's card can only say

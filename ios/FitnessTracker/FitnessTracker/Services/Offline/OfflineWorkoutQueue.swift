@@ -58,7 +58,12 @@ final class OfflineWorkoutQueue {
         self.workoutRepository = workoutRepository
         self.networkMonitor = networkMonitor
         do {
-            container = try ModelContainer(for: QueuedWorkout.self, QueuedWorkoutSet.self)
+            let configuration = ModelConfiguration(
+                "workout-queue",
+                schema: Schema([QueuedWorkout.self, QueuedWorkoutSet.self]),
+                url: URL.applicationSupportDirectory.appending(path: "workout-queue.store")
+            )
+            container = try ModelContainer(for: QueuedWorkout.self, QueuedWorkoutSet.self, configurations: configuration)
         } catch {
             fatalError("Failed to create offline workout store: \(error)")
         }

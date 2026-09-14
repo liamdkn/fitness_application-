@@ -37,7 +37,9 @@ final class CheckinAvailabilityService: ObservableObject {
 
     func checkinCompleted(_ kind: PendingCheckin) {
         switch kind {
-        case .daily: dailyCompletedToday = true
+        case .daily:
+            dailyCompletedToday = true
+            DailyCheckinReminderService.shared.cancelTodaysReminder()
         case .weekly: weeklyDue = false
         }
     }

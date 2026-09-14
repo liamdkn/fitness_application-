@@ -16,15 +16,22 @@ struct MainTabView: View {
         }
         .task {
             await HealthSyncService.shared.requestAuthorizationAndSync()
+            await DailyCheckinReminderService.shared.requestAuthorization()
+            await DailyCheckinReminderService.shared.refresh()
         }
         .onChange(of: scenePhase) { _, newPhase in
             // `.task` only fires once, on this view's first appearance - it
             // won't re-run just from switching back to an already-running
             // app. Re-syncing on every return to foreground means data
             // another app (e.g. MyFitnessPal) wrote to Health while we were
-            // in the background shows up without needing a force-quit.
+            // in the background shows up without needing a force-quit; for
+            // the check-in reminder it's what re-schedules tomorrow's 9am
+            // notification once a new day has actually started.
             guard newPhase == .active else { return }
-            Task { await HealthSyncService.shared.requestAuthorizationAndSync() }
+            Task {
+                await HealthSyncService.shared.requestAuthorizationAndSync()
+                await DailyCheckinReminderService.shared.refresh()
+            }
         }
     }
 }

@@ -16,17 +16,21 @@ struct DashboardView: View {
 
     private enum WeightChartRange: String, CaseIterable, Identifiable {
         case week = "W"
-        case twoWeeks = "2W"
         case month = "M"
-        case sixMonths = "6M"
         var id: String { rawValue }
 
-        var days: Int {
+        /// The real calendar period this range anchors to - a Mon-Sun week
+        /// or a 1st-to-last-day month containing `anchor` - rather than a
+        /// trailing N-days-from-today window, so the chart's X-axis matches
+        /// an actual week/month the way Health's does.
+        func calendarPeriod(containing anchor: Date, calendar: Calendar = .current) -> (start: Date, end: Date) {
             switch self {
-            case .week: 7
-            case .twoWeeks: 14
-            case .month: 30
-            case .sixMonths: 183
+            case .week:
+                let interval = calendar.dateInterval(of: .weekOfYear, for: anchor) ?? DateInterval(start: anchor, duration: 0)
+                return (interval.start, interval.end)
+            case .month:
+                let interval = calendar.dateInterval(of: .month, for: anchor) ?? DateInterval(start: anchor, duration: 0)
+                return (interval.start, interval.end)
             }
         }
     }
@@ -46,14 +50,20 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    CheckInsCard(
-                        dailyCompleted: checkinAvailability.dailyCompletedToday,
-                        weeklyDue: checkinAvailability.weeklyDue,
-                        onTapDaily: { activeSheet = .dailyCheckin },
-                        onTapWeekly: { activeSheet = .weeklyCheckin }
-                    )
+                    // Hidden entirely once there's nothing left to act on -
+                    // daily done and no weekly due - same reasoning that
+                    // already keeps the Weekly row hidden until it's due.
+                    if !checkinAvailability.dailyCompletedToday || checkinAvailability.weeklyDue {
+                        CheckInsCard(
+                            dailyCompleted: checkinAvailability.dailyCompletedToday,
+                            weeklyDue: checkinAvailability.weeklyDue,
+                            onTapDaily: { activeSheet = .dailyCheckin },
+                            onTapWeekly: { activeSheet = .weeklyCheckin }
+                        )
+                    }
 
                     WeeklyInsightsLinkCard()
+                    WeeklyLogLinkCard()
 
                     DashboardCard {
                         VStack(alignment: .leading, spacing: 12) {
@@ -79,6 +89,13 @@ struct DashboardView: View {
                             if viewModel.todayNutrition != nil || viewModel.goal != nil {
                                 MacroBarsRow(nutrition: viewModel.todayNutrition, goal: viewModel.goal)
                             }
+                            // Steps/nutrition debt only ever describes the
+                            // current week's live pace, so they're gated to
+                            // "Today" - showing "debt" alongside a past
+                            // day's now-final numbers wouldn't mean anything.
+                            if isToday, let nutritionDebt = viewModel.nutritionDebt, nutritionDebt.hasAny {
+                                NutritionDebtView(debt: nutritionDebt)
+                            }
                             Divider()
                             StatRow(
                                 icon: "figure.walk",
@@ -90,6 +107,9 @@ struct DashboardView: View {
                                 Text("\(viewModel.cardioStepsExcludedToday) cardio steps excluded")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                            }
+                            if isToday, let stepsDebt = viewModel.stepsDebt, let stepTarget = viewModel.goal?.stepTarget {
+                                StepsDebtView(debt: stepsDebt, stepTarget: stepTarget)
                             }
                             StatRow(
                                 icon: "bed.double.fill",
@@ -119,8 +139,14 @@ struct DashboardView: View {
                                 }
                             }
                             .pickerStyle(.segmented)
-                            .onChange(of: weightChartRange) { _, newValue in
-                                Task { await viewModel.loadWeights(daysBack: newValue.days) }
+                            .onChange(of: weightChartRange) { _, _ in
+                                Task { await loadWeightChart() }
+                            }
+
+                            if let summary = weightChartSummaryText {
+                                Text(summary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
 
                             if viewModel.recentWeights.isEmpty {
@@ -167,7 +193,7 @@ struct DashboardView: View {
                                     // but the same format crammed across 6
                                     // months of dots would be unreadable, so
                                     // that range steps by month instead.
-                                    AxisMarks(values: .stride(by: weightChartAxisUnit, count: weightChartAxisStrideCount)) { _ in
+                                    AxisMarks(values: .stride(by: .day, count: weightChartAxisStrideCount)) { _ in
                                         AxisGridLine()
                                         AxisTick()
                                         AxisValueLabel(format: weightChartAxisDateFormat)
@@ -196,14 +222,16 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .task {
                 await viewModel.load(date: selectedDate)
-                await viewModel.loadWeights(daysBack: weightChartRange.days)
+                await loadWeightChart()
                 await viewModel.loadOffPlanInsights()
+                await viewModel.loadCurrentWeekDebts()
                 await checkinAvailability.refresh()
             }
             .refreshable {
                 await viewModel.load(date: selectedDate)
-                await viewModel.loadWeights(daysBack: weightChartRange.days)
+                await loadWeightChart()
                 await viewModel.loadOffPlanInsights()
+                await viewModel.loadCurrentWeekDebts()
                 await checkinAvailability.refresh()
             }
             .sheet(item: $activeSheet) { sheet in
@@ -218,6 +246,34 @@ struct DashboardView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// The real calendar date `weightChartPageOffset` weeks/months back
+    /// from today - the anchor `calendarPeriod(containing:)` resolves into
+    /// the currently-paged week/month.
+    private var weightChartPeriod: (start: Date, end: Date) {
+        weightChartRange.calendarPeriod(containing: Date())
+    }
+
+    private func loadWeightChart() async {
+        let period = weightChartPeriod
+        await viewModel.loadWeights(from: period.start, to: period.end)
+    }
+
+    /// "AVERAGE 71.7 kg" for the month view (matching Health's own M
+    /// display), or just the latest reading for the week view (Health's W
+    /// view shows the latest value too, not an average).
+    private var weightChartSummaryText: String? {
+        guard !viewModel.recentWeights.isEmpty else { return nil }
+        switch weightChartRange {
+        case .week:
+            guard let latest = viewModel.recentWeights.last else { return nil }
+            return String(format: "%.1f kg", latest.weightKg)
+        case .month:
+            let weights = viewModel.recentWeights.map(\.weightKg)
+            let average = weights.reduce(0, +) / Double(weights.count)
+            return String(format: "AVERAGE %.1f kg", average)
         }
     }
 
@@ -252,23 +308,15 @@ struct DashboardView: View {
         return "You're averaging \(deltaText)kg the day after an off-plan flag, based on \(stat.occurrenceCount) times."
     }
 
-    private var weightChartAxisUnit: Calendar.Component {
-        weightChartRange == .sixMonths ? .month : .day
-    }
-
     private var weightChartAxisStrideCount: Int {
         switch weightChartRange {
         case .week: 1
-        case .twoWeeks: 2
         case .month: 5
-        case .sixMonths: 1
         }
     }
 
     private var weightChartAxisDateFormat: Date.FormatStyle {
-        weightChartRange == .sixMonths
-            ? .dateTime.month(.abbreviated)
-            : .dateTime.day().month(.abbreviated)
+        .dateTime.day().month(.abbreviated)
     }
 
     private var weightChartDomain: ClosedRange<Double> {
@@ -304,26 +352,30 @@ struct DashboardView: View {
               let phaseStart = ISO8601DateFormatter().date(from: goal.phaseStartedAt + "T00:00:00Z")
         else { return [] }
 
-        let calendar = Calendar.current
         let today = Date()
 
         func projectedWeight(on date: Date) -> Double {
-            let daysSince = calendar.dateComponents([.day], from: phaseStart, to: date).day ?? 0
+            let daysSince = Calendar.current.dateComponents([.day], from: phaseStart, to: date).day ?? 0
             return startingWeightKg + weeklyRate / 7 * Double(daysSince)
         }
 
-        // Clipped to the selected chart range - a full-phase goal line
-        // (weeks wide) plotted alongside a "W"/"2W" range's handful of
+        // Clipped to the currently paged week/month - a full-phase goal
+        // line (weeks wide) plotted alongside a "W" range's handful of
         // daily points forces Swift Charts to auto-scale the x-axis to fit
         // the wider series, cramming far more daily ticks into the width
         // than it has room for and truncating every label to "...". The
         // line's rate/slope is unaffected - only its visible extent is.
-        let windowStart = calendar.date(byAdding: .day, value: -weightChartRange.days, to: today) ?? phaseStart
-        let lineStart = Swift.max(phaseStart, windowStart)
+        // Right edge is clipped to `today` too so a past page's line
+        // doesn't run past the period it's showing, and a current page
+        // mid-week doesn't project into days that haven't happened yet.
+        let period = weightChartPeriod
+        let lineStart = Swift.max(phaseStart, period.start)
+        let lineEnd = Swift.min(today, period.end)
+        guard lineEnd >= lineStart else { return [] }
 
         return [
             GoalLinePoint(date: lineStart, weightKg: projectedWeight(on: lineStart)),
-            GoalLinePoint(date: today, weightKg: projectedWeight(on: today))
+            GoalLinePoint(date: lineEnd, weightKg: projectedWeight(on: lineEnd))
         ]
     }
 }
@@ -337,15 +389,19 @@ private struct CheckInsCard: View {
     var body: some View {
         DashboardCard(title: "Check-Ins") {
             VStack(alignment: .leading, spacing: 12) {
-                Button(action: onTapDaily) {
-                    checkinRow(label: "Daily Check-In", isDone: dailyCompleted)
+                if !dailyCompleted {
+                    Button(action: onTapDaily) {
+                        checkinRow(label: "Daily Check-In")
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 if weeklyDue {
-                    Divider()
+                    if !dailyCompleted {
+                        Divider()
+                    }
                     Button(action: onTapWeekly) {
-                        checkinRow(label: "Weekly Check-In", isDone: false)
+                        checkinRow(label: "Weekly Check-In")
                     }
                     .buttonStyle(.plain)
                 }
@@ -354,17 +410,12 @@ private struct CheckInsCard: View {
     }
 
     @ViewBuilder
-    private func checkinRow(label: String, isDone: Bool) -> some View {
+    private func checkinRow(label: String) -> some View {
         HStack {
             Text(label)
             Spacer()
-            if isDone {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            } else {
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(.secondary)
-            }
+            Image(systemName: "chevron.right")
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -379,6 +430,25 @@ private struct WeeklyInsightsLinkCard: View {
             } label: {
                 HStack {
                     Text("Weekly Insights")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+/// The scannable, week-over-week table - distinct from Weekly Insights (see
+/// `WeeklyLogView`'s own doc comment for why these are separate screens).
+private struct WeeklyLogLinkCard: View {
+    var body: some View {
+        DashboardCard {
+            NavigationLink {
+                WeeklyLogView()
+            } label: {
+                HStack {
+                    Text("Weekly Log")
                     Spacer()
                     Image(systemName: "chevron.right")
                         .foregroundStyle(.secondary)
@@ -472,6 +542,103 @@ private struct StatRow: View {
                 Text(value)
             }
         }
+    }
+}
+
+/// Moved here from Weekly Insights - steps debt is inherently a "what do I
+/// need today" figure, so it only ever belongs next to today's own steps.
+private struct StepsDebtView: View {
+    let debt: StepsDebt
+    let stepTarget: Int
+
+    private var paceText: String {
+        if debt.completedDays == 0 {
+            return "Week just started"
+        } else if debt.stepsBehindPace < 0 {
+            return "\(-debt.stepsBehindPace) behind pace"
+        } else if debt.stepsBehindPace > 0 {
+            return "+\(debt.stepsBehindPace) ahead of pace"
+        } else {
+            return "Right on pace"
+        }
+    }
+
+    private var subtitleText: String {
+        guard debt.remainingDays > 0 else { return "Week complete." }
+        return "Need \(debt.requiredPerDayForRest)/day through Sunday to still average \(stepTarget) (\(debt.remainingDays) day\(debt.remainingDays == 1 ? "" : "s") left)."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label("Steps debt", systemImage: "figure.walk.motion")
+                Spacer()
+                Text(paceText)
+                    .foregroundStyle(debt.stepsBehindPace < 0 ? .red : .secondary)
+            }
+            Text(subtitleText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .font(.subheadline)
+        .padding(.vertical, 2)
+    }
+}
+
+/// Moved here from Weekly Insights alongside `StepsDebtView`, same reasoning.
+private struct NutritionDebtView: View {
+    let debt: NutritionDebtSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("To Hit This Week's Goal")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            if let calories = debt.calories {
+                MacroDebtRow(debt: calories, label: "Calories", unit: "kcal")
+            }
+            if let protein = debt.protein {
+                MacroDebtRow(debt: protein, label: "Protein", unit: "g")
+            }
+            if let carbs = debt.carbs {
+                MacroDebtRow(debt: carbs, label: "Carbs", unit: "g")
+            }
+            if let fat = debt.fat {
+                MacroDebtRow(debt: fat, label: "Fat", unit: "g")
+            }
+        }
+    }
+}
+
+/// One macro's "how much per day for the rest of the week" figure - no
+/// ahead/behind-pace framing the way `StepsDebtView` has, since a low
+/// number here doesn't universally mean "good" (it can mean "you've
+/// already hit your share" just as easily as "ease off, you're over").
+private struct MacroDebtRow: View {
+    let debt: MacroDebt
+    let label: String
+    let unit: String
+
+    private func formatted(_ value: Double) -> String {
+        unit == "kcal" ? "\(Int(value.rounded())) kcal" : "\(Int(value.rounded()))\(unit)"
+    }
+
+    private var text: String {
+        if debt.completedDays == 0 { return "Week just started." }
+        guard debt.remainingDays > 0 else { return "Week complete." }
+        return "Need \(formatted(debt.requiredPerDayForRest))/day through Sunday to average \(formatted(debt.target)) (\(debt.remainingDays) day\(debt.remainingDays == 1 ? "" : "s") left)."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption)
+                .fontWeight(.semibold)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 1)
     }
 }
 

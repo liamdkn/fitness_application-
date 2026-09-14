@@ -40,7 +40,12 @@ final class OfflineMealQueue {
         self.mealEntryRepository = mealEntryRepository
         self.networkMonitor = networkMonitor
         do {
-            container = try ModelContainer(for: QueuedMealEntry.self)
+            let configuration = ModelConfiguration(
+                "meal-queue",
+                schema: Schema([QueuedMealEntry.self]),
+                url: URL.applicationSupportDirectory.appending(path: "meal-queue.store")
+            )
+            container = try ModelContainer(for: QueuedMealEntry.self, configurations: configuration)
         } catch {
             fatalError("Failed to create offline meal queue store: \(error)")
         }

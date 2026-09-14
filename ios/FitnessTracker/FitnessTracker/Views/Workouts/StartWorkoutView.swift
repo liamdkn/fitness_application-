@@ -199,18 +199,16 @@ struct StartWorkoutView: View {
                             }
                             .font(.subheadline)
                             .frame(maxWidth: .infinity, alignment: .leading)
-
-                            NavigationLink("Cardio History") {
-                                CardioHistoryView()
-                            }
-                            .font(.footnote)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
 
-                    Divider()
-
-                    WorkoutHistoryView()
+                    NavigationLink {
+                        TrainingHistoryView()
+                    } label: {
+                        Label("Training History", systemImage: "clock.arrow.circlepath")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
                 }
                 .padding()
             }

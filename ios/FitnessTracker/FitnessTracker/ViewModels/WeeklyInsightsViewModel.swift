@@ -1,13 +1,13 @@
 import Combine
 import Foundation
 
+/// Volume/cardio-session/weight-change only - the avg calories/macros/steps
+/// summary that used to live here moved to Weekly Log (one row per week, at
+/// a glance for every week, not just the selected one), and steps/nutrition
+/// debt moved to the Dashboard (an inherently current-week-only, "what do I
+/// need today" concept, not a retrospective one).
 struct WeeklySummary {
     let weeklyVolumeKg: Double?
-    let avgStepsPerDay: Int?
-    let avgCaloriesPerLoggedDay: Double?
-    let avgProteinG: Double?
-    let avgCarbsG: Double?
-    let avgFatG: Double?
     let cardioSessionsCompleted: Int
     let weightChangeThisWeekKg: Double?
 }
@@ -21,19 +21,6 @@ struct DailyStepEntry: Identifiable {
     var id: Date { date }
 }
 
-/// Tracks progress toward a 10k-steps-a-day average over the selected
-/// Monday-Sunday week. For the current week, today always counts as one of
-/// the "remaining" days rather than a "completed" one, since its step count
-/// is still accumulating live - the catch-up number is "how many steps,
-/// starting from right now through Sunday, to land the week on target." A
-/// past week has `remainingDays == 0` and simply reads as a final total.
-struct StepsDebt {
-    let completedDays: Int
-    let remainingDays: Int
-    let stepsBehindPace: Int
-    let requiredPerDayForRest: Int
-}
-
 /// A calorie surplus/deficit reading against the adaptive-TDEE estimate,
 /// translated into a plain-English "at that rate you're on pace for X"
 /// statement - the same kcal-per-kg constant AdaptiveTDEEEngine uses for its
@@ -45,34 +32,6 @@ struct MaintenanceInsight {
     let impliedWeeklyChangeKg: Double
 
     var surplusOrDeficit: Double { avgCaloriesPerDay - estimatedTDEE }
-}
-
-/// Same "debt" framing as `StepsDebt`, applied to one nutrition macro -
-/// given what's been logged across this week's completed days (today's
-/// count, if anything's already been logged, folded in too, same as
-/// steps), how much this macro would need to average per day for the rest
-/// of the week to land the week on `target`. Unlike steps (always "more is
-/// fine"), a low `requiredPerDayForRest` can mean either "you've already
-/// hit your share" (calories/protein/carbs/fat all read this way when
-/// under target) or "ease off, you're already over" - the raw number
-/// doesn't carry that judgment on its own, which is why the UI states it
-/// plainly rather than framing it as "ahead/behind pace" the way steps does.
-struct MacroDebt {
-    let target: Double
-    let completedDays: Int
-    let remainingDays: Int
-    let requiredPerDayForRest: Double
-}
-
-struct NutritionDebtSummary {
-    let calories: MacroDebt?
-    let protein: MacroDebt?
-    let carbs: MacroDebt?
-    let fat: MacroDebt?
-
-    var hasAny: Bool {
-        calories != nil || protein != nil || carbs != nil || fat != nil
-    }
 }
 
 /// One week's overall adherence score, used to plot a multi-week trend at
@@ -91,8 +50,6 @@ final class WeeklyInsightsViewModel: ObservableObject {
     @Published var goal: UserGoal?
     @Published var summary: WeeklySummary?
     @Published var dailySteps: [DailyStepEntry] = []
-    @Published var stepsDebt: StepsDebt?
-    @Published var nutritionDebt: NutritionDebtSummary?
     @Published var maintenanceInsight: MaintenanceInsight?
     @Published var weeklyAdherence: WeeklyAdherenceScore?
     /// Last `historyWeeksCount` weeks' overall scores, oldest first, ending
@@ -147,15 +104,12 @@ final class WeeklyInsightsViewModel: ObservableObject {
         return allGoals.last { $0.effectiveFrom <= isoDate }
     }
 
-    /// `.weekday` is always 1=Sunday...7=Saturday regardless of the
-    /// device's locale/first-weekday setting, so this arithmetic is
-    /// locale-proof - the whole screen is a strict Monday-Sunday week.
+    /// The whole screen is a strict Monday-Sunday week - see
+    /// `DateFormatting.mondayOfWeek(containing:)`, shared with Weekly Log
+    /// and the Dashboard's steps/nutrition debt so all three agree on
+    /// where a week starts.
     static func mondayOfWeek(containing date: Date) -> Date {
-        let calendar = Calendar.current
-        let day = calendar.startOfDay(for: date)
-        let weekday = calendar.component(.weekday, from: day)
-        let daysSinceMonday = (weekday + 5) % 7
-        return calendar.date(byAdding: .day, value: -daysSinceMonday, to: day) ?? day
+        DateFormatting.mondayOfWeek(containing: date)
     }
 
     var isCurrentWeek: Bool {
@@ -172,6 +126,15 @@ final class WeeklyInsightsViewModel: ObservableObject {
         guard !isCurrentWeek else { return }
         guard let newStart = Calendar.current.date(byAdding: .day, value: 7, to: selectedWeekStart) else { return }
         selectedWeekStart = newStart
+        Task { await load() }
+    }
+
+    /// Jumps straight to an arbitrary week (e.g. a row tapped in Weekly
+    /// Log) rather than stepping through `goToPreviousWeek()` one week at a
+    /// time - `weekStart` is normalized to its Monday regardless of what
+    /// date within that week is passed in.
+    func selectWeek(startingAt weekStart: Date) {
+        selectedWeekStart = Self.mondayOfWeek(containing: weekStart)
         Task { await load() }
     }
 
@@ -194,8 +157,13 @@ final class WeeklyInsightsViewModel: ObservableObject {
         // week before this one, a partial count for the current week
         // (today itself is still "in progress" and never counts as
         // completed), 0 if this were somehow a future week (can't happen -
-        // `goToNextWeek()` is capped at the current week).
-        let daysElapsed = calendar.dateComponents([.day], from: weekStart, to: min(today, sundayThisWeek)).day ?? 0
+        // `goToNextWeek()` is capped at the current week). The cap is
+        // `sundayThisWeek` plus one day, not `sundayThisWeek` itself -
+        // Monday-to-Sunday is a 6-day difference in date-component terms,
+        // so capping at the Sunday itself silently excluded Sunday from
+        // every past week's count (6 completed days, not 7).
+        let dayAfterSunday = calendar.date(byAdding: .day, value: 1, to: sundayThisWeek) ?? sundayThisWeek
+        let daysElapsed = calendar.dateComponents([.day], from: weekStart, to: min(today, dayAfterSunday)).day ?? 0
         let completedDays = max(0, min(7, daysElapsed))
 
         async let pastGoalsResult = try? goalsRepository.fetchPastGoals(limit: 100)
@@ -254,7 +222,6 @@ final class WeeklyInsightsViewModel: ObservableObject {
 
         let weekStepsByDate = adjustedStepsByDate(weekStepLogs)
         var dailyStepsBuilder: [DailyStepEntry] = []
-        var actualStepsCompleted = 0
         for offset in 0..<7 {
             let date = calendar.date(byAdding: .day, value: offset, to: weekStart) ?? weekStart
             let steps = weekStepsByDate[DateFormatting.isoDate(date)]
@@ -262,21 +229,14 @@ final class WeeklyInsightsViewModel: ObservableObject {
             // shows its live count if any has synced - only days strictly
             // in the future are blank.
             dailyStepsBuilder.append(DailyStepEntry(date: date, steps: offset <= completedDays ? steps : nil))
-            if offset < completedDays {
-                actualStepsCompleted += steps ?? 0
-            }
         }
-        let avgSteps = completedDays > 0 ? actualStepsCompleted / completedDays : nil
 
-        // Hoisted above the steps-debt block (which now needs it) from
-        // where it used to sit, right before the maintenance-insight block
-        // further down - still used there too.
         let isThisWeekCurrent = weekStart == Self.mondayOfWeek(containing: Date())
 
+        // Only feeds the Maintenance Calories card below (current week
+        // only) - the avg-calories-this-week display itself moved to
+        // Weekly Log, so this no longer needs to be part of `summary`.
         let avgCalories = average(nutritionLogs.map(\.calories))
-        let avgProtein = average(nutritionLogs.map(\.proteinG))
-        let avgCarbs = average(nutritionLogs.map(\.carbsG))
-        let avgFat = average(nutritionLogs.map(\.fatG))
 
         // Already range-filtered server-side (`fetchHistory(from:to:)`), so
         // no client-side date filter is needed here.
@@ -286,59 +246,6 @@ final class WeeklyInsightsViewModel: ObservableObject {
             guard let first = weights.first, let last = weights.last, first.id != last.id else { return nil }
             return last.weightKg - first.weightKg
         }()
-
-        // Today's own steps (current week only) are deliberately excluded
-        // from `actualStepsCompleted` above - it only counts fully-elapsed
-        // days, so the "avg steps/day" figure isn't diluted by a
-        // still-accumulating day. The debt/pace numbers are different: they
-        // exist to answer "am I on track *right now*," so today's live
-        // count (if HealthKit has synced anything yet) is folded back in
-        // here. Without this, the debt figure was frozen at last night's
-        // total until midnight rolled it into `actualStepsCompleted` -
-        // every step taken today was invisible to it all day.
-        let todaysStepsSoFar = isThisWeekCurrent ? (weekStepsByDate[DateFormatting.isoDate(today)] ?? 0) : 0
-        let stepsBankedTowardDebt = actualStepsCompleted + todaysStepsSoFar
-
-        let resolvedStepsDebt: StepsDebt? = {
-            guard let stepTarget = resolvedGoal?.stepTarget else { return nil }
-            let remainingDays = 7 - completedDays
-            let stepsBehindPace = stepsBankedTowardDebt - stepTarget * completedDays
-            let requiredPerDayForRest = remainingDays > 0
-                ? max(0, (stepTarget * 7 - stepsBankedTowardDebt + remainingDays - 1) / remainingDays)
-                : 0
-            return StepsDebt(
-                completedDays: completedDays,
-                remainingDays: remainingDays,
-                stepsBehindPace: stepsBehindPace,
-                requiredPerDayForRest: requiredPerDayForRest
-            )
-        }()
-
-        // Same "banked so far, including today's live count" idea as steps,
-        // applied to each macro - built from `nutritionLogs` (already
-        // fetched above) rather than a separate query.
-        let nutritionByDate = Dictionary(uniqueKeysWithValues: nutritionLogs.map { ($0.date, $0) })
-        func macroDebt(target: Double?, keyPath: KeyPath<NutritionLog, Double>) -> MacroDebt? {
-            guard let target, target > 0 else { return nil }
-            var completedTotal = 0.0
-            for offset in 0..<completedDays {
-                guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else { continue }
-                if let log = nutritionByDate[DateFormatting.isoDate(date)] {
-                    completedTotal += log[keyPath: keyPath]
-                }
-            }
-            let todaysSoFar = isThisWeekCurrent ? (nutritionByDate[DateFormatting.isoDate(today)]?[keyPath: keyPath] ?? 0) : 0
-            let banked = completedTotal + todaysSoFar
-            let remainingDays = 7 - completedDays
-            let requiredPerDayForRest = remainingDays > 0 ? max(0, (target * 7 - banked) / Double(remainingDays)) : 0
-            return MacroDebt(target: target, completedDays: completedDays, remainingDays: remainingDays, requiredPerDayForRest: requiredPerDayForRest)
-        }
-        let resolvedNutritionDebt = NutritionDebtSummary(
-            calories: macroDebt(target: resolvedGoal?.dailyCalorieTarget, keyPath: \.calories),
-            protein: macroDebt(target: resolvedGoal?.proteinGTarget, keyPath: \.proteinG),
-            carbs: macroDebt(target: resolvedGoal?.carbsGTarget, keyPath: \.carbsG),
-            fat: macroDebt(target: resolvedGoal?.fatGTarget, keyPath: \.fatG)
-        )
 
         // Only meaningful for the current week - it's a real-time "at your
         // recent rate" recommendation, not a historical figure a past week
@@ -365,16 +272,9 @@ final class WeeklyInsightsViewModel: ObservableObject {
         dailySteps = dailyStepsBuilder
         summary = WeeklySummary(
             weeklyVolumeKg: resolvedVolumeKg,
-            avgStepsPerDay: avgSteps,
-            avgCaloriesPerLoggedDay: avgCalories,
-            avgProteinG: avgProtein,
-            avgCarbsG: avgCarbs,
-            avgFatG: avgFat,
             cardioSessionsCompleted: cardioSessionsCompleted,
             weightChangeThisWeekKg: weightChange
         )
-        stepsDebt = resolvedStepsDebt
-        nutritionDebt = resolvedNutritionDebt
         maintenanceInsight = resolvedMaintenanceInsight
         weeklyAdherence = buildWeeklyAdherence(
             weekStart: weekStart,
