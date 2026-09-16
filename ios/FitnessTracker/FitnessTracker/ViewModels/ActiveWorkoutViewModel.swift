@@ -33,7 +33,6 @@ struct ActiveExercise: Identifiable {
 final class ActiveWorkoutViewModel: ObservableObject {
     @Published private(set) var workout: Workout
     @Published var activeExercises: [ActiveExercise] = []
-    @Published var notes: String
     @Published var errorMessage: String?
     @Published var isFinished = false
     @Published var isCancelled = false
@@ -50,11 +49,9 @@ final class ActiveWorkoutViewModel: ObservableObject {
     private let offlineQueue = OfflineWorkoutQueue.shared
     private let exerciseRepository = ExerciseRepository()
     private let injuryRepository = InjuryRepository()
-    private var notesSaveTask: Task<Void, Never>?
 
     init(workout: Workout) {
         self.workout = workout
-        self.notes = workout.notes ?? ""
     }
 
     func loadTemplate() async {
@@ -223,19 +220,9 @@ final class ActiveWorkoutViewModel: ObservableObject {
         activeExercises[index].pendingRows.remove(at: pendingIndex)
     }
 
-    func saveNotes(_ text: String) {
-        notes = text
-        notesSaveTask?.cancel()
-        let currentWorkout = workout
-        notesSaveTask = Task {
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            guard !Task.isCancelled else { return }
-            try? await offlineQueue.updateNotes(workout: currentWorkout, notes: text)
-        }
-    }
-
-    func finish(rating: Int?) async {
+    func finish(rating: Int, notes: String) async {
         do {
+            try? await offlineQueue.updateNotes(workout: workout, notes: notes)
             try await offlineQueue.finishWorkout(workout: workout, rating: rating)
             isFinished = true
         } catch {

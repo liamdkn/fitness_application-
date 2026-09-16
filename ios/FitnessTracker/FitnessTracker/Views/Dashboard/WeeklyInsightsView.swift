@@ -8,7 +8,8 @@ struct WeeklyInsightsView: View {
     var initialWeekStart: Date?
 
     @StateObject private var viewModel = WeeklyInsightsViewModel()
-    @State private var selectedDayScore: DailyAdherenceScore?
+    @StateObject private var weekPickerViewModel = WeeklyLogViewModel()
+    @State private var isWeekPickerExpanded = false
 
     private var weekRangeLabel: String {
         if viewModel.isCurrentWeek { return "This Week" }
@@ -31,6 +32,13 @@ struct WeeklyInsightsView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 12)
 
+            if isWeekPickerExpanded {
+                WeekPickerList(viewModel: weekPickerViewModel, selectedWeekStart: viewModel.selectedWeekStart) { weekStart in
+                    viewModel.selectWeek(startingAt: weekStart)
+                    withAnimation { isWeekPickerExpanded = false }
+                }
+            }
+
             List {
                 weeklyInsightsContent
             }
@@ -44,11 +52,12 @@ struct WeeklyInsightsView: View {
                 await viewModel.load()
             }
         }
-        .navigationDestination(item: $selectedDayScore) { dayScore in
-            DayAdherenceDetailView(dayScore: dayScore)
-        }
     }
 
+    /// Tapping the week label expands it into a scrollable list of every
+    /// past week (oldest to newest, phase-labeled) to jump to directly -
+    /// this absorbs what used to be the separate Weekly Log list screen, so
+    /// the prev/next chevrons only need to step one week at a time.
     private var weekNavHeader: some View {
         HStack {
             Button {
@@ -57,8 +66,21 @@ struct WeeklyInsightsView: View {
                 Image(systemName: "chevron.left")
             }
             Spacer()
-            Text(weekRangeLabel)
-                .font(.headline)
+            Button {
+                if weekPickerViewModel.entries.isEmpty {
+                    Task { await weekPickerViewModel.loadInitial() }
+                }
+                withAnimation { isWeekPickerExpanded.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(weekRangeLabel)
+                        .font(.headline)
+                    Image(systemName: isWeekPickerExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
             Spacer()
             Button {
                 viewModel.goToNextWeek()
@@ -78,10 +100,7 @@ struct WeeklyInsightsView: View {
             }
 
             Section("Adherence Score") {
-                WeeklyAdherenceCard(
-                    weeklyScore: viewModel.weeklyAdherence,
-                    onSelectDay: { selectedDayScore = $0 }
-                )
+                WeeklyAdherenceCard(weeklyScore: viewModel.weeklyAdherence)
             }
 
             if let checkin = viewModel.weeklyCheckin, checkin.hasSurveyContent {
@@ -106,15 +125,39 @@ struct WeeklyInsightsView: View {
                     )
                 }
 
-                // Avg steps/day, steps debt, avg calories/macros, and
-                // nutrition debt all moved off this screen - the averages
-                // to Weekly Log (one row per week, at a glance), the debts
-                // to the Dashboard (a "what do I need today" concept that
-                // only makes sense for the current week). What's left here
-                // is the day-by-day "why" detail behind this week's steps
-                // average, which Weekly Log doesn't show.
+                // Avg + breakdown work for any week; the "you need X/day"
+                // debt rows only ever populate for the live current week
+                // (see `StepsDebt`/`NutritionDebtSummary`'s doc comments),
+                // so they simply don't appear on a past week.
+                if !viewModel.dailyCalories.isEmpty {
+                    Section("Nutrition") {
+                        WeeklyNutritionAveragesView(
+                            avgCalories: viewModel.avgCaloriesPerDay,
+                            avgProtein: viewModel.avgProteinPerDay,
+                            avgCarbs: viewModel.avgCarbsPerDay,
+                            avgFat: viewModel.avgFatPerDay,
+                            goal: viewModel.goal
+                        )
+                        if let nutritionDebt = viewModel.nutritionDebt, nutritionDebt.hasAny {
+                            NutritionDebtSummaryView(debt: nutritionDebt)
+                        }
+                        DisclosureGroup("Daily Breakdown") {
+                            DailyCaloriesBreakdown(days: viewModel.dailyCalories, calorieTarget: viewModel.goal?.dailyCalorieTarget)
+                        }
+                    }
+                }
+
                 if !viewModel.dailySteps.isEmpty {
-                    Section("Activity") {
+                    Section("Steps") {
+                        InsightRow(
+                            icon: "figure.walk",
+                            label: "Avg steps",
+                            value: viewModel.avgStepsPerDay.map { "\(Int($0.rounded()))" } ?? "-",
+                            target: viewModel.goal?.stepTarget.map { "\($0)" }
+                        )
+                        if let stepsDebt = viewModel.stepsDebt, let stepTarget = viewModel.goal?.stepTarget {
+                            StepsDebtRow(debt: stepsDebt, stepTarget: stepTarget)
+                        }
                         DisclosureGroup("Daily Breakdown") {
                             DailyStepsBreakdown(days: viewModel.dailySteps, stepTarget: viewModel.goal?.stepTarget)
                         }
@@ -122,6 +165,16 @@ struct WeeklyInsightsView: View {
                 }
 
                 Section("Weight") {
+                    if !viewModel.weekWeights.isEmpty {
+                        WeeklyWeightChart(weights: viewModel.weekWeights)
+                    }
+                    if let avgThisWeek = viewModel.avgWeightThisWeek {
+                        WeightAverageComparisonRow(
+                            avgThisWeek: avgThisWeek,
+                            avgLastWeek: viewModel.avgWeightLastWeek,
+                            trend: viewModel.weightTrendVsLastWeek
+                        )
+                    }
                     if let weightChange = summary.weightChangeThisWeekKg {
                         InsightRow(
                             icon: "scalemass.fill",
@@ -133,6 +186,10 @@ struct WeeklyInsightsView: View {
                         Text("Not enough weigh-ins this week to show a change.")
                             .foregroundStyle(.secondary)
                     }
+                    NavigationLink("Weigh-In History") {
+                        WeightHistoryView()
+                    }
+                    .font(.footnote)
                 }
 
                 if viewModel.isCurrentWeek {
@@ -149,6 +206,70 @@ struct WeeklyInsightsView: View {
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage).foregroundStyle(.red)
             }
+    }
+}
+
+/// The expanded week list under the tappable header - reuses
+/// `WeeklyLogViewModel`'s existing pagination and phase-label logic
+/// (formerly the whole of the standalone Weekly Log screen), displayed
+/// oldest to newest with "This Week" standing in for the current row.
+private struct WeekPickerList: View {
+    @ObservedObject var viewModel: WeeklyLogViewModel
+    let selectedWeekStart: Date
+    let onSelect: (Date) -> Void
+
+    private var orderedEntries: [WeeklyLogEntry] {
+        viewModel.entries.reversed()
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(orderedEntries) { entry in
+                    Button {
+                        onSelect(entry.weekStartDate)
+                    } label: {
+                        HStack {
+                            Text(label(for: entry))
+                            Spacer()
+                            if Calendar.current.isDate(entry.weekStartDate, equalTo: selectedWeekStart, toGranularity: .day) {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 10)
+                        .padding(.horizontal)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .task {
+                        await viewModel.loadMoreIfNeeded(currentEntry: entry)
+                    }
+                    Divider()
+                }
+                if viewModel.isLoadingMore {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                }
+            }
+        }
+        .frame(maxHeight: 280)
+        .background(.background.secondary)
+    }
+
+    private func label(for entry: WeeklyLogEntry) -> String {
+        if Calendar.current.isDate(entry.weekStartDate, equalTo: WeeklyInsightsViewModel.mondayOfWeek(containing: Date()), toGranularity: .day) {
+            return "This Week"
+        }
+        return viewModel.phaseLabel(for: entry) ?? weekRangeText(entry.weekStartDate)
+    }
+
+    private func weekRangeText(_ start: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        let end = Calendar.current.date(byAdding: .day, value: 6, to: start) ?? start
+        return "\(formatter.string(from: start)) - \(formatter.string(from: end))"
     }
 }
 
@@ -209,7 +330,10 @@ private struct MaintenanceCaloriesCard: View {
 /// a glance rather than hidden inside a single number.
 private struct WeeklyAdherenceCard: View {
     let weeklyScore: WeeklyAdherenceScore?
-    let onSelectDay: (DailyAdherenceScore) -> Void
+
+    /// Which day's breakdown is expanded inline below the strip - tapping
+    /// the same day again collapses it, tapping another swaps to it.
+    @State private var selectedDay: DailyAdherenceScore?
 
     private func bandColor(_ score: Double) -> Color {
         switch score {
@@ -250,6 +374,11 @@ private struct WeeklyAdherenceCard: View {
                 Text("Tap a day to see its details.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+
+                if let selectedDay {
+                    Divider()
+                    DayAdherenceInlineDetail(dayScore: selectedDay)
+                }
             }
             .padding(.vertical, 4)
         } else {
@@ -282,13 +411,78 @@ private struct WeeklyAdherenceCard: View {
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .onTapGesture { onSelectDay(day) }
+        .onTapGesture {
+            withAnimation {
+                selectedDay = (selectedDay == day) ? nil : day
+            }
+        }
     }
 
     private func weekdayLetter(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEEE"
         return formatter.string(from: date)
+    }
+}
+
+/// A selected day's adherence breakdown, shown inline under the day strip
+/// instead of pushing a new screen - flicking between a few days' detail
+/// shouldn't cost a navigation round trip each time.
+private struct DayAdherenceInlineDetail: View {
+    let dayScore: DailyAdherenceScore
+
+    private var titleText: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMM d"
+        return formatter.string(from: dayScore.date)
+    }
+
+    private func bandColor(_ score: Double) -> Color {
+        switch score {
+        case 85...: return .green
+        case 65..<85: return .orange
+        default: return .red
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(titleText)
+                    .font(.subheadline.bold())
+                Spacer()
+                if let overall = dayScore.overall {
+                    Text("\(Int(overall.rounded()))")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(bandColor(overall))
+                }
+            }
+            if dayScore.overall == nil {
+                Text("Not enough logged this day for a score.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("\(dayScore.scoredCount) of \(dayScore.totalCount) tracked")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(dayScore.components) { component in
+                HStack {
+                    Text(component.component.label)
+                        .font(.caption)
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(component.score.map { "\(Int($0.rounded()))" } ?? "-")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(component.score == nil ? .secondary : .primary)
+                        Text(component.detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -348,6 +542,280 @@ private struct DailyStepsBreakdown: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE"
         return formatter.string(from: date)
+    }
+}
+
+/// Monday-Sunday row-per-day calories list, same layout as
+/// `DailyStepsBreakdown` - a plain magnitude bar, not colored by over/under
+/// target, since unlike steps a low calorie day isn't universally "good."
+private struct DailyCaloriesBreakdown: View {
+    let days: [DailyCalorieEntry]
+    let calorieTarget: Double?
+
+    private var maxCalories: Double {
+        max(days.compactMap(\.calories).max() ?? 0, calorieTarget ?? 0, 1)
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(days) { day in
+                dayRow(day)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func dayRow(_ day: DailyCalorieEntry) -> some View {
+        HStack(spacing: 12) {
+            Text(weekdayLabel(day.date))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, alignment: .leading)
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.15))
+                    if let calories = day.calories {
+                        Capsule()
+                            .fill(Color.blue)
+                            .frame(width: geometry.size.width * min(calories / maxCalories, 1))
+                    }
+                }
+            }
+            .frame(height: 8)
+
+            Text(day.calories.map { "\(Int($0.rounded()))" } ?? "-")
+                .font(.caption)
+                .foregroundStyle(day.calories == nil ? .secondary : .primary)
+                .frame(width: 56, alignment: .trailing)
+                .monospacedDigit()
+        }
+    }
+
+    private func weekdayLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE"
+        return formatter.string(from: date)
+    }
+}
+
+/// "You need X/day..." for the current week's step target - only ever
+/// shown when `viewModel.stepsDebt` is non-nil, which only happens for the
+/// live current week (see `StepsDebt`'s doc comment).
+private struct StepsDebtRow: View {
+    let debt: StepsDebt
+    let stepTarget: Int
+
+    private var paceText: String {
+        if debt.stepsBehindPace < 0 {
+            return "\(-debt.stepsBehindPace) behind pace"
+        } else if debt.stepsBehindPace > 0 {
+            return "+\(debt.stepsBehindPace) ahead of pace"
+        } else {
+            return "Right on pace"
+        }
+    }
+
+    private var subtitleText: String {
+        guard debt.remainingDays > 0 else { return "Week complete." }
+        return "Need \(debt.requiredPerDayForRest)/day through Sunday to still average \(stepTarget)."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label("Steps debt", systemImage: "figure.walk.motion")
+                Spacer()
+                Text(paceText)
+                    .foregroundStyle(debt.stepsBehindPace < 0 ? .red : .secondary)
+            }
+            Text(subtitleText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .font(.subheadline)
+        .padding(.vertical, 2)
+    }
+}
+
+/// "You need X/day..." for calories and each macro, to land this week on
+/// target - only ever shown for the live current week (see
+/// `NutritionDebtSummary`'s doc comment).
+/// This week's average calories/protein/carbs/fat against target, as
+/// progress bars - same `ProgressView`-per-macro layout as the Dashboard's
+/// own "today" macro bars, just averaged over the week instead of one day.
+private struct WeeklyNutritionAveragesView: View {
+    let avgCalories: Double?
+    let avgProtein: Double?
+    let avgCarbs: Double?
+    let avgFat: Double?
+    let goal: UserGoal?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            macroLine(label: "Calories", value: avgCalories, target: goal?.dailyCalorieTarget, unit: "kcal")
+            macroLine(label: "Protein", value: avgProtein, target: goal?.proteinGTarget, unit: "g")
+            macroLine(label: "Carbs", value: avgCarbs, target: goal?.carbsGTarget, unit: "g")
+            macroLine(label: "Fat", value: avgFat, target: goal?.fatGTarget, unit: "g")
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func macroLine(label: String, value: Double?, target: Double?, unit: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.caption)
+                .frame(width: 60, alignment: .leading)
+            if let target, target > 0 {
+                ProgressView(value: min((value ?? 0) / target, 1))
+            } else {
+                ProgressView(value: 0)
+            }
+            Text(macroText(value: value, target: target, unit: unit))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 100, alignment: .trailing)
+        }
+    }
+
+    private func formatted(_ value: Double, unit: String) -> String {
+        unit == "kcal" ? "\(Int(value.rounded())) kcal" : "\(Int(value.rounded()))\(unit)"
+    }
+
+    private func macroText(value: Double?, target: Double?, unit: String) -> String {
+        let valueText = value.map { formatted($0, unit: unit) } ?? "-"
+        guard let target else { return valueText }
+        return "\(valueText)/\(formatted(target, unit: unit))"
+    }
+}
+
+private struct NutritionDebtSummaryView: View {
+    let debt: NutritionDebtSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("To Hit This Week's Goal")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            if let calories = debt.calories {
+                MacroDebtRow(debt: calories, label: "Calories", unit: "kcal")
+            }
+            if let protein = debt.protein {
+                MacroDebtRow(debt: protein, label: "Protein", unit: "g")
+            }
+            if let carbs = debt.carbs {
+                MacroDebtRow(debt: carbs, label: "Carbs", unit: "g")
+            }
+            if let fat = debt.fat {
+                MacroDebtRow(debt: fat, label: "Fat", unit: "g")
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// One macro's "how much per day for the rest of the week" figure - no
+/// ahead/behind-pace framing the way `StepsDebtRow` has, since a low
+/// number here doesn't universally mean "good" (it can mean "you've
+/// already hit your share" just as easily as "ease off, you're over").
+private struct MacroDebtRow: View {
+    let debt: MacroDebt
+    let label: String
+    let unit: String
+
+    private func formatted(_ value: Double) -> String {
+        unit == "kcal" ? "\(Int(value.rounded())) kcal" : "\(Int(value.rounded()))\(unit)"
+    }
+
+    private var text: String {
+        guard debt.remainingDays > 0 else { return "Week complete." }
+        return "Need \(formatted(debt.requiredPerDayForRest))/day through Sunday to average \(formatted(debt.target))."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption)
+                .fontWeight(.semibold)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 1)
+    }
+}
+
+/// This week's raw weigh-ins plotted across the selected Mon-Sun week - a
+/// quick "what actually happened" visual to sit above the plainer
+/// average/change numbers below it.
+private struct WeeklyWeightChart: View {
+    let weights: [BodyWeightLog]
+
+    var body: some View {
+        Chart {
+            ForEach(weights) { log in
+                LineMark(
+                    x: .value("Date", log.loggedAt),
+                    y: .value("Weight (kg)", log.weightKg)
+                )
+                PointMark(
+                    x: .value("Date", log.loggedAt),
+                    y: .value("Weight (kg)", log.weightKg)
+                )
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .day)) { _ in
+                AxisGridLine()
+                AxisValueLabel(format: .dateTime.weekday(.narrow))
+            }
+        }
+        .frame(height: 120)
+        .padding(.vertical, 4)
+    }
+}
+
+/// This week's average weight vs last week's, with the same up/down/stable
+/// framing as the Dashboard's weight glance card (`WeightTrend`).
+private struct WeightAverageComparisonRow: View {
+    let avgThisWeek: Double
+    let avgLastWeek: Double?
+    let trend: WeightTrend?
+
+    private var trendText: String {
+        switch trend {
+        case .up: "Up"
+        case .down: "Down"
+        case .stable: "Stable"
+        case nil: "-"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("This week's average")
+                Spacer()
+                Text(String(format: "%.1f kg", avgThisWeek))
+                    .fontWeight(.semibold)
+            }
+            HStack {
+                Text("vs last week")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if let avgLastWeek {
+                    Text("\(String(format: "%.1f kg", avgLastWeek)) \u{00B7} \(trendText)")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("No data")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
+        }
+        .padding(.vertical, 2)
     }
 }
 

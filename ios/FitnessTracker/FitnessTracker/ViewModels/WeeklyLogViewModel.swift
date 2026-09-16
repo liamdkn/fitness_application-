@@ -14,18 +14,42 @@ final class WeeklyLogViewModel: ObservableObject {
     private var reachedEnd = false
 
     private let repository = WeeklyLogRepository()
+    private let goalsRepository = GoalsRepository()
     private let pageSize = 12
+
+    /// Every goal phase the user has ever had, sorted ascending by
+    /// `effectiveFrom` - fetched once and reused for every row's phase
+    /// label, the same "resolve point-in-time, don't re-query per row"
+    /// pattern `WeeklyInsightsViewModel.goalEffective` uses.
+    private var allGoals: [UserGoal] = []
 
     func loadInitial() async {
         isLoading = true
         defer { isLoading = false }
         reachedEnd = false
         do {
+            async let goalsResult = try? goalsRepository.fetchPastGoals(limit: 100)
             entries = try await repository.fetchSummary(limit: pageSize, before: nil)
+            allGoals = (await goalsResult ?? []).sorted { $0.effectiveFrom < $1.effectiveFrom }
             reachedEnd = entries.count < pageSize
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// "Cut week 3" - the phase active as of this week (point-in-time, not
+    /// whatever phase is active today) and how many weeks into it this
+    /// week falls. `nil` if no goal phase covers this week (e.g. logged
+    /// before any goal was ever set up), in which case the row falls back
+    /// to showing just its date range as the primary label.
+    func phaseLabel(for entry: WeeklyLogEntry) -> String? {
+        let isoWeekStart = entry.weekStart
+        guard let goal = allGoals.last(where: { $0.effectiveFrom <= isoWeekStart }),
+              let phaseStart = DateFormatting.date(fromISODate: goal.phaseStartedAt)
+        else { return nil }
+        let days = Calendar.current.dateComponents([.day], from: phaseStart, to: entry.weekStartDate).day ?? 0
+        let weekNumber = max(1, days / 7 + 1)
+        return "\(goal.phaseType.displayName) week \(weekNumber)"
     }
 
     /// Called when the last-loaded row scrolls into view - fetches the

@@ -4,46 +4,19 @@ struct ExercisePickerView: View {
     let onPick: (Exercise) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var exercises: [Exercise] = []
-    @State private var searchText = ""
-    @State private var errorMessage: String?
+    @StateObject private var listViewModel = ExerciseListViewModel()
     @State private var showingAddCustom = false
-    private let repository = ExerciseRepository()
-
-    private var filtered: [Exercise] {
-        guard !searchText.isEmpty else { return exercises }
-        return exercises.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
-    }
-
-    private var groupedByMuscle: [(group: MuscleGroup, exercises: [Exercise])] {
-        let byGroup = Dictionary(grouping: filtered) { $0.primaryMuscleGroup }
-        return MuscleGroup.allCases.compactMap { group in
-            guard let exercises = byGroup[group.rawValue], !exercises.isEmpty else { return nil }
-            return (group, exercises)
-        }
-    }
 
     var body: some View {
         NavigationStack {
-            List {
-                if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
-                }
-                if searchText.isEmpty {
-                    ForEach(groupedByMuscle, id: \.group) { section in
-                        Section(section.group.displayName) {
-                            ForEach(section.exercises) { exercise in
-                                exerciseRow(exercise)
-                            }
-                        }
-                    }
-                } else {
-                    ForEach(filtered) { exercise in
-                        exerciseRow(exercise)
-                    }
+            ExerciseListContent(listViewModel: listViewModel) { exercise in
+                Button {
+                    onPick(exercise)
+                    dismiss()
+                } label: {
+                    ExerciseRowContent(exercise: exercise)
                 }
             }
-            .searchable(text: $searchText, prompt: "Search exercises")
             .navigationTitle("Add Exercise")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
@@ -54,45 +27,20 @@ struct ExercisePickerView: View {
                     Button("New Exercise") { showingAddCustom = true }
                 }
             }
-            .task { await load() }
             .sheet(isPresented: $showingAddCustom) {
                 AddCustomExerciseView { exercise in
-                    exercises.append(exercise)
-                    exercises.sort { $0.name < $1.name }
+                    listViewModel.addCustom(exercise)
                     onPick(exercise)
                     dismiss()
                 }
             }
         }
     }
-
-    private func load() async {
-        do {
-            exercises = try await repository.fetchAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    @ViewBuilder
-    private func exerciseRow(_ exercise: Exercise) -> some View {
-        Button {
-            onPick(exercise)
-            dismiss()
-        } label: {
-            VStack(alignment: .leading) {
-                Text(exercise.name).foregroundStyle(.primary)
-                if let group = exercise.primaryMuscleGroup {
-                    Text(group)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
 }
 
-private struct AddCustomExerciseView: View {
+/// Not private - also reused by `ExerciseLibraryView`'s own "New Exercise"
+/// entry point.
+struct AddCustomExerciseView: View {
     let onCreated: (Exercise) -> Void
 
     @Environment(\.dismiss) private var dismiss

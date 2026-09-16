@@ -42,3 +42,27 @@ So it's not that steps debt is lagging a day behind — average steps/day is the
 ## 5. Notifications
 
 Not captured yet — the brief was cut off here. Everything in Section 1.7 above (the 9am check-in reminder, editable in Settings) is a preview of what's coming; hold off finalizing its Settings UI until the fuller Notifications section lands, since it'll likely set the pattern for how notification settings are organized generally.
+
+## 6. Dashboard update (Sep 16) — Weight card simplification + Today Checklist
+
+Verified against the current code (`DashboardView.swift`) before writing this — the two-link-card issue from Section 0 of `weekly-log-brief.md` is already fixed (only `WeeklyLogLinkCard` remains on the Dashboard; `NutritionDebtView`/`StepsDebtView` are correctly embedded in the day card, not the weight card).
+
+**6.1 — Weight card, trimmed to a glance card.**
+
+Keep: today's weight, a trend indicator (up/down/stable — see threshold below), the goal line, and the existing "no weigh-ins yet" empty state. Remove from this card:
+
+- The `W`/`M` range picker, the chart itself, and the period-average text (`weightChartSummaryText`) — this card is now a glance card, not a history browser.
+- The `NavigationLink("Weigh-In History")` at the bottom — per your "we'll have that somewhere else," the cleanest home is a link from `WeeklyInsightsView` (it already deals in weight-per-week; a "Weigh-In History" link fits naturally near its weight section) rather than losing the entry point entirely. Flagging this placement as my call, not yours — easy to move if you want it elsewhere (Settings, or off the new Weekly Log week-picker in Section 6.3 below).
+- The full chart/`Chart{}` block, `weightChartAxisStrideCount`, `weightChartAxisDateFormat`, `weightChartDomain`, `WeightChartRange` enum, and `weightChartPeriod`/`loadWeightChart()` — all of this was purely in service of the in-card chart being removed, so it goes with it rather than staying as dead code. `goalLinePoints` stays (still needed for the goal-line value), but its "clip to the currently paged week/month" logic (the `weightChartPeriod` references inside it) simplifies since there's no more paging — the goal line just needs today's projected value plus a recent anchor point, not a clipped range.
+
+**Trend indicator — proposed threshold.** Daily weight is noisy (water, sodium, bowel movements), so a raw day-over-day delta will flip up/down constantly and mean nothing. Use the same pattern the nutrition-trend code already applies elsewhere in the app (a percentage compared against a fixed noise floor, whichever's larger): compare a **7-day rolling average of weight** against the 7-day rolling average from 7 days prior (i.e., this week's average vs. last week's average — mirrors how `WeeklyInsightsViewModel`'s `weightChangeThisWeekKg` already thinks in week-over-week terms), and only call it "trending up" or "trending down" if that delta exceeds **0.2kg**; anything smaller reads as "stable." 0.2kg/week is comfortably inside normal water-weight noise, so it won't flip on a bad hydration day, but it's tight enough to catch a real trend within a week or two. Needs at least 7 days of weigh-ins on each side to show anything — falls back to "not enough data yet" otherwise, same spirit as the existing "no weigh-ins yet" empty state.
+
+**6.2 — Today Checklist.** New element at the top of the Dashboard (above the day card), three ticks:
+
+- **Steps** — ticked when today's step count (the existing `displaySteps`, which already accounts for cardio-exclusion) meets `goal.stepTarget`.
+- **Workout** — ticked when a workout (strength or cardio session) has been logged for today. Needs a quick check against however `CardioSessionMonitor`/the strength-workout save path timestamps a session — flagging this as the one item here that needs a source-of-truth check before Claude Code wires it up, rather than assuming.
+- **Calories in range** — ticked when today's logged calories fall within a tolerance band of `goal.dailyCalorieTarget`, not just "under." Proposed band, same floor-plus-percentage pattern as the trend threshold above: **within 10% of target, or ±100 kcal, whichever is wider** (so a smaller calorie target, e.g. a cut, doesn't get an unreasonably tight window). Ticks whether the day landed a little over or a little under, within that band — the point is "hit the plan," not "stayed under."
+
+**Explicitly deferred, not built now:** none of these three ticks feed `AdherenceScoreEngine` yet — you said "at a later point," so for this pass they're purely a same-day visual (green tick / empty). Worth storing the three computed booleans somewhere the future scoring work can read from cheaply (rather than recomputing), but no scoring-formula change in this pass.
+
+**6.3 — Weigh-In History link:** see 6.1 — proposed to live on `WeeklyInsightsView` instead. See `weekly-log-brief.md` Section 6 for the related Weekly Log navigation redesign, which changes how you get to Weekly Insights in the first place.

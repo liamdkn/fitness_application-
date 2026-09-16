@@ -21,6 +21,7 @@ struct MyGoalsView: View {
     private let tdeeEstimateRepository = TDEEEstimateRepository()
     private let bodyWeightRepository = BodyWeightRepository()
     private let nutritionRepository = NutritionRepository()
+    private let dailyCheckinRepository = DailyCheckinRepository()
     private let tdeeWindowDays = 21
 
     var body: some View {
@@ -339,10 +340,12 @@ struct MyGoalsView: View {
                 return
             }
             let windowNutrition = try await nutritionRepository.fetchRange(from: windowStart, to: Date())
+            let windowCheckins = (try? await dailyCheckinRepository.fetchRecent(days: tdeeWindowDays)) ?? []
 
             guard let recommendation = AdaptiveTDEEEngine.evaluate(
                 weightLogs: recentWeights,
                 nutritionLogs: windowNutrition,
+                recentCheckins: windowCheckins,
                 goal: currentGoal,
                 windowDays: tdeeWindowDays
             ), recommendation.isActionable else {

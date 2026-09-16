@@ -172,7 +172,7 @@ struct EditableSetRow: View {
             .keyboardType(.decimalPad)
             .textFieldStyle(.roundedBorder)
             .multilineTextAlignment(.center)
-            .frame(width: 52)
+            .frame(width: 66)
             // Purely visual - never blocks confirming the set. A border
             // tint plus a small badge rather than extra text, so a row
             // that's already tight on width never has to reflow to fit a
@@ -266,7 +266,7 @@ struct ConfirmedSetRow: View {
                 .frame(width: 28, alignment: .leading)
             Spacer(minLength: 0)
             Text(set.weightKg, format: .number.precision(.fractionLength(0...1)))
-                .frame(width: 52, alignment: .center)
+                .frame(width: 66, alignment: .center)
             Text("\(set.reps)")
                 .frame(width: 44, alignment: .center)
             Text(set.rpe.map { String(format: "%.1f", $0) } ?? "\u{2014}")
@@ -318,7 +318,7 @@ struct SetGridHeader: View {
         HStack {
             Text("Set").frame(width: 28, alignment: .leading)
             Spacer(minLength: 0)
-            Text("kg").frame(width: 52, alignment: .center)
+            Text("kg").frame(width: 66, alignment: .center)
             Text("Reps").frame(width: 44, alignment: .center)
             HStack(spacing: 2) {
                 Text("RPE")

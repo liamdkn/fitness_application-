@@ -1,47 +1,18 @@
 import Combine
 import Foundation
 
-/// Tracks progress toward a 10k-steps-a-day average over the current
-/// Monday-Sunday week - inherently current-week-only ("what do I need
-/// today to hit this week's target" is meaningless for a completed past
-/// week), which is why this lives on the Dashboard rather than Weekly
-/// Insights. Today always counts as one of the "remaining" days rather
-/// than a "completed" one, since its step count is still accumulating live
-/// - the catch-up number is "how many steps, starting from right now
-/// through Sunday, to land the week on target."
-struct StepsDebt {
-    let completedDays: Int
-    let remainingDays: Int
-    let stepsBehindPace: Int
-    let requiredPerDayForRest: Int
+/// Direction of this week's 7-day rolling average weight vs last week's -
+/// see `loadWeightGlance()`.
+enum WeightTrend {
+    case up, down, stable
 }
 
-/// Same "debt" framing as `StepsDebt`, applied to one nutrition macro -
-/// given what's been logged across this week's completed days (today's
-/// count, if anything's already been logged, folded in too, same as
-/// steps), how much this macro would need to average per day for the rest
-/// of the week to land the week on `target`. Unlike steps (always "more is
-/// fine"), a low `requiredPerDayForRest` can mean either "you've already
-/// hit your share" (calories/protein/carbs/fat all read this way when
-/// under target) or "ease off, you're already over" - the raw number
-/// doesn't carry that judgment on its own, which is why the UI states it
-/// plainly rather than framing it as "ahead/behind pace" the way steps does.
-struct MacroDebt {
-    let target: Double
-    let completedDays: Int
-    let remainingDays: Int
-    let requiredPerDayForRest: Double
-}
-
-struct NutritionDebtSummary {
-    let calories: MacroDebt?
-    let protein: MacroDebt?
-    let carbs: MacroDebt?
-    let fat: MacroDebt?
-
-    var hasAny: Bool {
-        calories != nil || protein != nil || carbs != nil || fat != nil
-    }
+/// The three ticks on the Today Checklist - visual only for now, doesn't
+/// feed the weekly adherence score.
+struct TodayChecklist {
+    let stepsHit: Bool
+    let workoutLogged: Bool
+    let caloriesInRange: Bool
 }
 
 @MainActor
@@ -51,16 +22,15 @@ final class DashboardViewModel: ObservableObject {
     @Published var todaySteps: Int?
     @Published var lastNightSleepMinutes: Int?
     @Published var weeklyVolumeKg: Double?
-    @Published var recentWeights: [BodyWeightLog] = []
+    /// The Weight card's glance data - today's latest reading and how it's
+    /// trending, not a chart's worth of history (see `loadWeightGlance()`).
+    @Published var currentWeightKg: Double?
+    @Published var weightTrend: WeightTrend?
+    @Published var todayChecklist: TodayChecklist?
     @Published var cardioExclusionEnabled = false
     @Published var cardioStepsExcludedToday = 0
     @Published var offPlanRecentInsight: OffPlanWeightAdvisor.RecentFlagInsight?
     @Published var offPlanHistoricalStat: OffPlanWeightAdvisor.HistoricalStat?
-    /// This week's steps/nutrition debt - see `loadCurrentWeekDebts()`.
-    /// Moved here from Weekly Insights: both are "what do I need today"
-    /// figures, meaningless for any week but the current one.
-    @Published var stepsDebt: StepsDebt?
-    @Published var nutritionDebt: NutritionDebtSummary?
     @Published var errorMessage: String?
     @Published var isLoading = false
 
@@ -108,106 +78,69 @@ final class DashboardViewModel: ObservableObject {
         cardioStepsExcludedToday = cardioSessions.reduce(0) { $0 + $1.stepsDelta }
     }
 
-    /// The weight chart's own data, kept independent of `load()` - the
-    /// chart isn't scoped to `selectedDate` the way calories/steps/sleep
-    /// are, so switching days shouldn't silently reset it back to some
-    /// default range out from under whatever the Dashboard's W/M picker
-    /// currently has selected. Range-based (not `daysBack`) so the chart
-    /// anchors to a real calendar week/month rather than a trailing window.
-    /// Called on first appearance, on pull to refresh, and whenever that
-    /// picker changes.
-    func loadWeights(from: Date, to: Date) async {
-        recentWeights = (try? await bodyWeightRepository.fetchRange(from: from, to: to)) ?? []
-    }
+    /// The Weight card's glance data, kept independent of `load()` and
+    /// `selectedDate` - always "today's weight," never a past day's.
+    /// Fetches 14 trailing days in one call so both rolling windows below
+    /// are covered without a second query. Called on first appearance and
+    /// pull-to-refresh.
+    func loadWeightGlance() async {
+        let logs = (try? await bodyWeightRepository.fetchRecent(days: 14)) ?? []
+        // Oldest-first (see `fetchRecent`), so the last entry is the most
+        // recent weigh-in regardless of which day it landed on.
+        currentWeightKg = logs.last?.weightKg
 
-    /// This week's steps debt/nutrition debt - independent of `load(date:)`
-    /// and `selectedDate` (ported from `WeeklyInsightsViewModel`, which used
-    /// to compute this for whichever week was selected there; here it's
-    /// always the current Monday-Sunday week, since a debt figure only
-    /// makes sense as "what do I need today"). Called on first appearance
-    /// and pull-to-refresh, same as `loadOffPlanInsights()`.
-    func loadCurrentWeekDebts() async {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let weekStart = DateFormatting.mondayOfWeek(containing: today, calendar: calendar)
-        let sundayThisWeek = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+        guard let thisWeekStart = calendar.date(byAdding: .day, value: -6, to: today),
+              let lastWeekStart = calendar.date(byAdding: .day, value: -13, to: today)
+        else {
+            weightTrend = nil
+            return
+        }
+        let thisWeekAvg = average(logs.filter { $0.loggedAt >= thisWeekStart }.map(\.weightKg))
+        let lastWeekAvg = average(logs.filter { $0.loggedAt >= lastWeekStart && $0.loggedAt < thisWeekStart }.map(\.weightKg))
+        guard let thisWeekAvg, let lastWeekAvg else {
+            weightTrend = nil
+            return
+        }
+        let delta = thisWeekAvg - lastWeekAvg
+        weightTrend = abs(delta) < 0.2 ? .stable : (delta > 0 ? .up : .down)
+    }
 
+    /// The Today Checklist's three ticks - always "today," independent of
+    /// `selectedDate`/`load(date:)` the same way `loadWeightGlance()` is.
+    /// Visual only for now (see `TodayChecklist`'s doc comment).
+    func loadTodayChecklist() async {
+        let today = Date()
         async let pastGoalsResult = try? goalsRepository.fetchPastGoals(limit: 100)
-        async let weekStepLogsResult = try? healthRepository.fetchStepLogs(from: weekStart, to: sundayThisWeek)
-        async let nutritionLogsResult = try? nutritionRepository.fetchRange(from: weekStart, to: sundayThisWeek)
+        async let nutritionResult = try? nutritionRepository.fetchLog(date: today)
+        async let stepsResult = try? healthRepository.fetchStepLog(date: today)
         async let preferencesResult = try? preferencesRepository.fetch()
-        async let cardioStepSessionsResult = try? cardioStepSessionRepository.fetchSessions(from: weekStart, to: sundayThisWeek)
+        async let cardioSessionsResult = try? cardioStepSessionRepository.fetchSessions(date: today)
+        async let recentWorkoutsResult = try? workoutRepository.fetchHistory(limit: 5)
 
         let allGoals = (await pastGoalsResult ?? []).sorted { $0.effectiveFrom < $1.effectiveFrom }
         let isoToday = DateFormatting.isoDate(today)
-        let resolvedGoal = allGoals.last { $0.effectiveFrom <= isoToday }
+        let todayGoal = allGoals.last { $0.effectiveFrom <= isoToday }
 
-        let exclusionEnabled = (await preferencesResult ?? nil)?.cardioStepExclusionEnabled ?? false
-        let cardioStepSessions = await cardioStepSessionsResult ?? []
-        let excludedStepsByDate = Dictionary(grouping: cardioStepSessions, by: \.date)
-            .mapValues { $0.reduce(0) { $0 + $1.stepsDelta } }
-
-        let weekStepLogs = await weekStepLogsResult ?? []
-        let weekStepsByDate: [String: Int] = Dictionary(uniqueKeysWithValues: weekStepLogs.map { log in
-            let adjusted = exclusionEnabled ? max(log.stepCount - (excludedStepsByDate[log.date] ?? 0), 0) : log.stepCount
-            return (log.date, adjusted)
-        })
-
-        // Today is always inside [weekStart, sundayThisWeek] here (this is
-        // always the current week), so "days elapsed" is simply the gap
-        // from Monday to today - no past-week edge case to handle, unlike
-        // Weekly Insights' version of this same calculation.
-        let completedDays = max(0, min(7, calendar.dateComponents([.day], from: weekStart, to: today).day ?? 0))
-
-        var actualStepsCompleted = 0
-        for offset in 0..<completedDays {
-            let date = calendar.date(byAdding: .day, value: offset, to: weekStart) ?? weekStart
-            actualStepsCompleted += weekStepsByDate[DateFormatting.isoDate(date)] ?? 0
+        let nutrition = await nutritionResult ?? nil
+        var steps = (await stepsResult ?? nil)?.stepCount ?? 0
+        if (await preferencesResult ?? nil)?.cardioStepExclusionEnabled ?? false {
+            let excluded = (await cardioSessionsResult ?? []).reduce(0) { $0 + $1.stepsDelta }
+            steps = max(steps - excluded, 0)
         }
-        // Today's live count (if anything's synced yet) is folded back in
-        // here even though it's not one of the "completed" days above - the
-        // debt/pace numbers exist to answer "am I on track *right now*."
-        let todaysStepsSoFar = weekStepsByDate[isoToday] ?? 0
-        let stepsBankedTowardDebt = actualStepsCompleted + todaysStepsSoFar
+        let workoutLoggedToday = (await recentWorkoutsResult ?? []).contains {
+            $0.endedAt != nil && Calendar.current.isDateInToday($0.performedAt)
+        }
 
-        stepsDebt = {
-            guard let stepTarget = resolvedGoal?.stepTarget else { return nil }
-            let remainingDays = 7 - completedDays
-            let stepsBehindPace = stepsBankedTowardDebt - stepTarget * completedDays
-            let requiredPerDayForRest = remainingDays > 0
-                ? max(0, (stepTarget * 7 - stepsBankedTowardDebt + remainingDays - 1) / remainingDays)
-                : 0
-            return StepsDebt(
-                completedDays: completedDays,
-                remainingDays: remainingDays,
-                stepsBehindPace: stepsBehindPace,
-                requiredPerDayForRest: requiredPerDayForRest
-            )
+        let stepsHit = todayGoal?.stepTarget.map { steps >= $0 } ?? false
+        let caloriesInRange: Bool = {
+            guard let nutrition, let target = todayGoal?.dailyCalorieTarget else { return false }
+            let tolerance = max(target * 0.1, 100)
+            return abs(nutrition.calories - target) <= tolerance
         }()
 
-        let nutritionLogs = await nutritionLogsResult ?? []
-        let nutritionByDate = Dictionary(uniqueKeysWithValues: nutritionLogs.map { ($0.date, $0) })
-        func macroDebt(target: Double?, keyPath: KeyPath<NutritionLog, Double>) -> MacroDebt? {
-            guard let target, target > 0 else { return nil }
-            var completedTotal = 0.0
-            for offset in 0..<completedDays {
-                let date = calendar.date(byAdding: .day, value: offset, to: weekStart) ?? weekStart
-                if let log = nutritionByDate[DateFormatting.isoDate(date)] {
-                    completedTotal += log[keyPath: keyPath]
-                }
-            }
-            let todaysSoFar = nutritionByDate[isoToday]?[keyPath: keyPath] ?? 0
-            let banked = completedTotal + todaysSoFar
-            let remainingDays = 7 - completedDays
-            let requiredPerDayForRest = remainingDays > 0 ? max(0, (target * 7 - banked) / Double(remainingDays)) : 0
-            return MacroDebt(target: target, completedDays: completedDays, remainingDays: remainingDays, requiredPerDayForRest: requiredPerDayForRest)
-        }
-        nutritionDebt = NutritionDebtSummary(
-            calories: macroDebt(target: resolvedGoal?.dailyCalorieTarget, keyPath: \.calories),
-            protein: macroDebt(target: resolvedGoal?.proteinGTarget, keyPath: \.proteinG),
-            carbs: macroDebt(target: resolvedGoal?.carbsGTarget, keyPath: \.carbsG),
-            fat: macroDebt(target: resolvedGoal?.fatGTarget, keyPath: \.fatG)
-        )
+        todayChecklist = TodayChecklist(stepsHit: stepsHit, workoutLogged: workoutLoggedToday, caloriesInRange: caloriesInRange)
     }
 
     /// Both halves of `OffPlanWeightAdvisor`, independent of `selectedDate`
@@ -235,5 +168,10 @@ final class DashboardViewModel: ObservableObject {
         let weightsByDate = Dictionary(grouping: weights) { calendar.startOfDay(for: $0.loggedAt) }
             .mapValues { logs in logs.reduce(0) { $0 + $1.weightKg } / Double(logs.count) }
         offPlanHistoricalStat = OffPlanWeightAdvisor.evaluateHistory(offPlanCheckins: offPlanDays, weightsByDate: weightsByDate)
+    }
+
+    private func average(_ values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
     }
 }

@@ -105,6 +105,35 @@ struct WorkoutRepository {
             .value
     }
 
+    /// Every non-warmup set ever logged for this exercise, across every
+    /// past workout - unlike `previousSets(exerciseId:)` (last workout
+    /// only), this is what powers a full "View History" screen. Callers
+    /// group these by `workoutId` and cross-reference `fetchWorkouts(ids:)`
+    /// for each session's date.
+    func allSets(exerciseId: UUID, limit: Int = 500) async throws -> [WorkoutSet] {
+        try await client
+            .from("workout_sets")
+            .select()
+            .eq("exercise_id", value: exerciseId)
+            .eq("is_warmup", value: false)
+            .order("created_at", ascending: false)
+            .limit(limit)
+            .execute()
+            .value
+    }
+
+    /// Batch lookup for a set of workout ids - used to resolve `allSets`'
+    /// rows (which carry no date of their own) back to each session's date.
+    func fetchWorkouts(ids: [UUID]) async throws -> [Workout] {
+        guard !ids.isEmpty else { return [] }
+        return try await client
+            .from("workouts")
+            .select()
+            .in("id", values: ids)
+            .execute()
+            .value
+    }
+
     func startWorkout(routineDayId: UUID?) async throws -> Workout {
         let userId = try await client.auth.session.user.id
         let inserted: [Workout] = try await client

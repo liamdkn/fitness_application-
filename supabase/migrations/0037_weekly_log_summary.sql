@@ -11,6 +11,9 @@ create or replace function weekly_log_summary(p_limit int default 12, p_before d
 returns table (
   week_start date,
   avg_weight_kg numeric,
+  -- Half the week's min-to-max weigh-in range, e.g. "80.4 +/- 0.3 kg" -
+  -- how much the number actually moved day to day, not just the average.
+  weight_spread_kg numeric,
   avg_calories numeric,
   avg_protein_g numeric,
   avg_carbs_g numeric,
@@ -47,7 +50,10 @@ returns table (
       and nl.date not in (select date from nutrition_daily)
   ),
   weight_weekly as (
-    select date_trunc('week', logged_at)::date as week_start, avg(weight_kg) as avg_weight_kg
+    select
+      date_trunc('week', logged_at)::date as week_start,
+      avg(weight_kg) as avg_weight_kg,
+      (max(weight_kg) - min(weight_kg)) / 2 as weight_spread_kg
     from body_weight_logs
     where user_id = auth.uid()
     group by 1
@@ -99,6 +105,7 @@ returns table (
   select
     w.week_start,
     ww.avg_weight_kg,
+    ww.weight_spread_kg,
     nw.avg_calories,
     nw.avg_protein_g,
     nw.avg_carbs_g,

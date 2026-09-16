@@ -23,6 +23,14 @@ struct StartWorkoutView: View {
     private let muscleGroupVolumeRepository = MuscleGroupVolumeRepository()
     private let cardioSessionRepository = CardioSessionRepository()
 
+    /// True both when there's no scheduled day at all (`isRestDay`) and
+    /// when today's scheduled day is itself a rest placeholder in the split
+    /// (e.g. a 4-day Push/Pull/Legs/Rest rotation) - either way, there's
+    /// nothing to start, so "Start Today's Workout" shouldn't show.
+    private var isEffectivelyRestDay: Bool {
+        isRestDay || todayDay?.label.caseInsensitiveCompare("Rest") == .orderedSame
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -78,7 +86,7 @@ struct StartWorkoutView: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        if isRestDay {
+                        if isEffectivelyRestDay {
                             Text("Rest day - no workout scheduled.")
                                 .foregroundStyle(.secondary)
                         } else if todayDay != nil && activeWorkout == nil {
@@ -206,6 +214,14 @@ struct StartWorkoutView: View {
                         TrainingHistoryView()
                     } label: {
                         Label("Training History", systemImage: "clock.arrow.circlepath")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    NavigationLink {
+                        ExerciseLibraryView()
+                    } label: {
+                        Label("Exercise Library", systemImage: "dumbbell")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)

@@ -38,9 +38,20 @@ enum AdaptiveTDEEEngine {
     /// current one, so one noisy window can't whipsaw the user's calories.
     private static let maxStepKcal = 150.0
 
+    /// How many days after a flagged off-plan day a water-weight bump can
+    /// still be showing on the scale - matches `OffPlanWeightAdvisor`'s own
+    /// "typically water weight, settles in 2-3 days" framing. Weigh-ins
+    /// logged in this window are excluded from the trend calculation below
+    /// (see `offPlanBumpDates`) rather than read as real weight change,
+    /// since a single inflated reading at the end of the window would
+    /// otherwise leak straight into `changePerWeek` and throw off the
+    /// whole TDEE estimate.
+    private static let offPlanBumpSettleDays = 3
+
     static func evaluate(
         weightLogs: [BodyWeightLog],
         nutritionLogs: [NutritionLog],
+        recentCheckins: [DailyCheckin],
         goal: UserGoal,
         windowDays: Int = 21,
         asOf: Date = Date()
@@ -51,8 +62,12 @@ enum AdaptiveTDEEEngine {
         // Trend weight via EWMA (`TrendWeightCalculator`, shared with the
         // Dashboard's weight chart) - only updates on days with an actual
         // weigh-in, with the effective smoothing widened for gaps so a
-        // week without a weigh-in doesn't mute the next reading.
-        let trendPoints = TrendWeightCalculator.compute(from: weightLogs.filter { $0.loggedAt >= windowStart && $0.loggedAt <= asOf })
+        // week without a weigh-in doesn't mute the next reading. Bump-day
+        // weigh-ins are dropped first so a temporary off-plan spike can't
+        // pose as real weight change.
+        let bumpDates = offPlanBumpDates(from: recentCheckins)
+        let cleanedWeightLogs = weightLogs.filter { !bumpDates.contains(calendar.startOfDay(for: $0.loggedAt)) }
+        let trendPoints = TrendWeightCalculator.compute(from: cleanedWeightLogs.filter { $0.loggedAt >= windowStart && $0.loggedAt <= asOf })
         let nutritionInWindow = nutritionLogs.filter { log in
             guard let date = DateFormatting.date(fromISODate: log.date) else { return false }
             return date >= windowStart && date <= asOf
@@ -86,5 +101,26 @@ enum AdaptiveTDEEEngine {
             currentCalorieTarget: goal.dailyCalorieTarget,
             recommendedCalorieTarget: recommended
         )
+    }
+
+    /// Every calendar day a water-weight bump from a flagged off-plan day
+    /// could still be showing on the scale - the day of the check-in that
+    /// reported it (`yesterdayOffPlan`, so the morning after the off-plan
+    /// day itself) through `offPlanBumpSettleDays` later. The off-plan
+    /// day's own weigh-in isn't included - it predates that day's eating.
+    private static func offPlanBumpDates(from checkins: [DailyCheckin]) -> Set<Date> {
+        let calendar = Calendar.current
+        var dates: Set<Date> = []
+        for checkin in checkins {
+            guard checkin.yesterdayOffPlan == true,
+                  let checkinDate = DateFormatting.date(fromISODate: checkin.checkinDate)
+            else { continue }
+            for offset in 0..<offPlanBumpSettleDays {
+                if let bumpDate = calendar.date(byAdding: .day, value: offset, to: checkinDate) {
+                    dates.insert(calendar.startOfDay(for: bumpDate))
+                }
+            }
+        }
+        return dates
     }
 }

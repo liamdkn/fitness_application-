@@ -7,11 +7,23 @@ struct ActiveWorkoutView: View {
     @State private var showingCancelDialog = false
     @State private var showingRatingSheet = false
     @State private var exerciseToRemove: ActiveExercise?
+    @State private var noteEditingExercise: ActiveExercise?
+    @State private var historyExercise: Exercise?
     @State private var elapsed: TimeInterval = 0
     @State private var restRemaining: TimeInterval = 0
     @Environment(\.dismiss) private var dismiss
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    /// "X of Y completed, Z skipped" for the finish sheet - completed means
+    /// at least one set was actually logged, regardless of whether the
+    /// exercise came from today's routine day or was added ad hoc mid-session.
+    private var completionSummary: WorkoutCompletionSummary {
+        WorkoutCompletionSummary(
+            totalExercises: viewModel.activeExercises.count,
+            completedExercises: viewModel.activeExercises.filter { !$0.loggedSets.isEmpty }.count
+        )
+    }
 
     private var supersetLabels: [UUID: String] {
         SupersetLabeling.labels(for: viewModel.activeExercises.compactMap(\.target))
@@ -68,15 +80,6 @@ struct ActiveWorkoutView: View {
                 } label: {
                     Label("Add Exercise", systemImage: "plus")
                 }
-            }
-
-            Section("Notes") {
-                TextField(
-                    "Notes (optional)",
-                    text: Binding(get: { viewModel.notes }, set: { viewModel.saveNotes($0) }),
-                    axis: .vertical
-                )
-                .lineLimit(2...6)
             }
 
             Section {
@@ -138,9 +141,19 @@ struct ActiveWorkoutView: View {
             }
         }
         .sheet(isPresented: $showingRatingSheet) {
-            WorkoutRatingSheet { rating in
-                await viewModel.finish(rating: rating)
+            WorkoutRatingSheet(summary: completionSummary, initialNotes: viewModel.workout.notes ?? "") { rating, notes in
+                await viewModel.finish(rating: rating, notes: notes)
             }
+        }
+        .sheet(item: $noteEditingExercise) { activeExercise in
+            AddExerciseNoteSheet(
+                workoutId: viewModel.workout.id,
+                exerciseId: activeExercise.id,
+                exerciseName: activeExercise.exercise.name
+            )
+        }
+        .navigationDestination(item: $historyExercise) { exercise in
+            ExerciseHistoryView(exercise: exercise)
         }
         .confirmationDialog("Delete this workout? This can't be undone.", isPresented: $showingCancelDialog) {
             Button("Delete Workout", role: .destructive) {
@@ -223,6 +236,16 @@ struct ActiveWorkoutView: View {
                 Text(activeExercise.exercise.name)
                 Spacer()
                 Menu {
+                    Button {
+                        noteEditingExercise = activeExercise
+                    } label: {
+                        Label("Add Note", systemImage: "note.text")
+                    }
+                    Button {
+                        historyExercise = activeExercise.exercise
+                    } label: {
+                        Label("View History", systemImage: "chart.bar.doc.horizontal")
+                    }
                     Button("Remove From Workout", role: .destructive) {
                         exerciseToRemove = activeExercise
                     }
@@ -272,8 +295,20 @@ struct ActiveWorkoutView: View {
                 Spacer()
                 Menu {
                     ForEach(group) { activeExercise in
-                        Button("Remove \(activeExercise.exercise.name)", role: .destructive) {
-                            exerciseToRemove = activeExercise
+                        Menu(activeExercise.exercise.name) {
+                            Button {
+                                noteEditingExercise = activeExercise
+                            } label: {
+                                Label("Add Note", systemImage: "note.text")
+                            }
+                            Button {
+                                historyExercise = activeExercise.exercise
+                            } label: {
+                                Label("View History", systemImage: "chart.bar.doc.horizontal")
+                            }
+                            Button("Remove From Workout", role: .destructive) {
+                                exerciseToRemove = activeExercise
+                            }
                         }
                     }
                 } label: {
