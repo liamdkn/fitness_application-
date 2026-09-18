@@ -38,6 +38,9 @@ final class QueuedWorkout {
     @Relationship(deleteRule: .cascade, inverse: \QueuedWorkoutSet.workout)
     var sets: [QueuedWorkoutSet] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \QueuedWorkoutExercise.workout)
+    var exercises: [QueuedWorkoutExercise] = []
+
     init(id: UUID, routineDayId: UUID?, startedAt: Date, performedAt: Date, syncState: SyncState) {
         self.id = id
         self.routineDayId = routineDayId
@@ -90,6 +93,25 @@ final class QueuedWorkoutSet {
     }
 }
 
+/// Local mirror of a `workout_exercises` row - see `QueuedWorkout`.
+@Model
+final class QueuedWorkoutExercise {
+    @Attribute(.unique) var id: UUID
+    var workout: QueuedWorkout?
+    var exerciseId: UUID
+    var position: Int
+    var syncState: SyncState
+    var pendingDeletion: Bool
+
+    init(id: UUID, exerciseId: UUID, position: Int, syncState: SyncState) {
+        self.id = id
+        self.exerciseId = exerciseId
+        self.position = position
+        self.syncState = syncState
+        self.pendingDeletion = false
+    }
+}
+
 extension QueuedWorkout {
     func asWorkout() -> Workout {
         Workout(
@@ -118,5 +140,11 @@ extension QueuedWorkoutSet {
             isWarmup: isWarmup,
             isDropSet: isDropSet
         )
+    }
+}
+
+extension QueuedWorkoutExercise {
+    func asWorkoutExercise(workoutId: UUID) -> WorkoutExercise {
+        WorkoutExercise(id: id, workoutId: workoutId, exerciseId: exerciseId, position: position)
     }
 }

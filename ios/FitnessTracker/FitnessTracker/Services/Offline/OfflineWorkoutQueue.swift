@@ -60,10 +60,10 @@ final class OfflineWorkoutQueue {
         do {
             let configuration = ModelConfiguration(
                 "workout-queue",
-                schema: Schema([QueuedWorkout.self, QueuedWorkoutSet.self]),
+                schema: Schema([QueuedWorkout.self, QueuedWorkoutSet.self, QueuedWorkoutExercise.self]),
                 url: URL.applicationSupportDirectory.appending(path: "workout-queue.store")
             )
-            container = try ModelContainer(for: QueuedWorkout.self, QueuedWorkoutSet.self, configurations: configuration)
+            container = try ModelContainer(for: QueuedWorkout.self, QueuedWorkoutSet.self, QueuedWorkoutExercise.self, configurations: configuration)
         } catch {
             fatalError("Failed to create offline workout store: \(error)")
         }
@@ -175,6 +175,59 @@ final class OfflineWorkoutQueue {
         scheduleFlush()
     }
 
+    /// This workout's own exercise list, in display order - see
+    /// `QueuedWorkoutExercise`. Empty for a workout started before this
+    /// table existed (or one that otherwise hasn't been seeded yet); the
+    /// caller falls back to the routine day template in that case and
+    /// seeds it via `addWorkoutExercise`.
+    func fetchWorkoutExercises(workoutId: UUID) async throws -> [WorkoutExercise] {
+        guard let workout = try fetchLocalWorkout(id: workoutId) else { return [] }
+        return workout.exercises
+            .filter { !$0.pendingDeletion }
+            .sorted { $0.position < $1.position }
+            .map { $0.asWorkoutExercise(workoutId: workoutId) }
+    }
+
+    @discardableResult
+    func addWorkoutExercise(workout: Workout, exerciseId: UUID, position: Int) async throws -> WorkoutExercise {
+        let localWorkout = try ensureLocalWorkout(matching: workout)
+        let entry = QueuedWorkoutExercise(id: UUID(), exerciseId: exerciseId, position: position, syncState: .pending)
+        entry.workout = localWorkout
+        context.insert(entry)
+        try context.save()
+        scheduleFlush()
+        return entry.asWorkoutExercise(workoutId: workout.id)
+    }
+
+    /// Removes this exercise from the workout's own list - distinct from
+    /// (and always called alongside) `deleteSets`, which only clears its
+    /// logged sets. Without this, the exercise would still be part of the
+    /// workout's persisted list and reappear (with zero sets) the next
+    /// time this workout is resumed.
+    func removeWorkoutExercise(workout: Workout, exerciseId: UUID) async throws {
+        let localWorkout = try ensureLocalWorkout(matching: workout)
+        for entry in localWorkout.exercises where entry.exerciseId == exerciseId {
+            removeOrTombstone(entry)
+        }
+        try context.save()
+        scheduleFlush()
+    }
+
+    /// Rewrites every entry's `position` to match `orderedExerciseIds` -
+    /// simplest correct approach for a full reorder (a handful of rows,
+    /// not a hot path), rather than trying to compute a minimal diff.
+    func reorderWorkoutExercises(workout: Workout, orderedExerciseIds: [UUID]) async throws {
+        let localWorkout = try ensureLocalWorkout(matching: workout)
+        let byExerciseId = Dictionary(uniqueKeysWithValues: localWorkout.exercises.filter { !$0.pendingDeletion }.map { ($0.exerciseId, $0) })
+        for (index, exerciseId) in orderedExerciseIds.enumerated() {
+            guard let entry = byExerciseId[exerciseId], entry.position != index else { continue }
+            entry.position = index
+            entry.syncState = .pending
+        }
+        try context.save()
+        scheduleFlush()
+    }
+
     func updateNotes(workout: Workout, notes: String) async throws {
         let localWorkout = try ensureLocalWorkout(matching: workout)
         localWorkout.notes = notes
@@ -211,6 +264,14 @@ final class OfflineWorkoutQueue {
             context.delete(set)
         } else {
             set.pendingDeletion = true
+        }
+    }
+
+    private func removeOrTombstone(_ entry: QueuedWorkoutExercise) {
+        if entry.syncState == .pending {
+            context.delete(entry)
+        } else {
+            entry.pendingDeletion = true
         }
     }
 
@@ -358,6 +419,29 @@ final class OfflineWorkoutQueue {
                 }
             }
         }
+
+        for entry in workout.exercises {
+            if entry.pendingDeletion {
+                do {
+                    try await workoutRepository.deleteWorkoutExercise(id: entry.id)
+                    context.delete(entry)
+                } catch {
+                    continue
+                }
+            } else if entry.syncState == .pending {
+                do {
+                    try await workoutRepository.upsertWorkoutExercise(
+                        id: entry.id,
+                        workoutId: workout.id,
+                        exerciseId: entry.exerciseId,
+                        position: entry.position
+                    )
+                    entry.syncState = .synced
+                } catch {
+                    continue
+                }
+            }
+        }
     }
 
     /// Local rows are only needed for offline-safe reads/edits while a
@@ -372,7 +456,8 @@ final class OfflineWorkoutQueue {
             guard workout.syncState == .synced,
                   let endedAt = workout.endedAt,
                   endedAt < cutoff,
-                  workout.sets.allSatisfy({ $0.syncState == .synced })
+                  workout.sets.allSatisfy({ $0.syncState == .synced }),
+                  workout.exercises.allSatisfy({ $0.syncState == .synced })
             else { continue }
             context.delete(workout)
         }

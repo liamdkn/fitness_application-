@@ -6,7 +6,6 @@ struct ActiveWorkoutView: View {
     @State private var showingAddExercise = false
     @State private var showingCancelDialog = false
     @State private var showingRatingSheet = false
-    @State private var exerciseToRemove: ActiveExercise?
     @State private var noteEditingExercise: ActiveExercise?
     @State private var historyExercise: Exercise?
     @State private var elapsed: TimeInterval = 0
@@ -52,6 +51,43 @@ struct ActiveWorkoutView: View {
 
     init(workout: Workout) {
         _viewModel = StateObject(wrappedValue: ActiveWorkoutViewModel(workout: workout))
+    }
+
+    /// Moves the whole display group (a solo exercise, or an entire
+    /// superset's members together) up or down by one slot, then persists
+    /// the resulting order. `direction` is -1 (up) or 1 (down).
+    private func moveGroup(containing exerciseId: UUID, direction: Int) {
+        var groups = displayGroups
+        guard let groupIndex = groups.firstIndex(where: { group in group.contains { $0.id == exerciseId } }) else { return }
+        let newIndex = groupIndex + direction
+        guard groups.indices.contains(newIndex) else { return }
+        groups.swapAt(groupIndex, newIndex)
+        viewModel.activeExercises = groups.flatMap { $0 }
+        Task { await viewModel.persistExerciseOrder() }
+    }
+
+    private func isFirstGroup(containing exerciseId: UUID) -> Bool {
+        displayGroups.first?.contains { $0.id == exerciseId } ?? false
+    }
+
+    private func isLastGroup(containing exerciseId: UUID) -> Bool {
+        displayGroups.last?.contains { $0.id == exerciseId } ?? false
+    }
+
+    @ViewBuilder
+    private func moveMenuButtons(for activeExercise: ActiveExercise) -> some View {
+        Button {
+            moveGroup(containing: activeExercise.id, direction: -1)
+        } label: {
+            Label("Move Up", systemImage: "arrow.up")
+        }
+        .disabled(isFirstGroup(containing: activeExercise.id))
+        Button {
+            moveGroup(containing: activeExercise.id, direction: 1)
+        } label: {
+            Label("Move Down", systemImage: "arrow.down")
+        }
+        .disabled(isLastGroup(containing: activeExercise.id))
     }
 
     var body: some View {
@@ -160,22 +196,6 @@ struct ActiveWorkoutView: View {
                 Task { await viewModel.cancel() }
             }
         }
-        .confirmationDialog(
-            "Remove \(exerciseToRemove?.exercise.name ?? "Exercise") From This Workout?",
-            isPresented: Binding(
-                get: { exerciseToRemove != nil },
-                set: { if !$0 { exerciseToRemove = nil } }
-            )
-        ) {
-            Button("Remove", role: .destructive) {
-                if let id = exerciseToRemove?.id {
-                    Task { await viewModel.removeExercise(exerciseId: id) }
-                }
-                exerciseToRemove = nil
-            }
-        } message: {
-            Text("This only removes it from this workout, not your split.")
-        }
         .onChange(of: viewModel.isFinished) { _, finished in
             if finished { dismiss() }
         }
@@ -203,7 +223,7 @@ struct ActiveWorkoutView: View {
         } else if !activeExercise.previousSets.isEmpty {
             Text("Last time: " + previousSetsSummary(activeExercise.previousSets))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary.opacity(0.75))
         }
     }
 
@@ -236,6 +256,7 @@ struct ActiveWorkoutView: View {
                 Text(activeExercise.exercise.name)
                 Spacer()
                 Menu {
+                    moveMenuButtons(for: activeExercise)
                     Button {
                         noteEditingExercise = activeExercise
                     } label: {
@@ -247,7 +268,7 @@ struct ActiveWorkoutView: View {
                         Label("View History", systemImage: "chart.bar.doc.horizontal")
                     }
                     Button("Remove From Workout", role: .destructive) {
-                        exerciseToRemove = activeExercise
+                        Task { await viewModel.removeExercise(exerciseId: activeExercise.id) }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -294,6 +315,9 @@ struct ActiveWorkoutView: View {
                 }
                 Spacer()
                 Menu {
+                    if let first = group.first {
+                        moveMenuButtons(for: first)
+                    }
                     ForEach(group) { activeExercise in
                         Menu(activeExercise.exercise.name) {
                             Button {
@@ -307,7 +331,7 @@ struct ActiveWorkoutView: View {
                                 Label("View History", systemImage: "chart.bar.doc.horizontal")
                             }
                             Button("Remove From Workout", role: .destructive) {
-                                exerciseToRemove = activeExercise
+                                Task { await viewModel.removeExercise(exerciseId: activeExercise.id) }
                             }
                         }
                     }
@@ -359,14 +383,18 @@ struct ActiveWorkoutView: View {
 
     private func suggestionHeadline(_ suggestion: ProgressionSuggestion) -> String {
         if let weight = suggestion.suggestedWeightKg {
-            return "Target: \(suggestion.targetReps) reps \u{00d7} \(String(format: "%.1f", weight)) kg"
+            return "Target: \(suggestion.targetReps) reps \u{00d7} \(formattedWeight(weight)) kg"
         } else {
             return "Target: \(suggestion.targetReps) reps"
         }
     }
 
     private func previousSetsSummary(_ sets: [WorkoutSet]) -> String {
-        sets.map { "\($0.reps)\u{00d7}\(String(format: "%.1f", $0.weightKg))kg" }.joined(separator: ", ")
+        sets.map { "\($0.reps)\u{00d7}\(formattedWeight($0.weightKg))kg" }.joined(separator: ", ")
+    }
+
+    private func formattedWeight(_ weightKg: Double) -> String {
+        weightKg.formatted(.number.precision(.fractionLength(0...2)))
     }
 }
 

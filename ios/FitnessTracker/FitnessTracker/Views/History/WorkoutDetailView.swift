@@ -42,7 +42,7 @@ struct WorkoutDetailView: View {
                         HStack {
                             Text("Set \(set.setIndex)")
                             Spacer()
-                            Text("\(set.reps) reps \u{00d7} \(set.weightKg, specifier: "%.1f") kg")
+                            Text("\(set.reps) reps \u{00d7} \(set.weightKg.formatted(.number.precision(.fractionLength(0...2)))) kg")
                         }
                         .foregroundStyle(.secondary)
                     }

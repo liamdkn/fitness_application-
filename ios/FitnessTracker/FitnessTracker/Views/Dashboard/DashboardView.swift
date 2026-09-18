@@ -109,6 +109,11 @@ struct DashboardView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            if let excludedText = weightGlanceExclusionText {
+                                Text(excludedText)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             if let note = offPlanNoteText {
                                 Text(note)
                                     .font(.caption)
@@ -172,6 +177,12 @@ struct DashboardView: View {
         guard let todaySteps = viewModel.todaySteps else { return nil }
         guard viewModel.cardioExclusionEnabled else { return todaySteps }
         return max(todaySteps - viewModel.cardioStepsExcludedToday, 0)
+    }
+
+    private var weightGlanceExclusionText: String? {
+        let count = viewModel.weightGlanceExcludedBumpDays
+        guard count > 0 else { return nil }
+        return "Trend excludes \(count) recent off-plan \(count == 1 ? "day" : "days")"
     }
 
     private var offPlanNoteText: String? {

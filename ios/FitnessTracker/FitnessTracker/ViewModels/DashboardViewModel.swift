@@ -26,6 +26,12 @@ final class DashboardViewModel: ObservableObject {
     /// trending, not a chart's worth of history (see `loadWeightGlance()`).
     @Published var currentWeightKg: Double?
     @Published var weightTrend: WeightTrend?
+    /// How many of the 14 trailing weigh-ins `loadWeightGlance()` fetched
+    /// were dropped as a post-off-plan water-weight bump before computing
+    /// `weightTrend` - see `OffPlanWeightAdvisor.excludingBumpDates`. The
+    /// Weight card shows a caption when this is nonzero so the trend badge
+    /// doesn't read as a flat scale reading when it isn't one.
+    @Published var weightGlanceExcludedBumpDays = 0
     @Published var todayChecklist: TodayChecklist?
     @Published var cardioExclusionEnabled = false
     @Published var cardioStepsExcludedToday = 0
@@ -84,10 +90,19 @@ final class DashboardViewModel: ObservableObject {
     /// are covered without a second query. Called on first appearance and
     /// pull-to-refresh.
     func loadWeightGlance() async {
-        let logs = (try? await bodyWeightRepository.fetchRecent(days: 14)) ?? []
+        async let logsResult = try? bodyWeightRepository.fetchRecent(days: 14)
+        async let checkinsResult = try? dailyCheckinRepository.fetchRecent(days: 14)
+        let logs = await logsResult ?? []
+        let checkins = await checkinsResult ?? []
         // Oldest-first (see `fetchRecent`), so the last entry is the most
         // recent weigh-in regardless of which day it landed on.
         currentWeightKg = logs.last?.weightKg
+
+        // Trend-facing figures only - a bump-window reading still shows as
+        // the raw `currentWeightKg` above and on any history/chart view,
+        // it's just excluded from the averages that decide up/down/stable.
+        let (cleanedLogs, excludedCount) = OffPlanWeightAdvisor.excludingBumpDates(from: logs, checkins: checkins)
+        weightGlanceExcludedBumpDays = excludedCount
 
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
@@ -97,8 +112,8 @@ final class DashboardViewModel: ObservableObject {
             weightTrend = nil
             return
         }
-        let thisWeekAvg = average(logs.filter { $0.loggedAt >= thisWeekStart }.map(\.weightKg))
-        let lastWeekAvg = average(logs.filter { $0.loggedAt >= lastWeekStart && $0.loggedAt < thisWeekStart }.map(\.weightKg))
+        let thisWeekAvg = average(cleanedLogs.filter { $0.loggedAt >= thisWeekStart }.map(\.weightKg))
+        let lastWeekAvg = average(cleanedLogs.filter { $0.loggedAt >= lastWeekStart && $0.loggedAt < thisWeekStart }.map(\.weightKg))
         guard let thisWeekAvg, let lastWeekAvg else {
             weightTrend = nil
             return

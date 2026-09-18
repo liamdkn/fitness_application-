@@ -1,13 +1,13 @@
 import Combine
 import Foundation
 
-/// Volume/cardio-session/weight-change only - calorie/step averages and
-/// their debts live in their own published properties below instead
-/// (`avgCaloriesPerDay`/`nutritionDebt`, `avgStepsPerDay`/`stepsDebt`).
+/// Volume/cardio-session only - calorie/step/weight averages and their
+/// debts live in their own published properties below instead
+/// (`avgCaloriesPerDay`/`nutritionDebt`, `avgStepsPerDay`/`stepsDebt`,
+/// `avgWeightThisWeek`/`avgWeightLastWeek`).
 struct WeeklySummary {
     let weeklyVolumeKg: Double?
     let cardioSessionsCompleted: Int
-    let weightChangeThisWeekKg: Double?
 }
 
 /// One calendar day's step count in the Monday-Sunday breakdown. `steps` is
@@ -19,11 +19,14 @@ struct DailyStepEntry: Identifiable {
     var id: Date { date }
 }
 
-/// One calendar day's calories in the Monday-Sunday breakdown - same
-/// "nil means not happened/not synced yet" convention as `DailyStepEntry`.
-struct DailyCalorieEntry: Identifiable {
+/// One calendar day's value for a single nutrition macro (calories, or one
+/// of protein/carbs/fat) in the Monday-Sunday breakdown - same "nil means
+/// not happened/not synced yet" convention as `DailyStepEntry`. Generic
+/// over which macro so the Nutrition section's picker can reuse one
+/// breakdown view/view-model shape for whichever one is selected.
+struct DailyMacroEntry: Identifiable {
     let date: Date
-    let calories: Double?
+    let value: Double?
     var id: Date { date }
 }
 
@@ -99,7 +102,14 @@ final class WeeklyInsightsViewModel: ObservableObject {
     @Published var weekWeights: [BodyWeightLog] = []
     @Published var avgWeightThisWeek: Double?
     @Published var avgWeightLastWeek: Double?
-    @Published var weightTrendVsLastWeek: WeightTrend?
+    /// How many weigh-ins feeding `avgWeightThisWeek` were dropped as a
+    /// post-off-plan water-weight bump - see
+    /// `OffPlanWeightAdvisor.excludingBumpDates`. The Weight section shows
+    /// a caption under the headline when this is nonzero.
+    @Published var avgWeightThisWeekExcludedBumpDays = 0
+    /// Total change since `goal.startingWeightKg` - only populated for the
+    /// live current week (see its own computation in `load()`).
+    @Published var totalPhaseWeightChangeKg: Double?
     @Published var dailySteps: [DailyStepEntry] = []
     /// The selected week's average steps/day (over days elapsed so far, not
     /// padded with zeros for days not yet happened) - alongside
@@ -116,7 +126,10 @@ final class WeeklyInsightsViewModel: ObservableObject {
     @Published var avgProteinPerDay: Double?
     @Published var avgCarbsPerDay: Double?
     @Published var avgFatPerDay: Double?
-    @Published var dailyCalories: [DailyCalorieEntry] = []
+    @Published var dailyCalories: [DailyMacroEntry] = []
+    @Published var dailyProtein: [DailyMacroEntry] = []
+    @Published var dailyCarbs: [DailyMacroEntry] = []
+    @Published var dailyFat: [DailyMacroEntry] = []
     /// Only non-nil when the selected week is the live current week - same
     /// "what do I need today" reasoning as `stepsDebt`.
     @Published var nutritionDebt: NutritionDebtSummary?
@@ -254,6 +267,17 @@ final class WeeklyInsightsViewModel: ObservableObject {
             let end = calendar.date(byAdding: .day, value: -1, to: weekStart) ?? weekStart
             return (try? await bodyWeightRepository.fetchRange(from: start, to: end)) ?? []
         }()
+        // The single most recent weigh-in overall (not scoped to any
+        // week) - what "total change this phase" is measured against.
+        async let latestOverallWeightResult = try? bodyWeightRepository.fetchHistory(limit: 1)
+        // Covers the last couple of days of the prior week too, so a
+        // late-week off-plan flag's bump window is still caught when it
+        // spills into this week's first day or two.
+        async let lastWeekCheckinsResult: [DailyCheckin] = {
+            let start = calendar.date(byAdding: .day, value: -7, to: weekStart) ?? weekStart
+            let end = calendar.date(byAdding: .day, value: -1, to: weekStart) ?? weekStart
+            return (try? await dailyCheckinRepository.fetchRange(from: start, to: end)) ?? []
+        }()
         async let latestEstimateResult = try? tdeeEstimateRepository.fetchLatest()
         async let preferencesResult = try? preferencesRepository.fetch()
         async let cardioStepSessionsResult = try? cardioStepSessionRepository.fetchSessions(from: weekStart, to: sundayThisWeek)
@@ -293,9 +317,11 @@ final class WeeklyInsightsViewModel: ObservableObject {
         let cardioHistory = await cardioHistoryResult ?? []
         let weights = await weightsResult ?? []
         let lastWeekWeights = await lastWeekWeightsResult
+        let latestOverallWeight = (await latestOverallWeightResult ?? []).first
         let latestEstimate = await latestEstimateResult ?? nil
         let weekWorkouts = await weekWorkoutsResult ?? []
         let weekCheckins = await weekCheckinsResult ?? []
+        let lastWeekCheckins = await lastWeekCheckinsResult
         let resolvedWeeklyCheckin = (await weeklyCheckinsResult ?? []).first
         let resolvedVolumeKg = await volumeResult ?? nil
 
@@ -311,12 +337,19 @@ final class WeeklyInsightsViewModel: ObservableObject {
         }
 
         let nutritionByDate = Dictionary(uniqueKeysWithValues: nutritionLogs.map { ($0.date, $0) })
-        var dailyCaloriesBuilder: [DailyCalorieEntry] = []
-        for offset in 0..<7 {
-            let date = calendar.date(byAdding: .day, value: offset, to: weekStart) ?? weekStart
-            let calories = nutritionByDate[DateFormatting.isoDate(date)]?.calories
-            dailyCaloriesBuilder.append(DailyCalorieEntry(date: date, calories: offset <= completedDays ? calories : nil))
+        func dailyMacroBuilder(_ keyPath: KeyPath<NutritionLog, Double>) -> [DailyMacroEntry] {
+            var entries: [DailyMacroEntry] = []
+            for offset in 0..<7 {
+                let date = calendar.date(byAdding: .day, value: offset, to: weekStart) ?? weekStart
+                let value = nutritionByDate[DateFormatting.isoDate(date)]?[keyPath: keyPath]
+                entries.append(DailyMacroEntry(date: date, value: offset <= completedDays ? value : nil))
+            }
+            return entries
         }
+        let dailyCaloriesBuilder = dailyMacroBuilder(\.calories)
+        let dailyProteinBuilder = dailyMacroBuilder(\.proteinG)
+        let dailyCarbsBuilder = dailyMacroBuilder(\.carbsG)
+        let dailyFatBuilder = dailyMacroBuilder(\.fatG)
 
         let isThisWeekCurrent = weekStart == Self.mondayOfWeek(containing: Date())
 
@@ -385,20 +418,26 @@ final class WeeklyInsightsViewModel: ObservableObject {
         // no client-side date filter is needed here.
         let cardioSessionsCompleted = cardioHistory.filter { $0.endedAt != nil }.count
 
-        let weightChange: Double? = {
-            guard let first = weights.first, let last = weights.last, first.id != last.id else { return nil }
-            return last.weightKg - first.weightKg
-        }()
+        // Trend-facing only - `weekWeights` below (the chart) still shows
+        // every raw reading, bump included; only these averages, and the
+        // pace verdict they feed, drop a bump-window reading.
+        let allNearbyCheckins = weekCheckins + lastWeekCheckins
+        let (cleanedWeekWeights, weekExcludedCount) = OffPlanWeightAdvisor.excludingBumpDates(from: weights, checkins: allNearbyCheckins)
+        let (cleanedLastWeekWeights, _) = OffPlanWeightAdvisor.excludingBumpDates(from: lastWeekWeights, checkins: allNearbyCheckins)
+        let resolvedAvgWeightThisWeek = average(cleanedWeekWeights.map(\.weightKg))
+        let resolvedAvgWeightLastWeek = average(cleanedLastWeekWeights.map(\.weightKg))
 
-        // This week's average vs last week's - same "stable under 0.2kg"
-        // threshold as the Dashboard's own weight glance card, just scoped
-        // to whichever week is selected here rather than always "now."
-        let resolvedAvgWeightThisWeek = average(weights.map(\.weightKg))
-        let resolvedAvgWeightLastWeek = average(lastWeekWeights.map(\.weightKg))
-        let resolvedWeightTrend: WeightTrend? = {
-            guard let resolvedAvgWeightThisWeek, let resolvedAvgWeightLastWeek else { return nil }
-            let delta = resolvedAvgWeightThisWeek - resolvedAvgWeightLastWeek
-            return abs(delta) < 0.2 ? .stable : (delta > 0 ? .up : .down)
+        // Total change since the phase began - only meaningful for the live
+        // current week (same reasoning as `resolvedMaintenanceInsight`
+        // below), and always against the single most recent weigh-in
+        // overall rather than anything scoped to the selected week, since
+        // "how much have I lost this phase" doesn't reset week to week.
+        let resolvedTotalPhaseChange: Double? = {
+            guard isThisWeekCurrent,
+                  let startingWeightKg = resolvedGoal?.startingWeightKg,
+                  let latestWeightKg = latestOverallWeight?.weightKg
+            else { return nil }
+            return latestWeightKg - startingWeightKg
         }()
 
         // Only meaningful for the current week - it's a real-time "at your
@@ -427,6 +466,9 @@ final class WeeklyInsightsViewModel: ObservableObject {
         avgStepsPerDay = resolvedAvgSteps
         stepsDebt = resolvedStepsDebt
         dailyCalories = dailyCaloriesBuilder
+        dailyProtein = dailyProteinBuilder
+        dailyCarbs = dailyCarbsBuilder
+        dailyFat = dailyFatBuilder
         avgCaloriesPerDay = avgCalories
         avgProteinPerDay = avgProtein
         avgCarbsPerDay = avgCarbs
@@ -435,11 +477,11 @@ final class WeeklyInsightsViewModel: ObservableObject {
         weekWeights = weights
         avgWeightThisWeek = resolvedAvgWeightThisWeek
         avgWeightLastWeek = resolvedAvgWeightLastWeek
-        weightTrendVsLastWeek = resolvedWeightTrend
+        avgWeightThisWeekExcludedBumpDays = weekExcludedCount
+        totalPhaseWeightChangeKg = resolvedTotalPhaseChange
         summary = WeeklySummary(
             weeklyVolumeKg: resolvedVolumeKg,
-            cardioSessionsCompleted: cardioSessionsCompleted,
-            weightChangeThisWeekKg: weightChange
+            cardioSessionsCompleted: cardioSessionsCompleted
         )
         maintenanceInsight = resolvedMaintenanceInsight
         weeklyAdherence = buildWeeklyAdherence(

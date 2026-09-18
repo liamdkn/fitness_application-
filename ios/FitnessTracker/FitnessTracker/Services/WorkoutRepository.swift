@@ -49,6 +49,15 @@ struct WorkoutRepository {
         let is_drop_set: Bool
     }
 
+    /// Explicit-id variant, for `upsertWorkoutExercise` - see `UpsertWorkout`.
+    private struct UpsertWorkoutExercise: Encodable {
+        let id: UUID
+        let workout_id: UUID
+        let user_id: UUID
+        let exercise_id: UUID
+        let position: Int
+    }
+
     private struct EndWorkoutUpdate: Encodable {
         let ended_at: Date
         let rating: Int?
@@ -213,6 +222,26 @@ struct WorkoutRepository {
                 ),
                 onConflict: "id"
             )
+            .execute()
+    }
+
+    /// Used only by `OfflineWorkoutQueue` - see `upsertWorkout`.
+    func upsertWorkoutExercise(id: UUID, workoutId: UUID, exerciseId: UUID, position: Int) async throws {
+        let userId = try await client.auth.session.user.id
+        try await client
+            .from("workout_exercises")
+            .upsert(
+                UpsertWorkoutExercise(id: id, workout_id: workoutId, user_id: userId, exercise_id: exerciseId, position: position),
+                onConflict: "id"
+            )
+            .execute()
+    }
+
+    func deleteWorkoutExercise(id: UUID) async throws {
+        try await client
+            .from("workout_exercises")
+            .delete()
+            .eq("id", value: id)
             .execute()
     }
 

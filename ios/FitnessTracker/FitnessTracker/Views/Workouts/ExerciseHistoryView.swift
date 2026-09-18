@@ -47,7 +47,7 @@ struct ExerciseHistoryView: View {
                                 HStack {
                                     Text("\(set.reps) reps")
                                     Spacer()
-                                    Text(String(format: "%.1f kg", set.weightKg))
+                                    Text("\(set.weightKg.formatted(.number.precision(.fractionLength(0...2)))) kg")
                                     if let rpe = set.rpe {
                                         Text("RPE \(String(format: "%.1f", rpe))")
                                             .font(.caption)
@@ -86,7 +86,10 @@ struct ExerciseHistoryView: View {
 
             entries = allWorkoutIds.compactMap { workoutId -> ExerciseHistoryEntry? in
                 guard let workout = workoutsById[workoutId] else { return nil }
-                let workoutSets = (setsByWorkout[workoutId] ?? []).sorted { $0.setIndex < $1.setIndex }
+                // Heaviest set first - what a session actually achieved
+                // matters more here than the order it happened in, unlike
+                // the live workout grid (which stays in `setIndex` order).
+                let workoutSets = (setsByWorkout[workoutId] ?? []).sorted { $0.weightKg > $1.weightKg }
                 return ExerciseHistoryEntry(
                     workoutId: workoutId,
                     performedAt: workout.performedAt,

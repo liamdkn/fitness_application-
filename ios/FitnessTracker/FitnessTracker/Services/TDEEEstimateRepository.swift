@@ -13,6 +13,7 @@ struct TDEEEstimateRepository {
         let estimated_tdee: Double
         let current_calorie_target: Double
         let recommended_calorie_target: Double
+        let excluded_bump_days: Int
     }
 
     private struct StatusUpdate: Encodable {
@@ -43,7 +44,8 @@ struct TDEEEstimateRepository {
             trend_weight_change_kg_per_week: recommendation.trendWeightChangeKgPerWeek,
             estimated_tdee: recommendation.estimatedTDEE,
             current_calorie_target: recommendation.currentCalorieTarget,
-            recommended_calorie_target: recommendation.recommendedCalorieTarget
+            recommended_calorie_target: recommendation.recommendedCalorieTarget,
+            excluded_bump_days: recommendation.excludedBumpDays
         )
         let saved: [TDEEEstimate] = try await client
             .from("tdee_estimates")

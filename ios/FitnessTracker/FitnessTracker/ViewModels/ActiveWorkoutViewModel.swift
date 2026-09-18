@@ -80,7 +80,8 @@ final class ActiveWorkoutViewModel: ObservableObject {
             }
             let byId = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.id, $0) })
 
-            var templateExerciseIds: Set<UUID> = []
+            var dayExercisesById: [UUID: RoutineDayExercise] = [:]
+            var templateOrder: [UUID] = []
             if let routineDayId = workout.routineDayId {
                 let dayExercisesCacheKey = "routine-day-exercises-\(routineDayId.uuidString)"
                 let dayExercises: [RoutineDayExercise]
@@ -90,25 +91,41 @@ final class ActiveWorkoutViewModel: ObservableObject {
                 } else {
                     dayExercises = OfflineReferenceCache.load([RoutineDayExercise].self, key: dayExercisesCacheKey) ?? []
                 }
-                for dayExercise in dayExercises {
-                    guard let exercise = byId[dayExercise.exerciseId] else { continue }
-                    templateExerciseIds.insert(exercise.id)
-                    var active = ActiveExercise(exercise: exercise, target: dayExercise)
-                    active.previousSets = (try? await workoutRepository.previousSets(exerciseId: exercise.id)) ?? []
-                    restoreExistingSets(existingSetsByExercise[exercise.id] ?? [], into: &active)
-                    activeExercises.append(active)
+                for dayExercise in dayExercises where byId[dayExercise.exerciseId] != nil {
+                    dayExercisesById[dayExercise.exerciseId] = dayExercise
+                    templateOrder.append(dayExercise.exerciseId)
                 }
             }
 
-            // A resumed workout may also have sets logged against an
-            // exercise added ad hoc mid-session (not part of the day's
-            // template) - without this, those rows would silently vanish
-            // from view even though the sets themselves are safely saved.
-            for (exerciseId, sets) in existingSetsByExercise where !templateExerciseIds.contains(exerciseId) {
-                guard let exercise = byId[exerciseId] else { continue }
-                var active = ActiveExercise(exercise: exercise, target: nil)
+            // This workout's own persisted exercise list - the source of
+            // truth for which exercises are actually part of it and in what
+            // order, once it exists (see `WorkoutExercise`'s doc comment).
+            var workoutExercises = try await offlineQueue.fetchWorkoutExercises(workoutId: workout.id)
+
+            // Nothing persisted yet - either a brand new workout, or one
+            // started before this table existed. Seed it once, in template
+            // order, plus any exercise that already has sets logged but
+            // isn't part of today's template (an ad hoc exercise from an
+            // old workout predating this table) - and persist that seed so
+            // every later load, reorder, or removal reads from here instead
+            // of re-deriving from the template, which remembers neither.
+            if workoutExercises.isEmpty {
+                var seedOrder = templateOrder
+                for exerciseId in existingSetsByExercise.keys where dayExercisesById[exerciseId] == nil {
+                    seedOrder.append(exerciseId)
+                }
+                for (index, exerciseId) in seedOrder.enumerated() where byId[exerciseId] != nil {
+                    if let saved = try? await offlineQueue.addWorkoutExercise(workout: workout, exerciseId: exerciseId, position: index) {
+                        workoutExercises.append(saved)
+                    }
+                }
+            }
+
+            for workoutExercise in workoutExercises.sorted(by: { $0.position < $1.position }) {
+                guard let exercise = byId[workoutExercise.exerciseId] else { continue }
+                var active = ActiveExercise(exercise: exercise, target: dayExercisesById[workoutExercise.exerciseId])
                 active.previousSets = (try? await workoutRepository.previousSets(exerciseId: exercise.id)) ?? []
-                restoreExistingSets(sets, into: &active)
+                restoreExistingSets(existingSetsByExercise[workoutExercise.exerciseId] ?? [], into: &active)
                 activeExercises.append(active)
             }
         } catch {
@@ -136,6 +153,11 @@ final class ActiveWorkoutViewModel: ObservableObject {
         var active = ActiveExercise(exercise: exercise, target: nil)
         active.previousSets = (try? await workoutRepository.previousSets(exerciseId: exercise.id)) ?? []
         activeExercises.append(active)
+        do {
+            try await offlineQueue.addWorkoutExercise(workout: workout, exerciseId: exercise.id, position: activeExercises.count - 1)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func removeExercise(exerciseId: UUID) async {
@@ -143,6 +165,23 @@ final class ActiveWorkoutViewModel: ObservableObject {
         activeExercises.remove(at: index)
         do {
             try await offlineQueue.deleteSets(workout: workout, exerciseId: exerciseId)
+            // Distinct from the sets delete above - without this, the
+            // exercise is still part of the workout's persisted list and
+            // would reappear (with zero sets) the next time this workout
+            // is resumed.
+            try await offlineQueue.removeWorkoutExercise(workout: workout, exerciseId: exerciseId)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Persists a mid-workout reorder - `activeExercises` itself is already
+    /// reordered by the view (`.onMove`) before this is called; this just
+    /// saves the new order so it survives the workout view being torn down
+    /// and rebuilt.
+    func persistExerciseOrder() async {
+        do {
+            try await offlineQueue.reorderWorkoutExercises(workout: workout, orderedExerciseIds: activeExercises.map(\.id))
         } catch {
             errorMessage = error.localizedDescription
         }

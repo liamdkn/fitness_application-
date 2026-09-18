@@ -15,8 +15,9 @@ struct MyGoalsView: View {
     @State private var isApplyingNutritionInsight = false
     @State private var errorMessage: String?
     @State private var showingNewPhase = false
-    @State private var showingEditPhase = false
-    @State private var showingAdjustNutrition = false
+    @State private var showingAdjustPhase = false
+    @State private var phaseGroupToCancel: PhaseGroup?
+    @State private var isCancelingPhase = false
     private let repository = GoalsRepository()
     private let tdeeEstimateRepository = TDEEEstimateRepository()
     private let bodyWeightRepository = BodyWeightRepository()
@@ -31,13 +32,20 @@ struct MyGoalsView: View {
                     Text(errorMessage).foregroundStyle(.red)
                 } else if let currentGoal {
                     currentPhaseCard(currentGoal)
-                    Button("Edit Phase") { showingEditPhase = true }
-                    Button("Adjust Nutrition Targets") { showingAdjustNutrition = true }
+                    Button("Adjust Phase") { showingAdjustPhase = true }
                 } else {
                     Text("No active phase.")
                         .foregroundStyle(.secondary)
                 }
                 Button("Start New Phase") { showingNewPhase = true }
+            }
+
+            if !upcomingPhaseGroups.isEmpty {
+                Section("Upcoming Phases") {
+                    ForEach(upcomingPhaseGroups) { group in
+                        upcomingPhaseRow(group)
+                    }
+                }
             }
 
             if nutritionInsight != nil || tdeeChartPoints.count >= 2 {
@@ -96,17 +104,23 @@ struct MyGoalsView: View {
                 Task { await load() }
             }
         }
-        .sheet(isPresented: $showingEditPhase) {
+        .sheet(isPresented: $showingAdjustPhase) {
             if let currentGoal {
-                EditPhaseView(goal: currentGoal) { _ in
+                AdjustPhaseView(currentGoal: currentGoal) { _ in
                     Task { await load() }
                 }
             }
         }
-        .sheet(isPresented: $showingAdjustNutrition) {
-            if let currentGoal {
-                AdjustNutritionTargetsView(currentGoal: currentGoal) { _ in
-                    Task { await load() }
+        .confirmationDialog(
+            "Cancel this queued phase? This can't be undone.",
+            isPresented: Binding(
+                get: { phaseGroupToCancel != nil },
+                set: { if !$0 { phaseGroupToCancel = nil } }
+            )
+        ) {
+            Button("Cancel Phase", role: .destructive) {
+                if let group = phaseGroupToCancel {
+                    Task { await cancelUpcomingPhase(group) }
                 }
             }
         }
@@ -264,8 +278,22 @@ struct MyGoalsView: View {
     private var pastPhaseGroups: [PhaseGroup] {
         guard let currentGoal else { return [] }
         return allPhaseGroups
-            .filter { $0.phaseStartedAt != currentGoal.phaseStartedAt }
+            .filter { $0.phaseStartedAt != currentGoal.phaseStartedAt && !isUpcoming($0) }
             .reversed()
+    }
+
+    /// Phases queued for a future start date - `current_user_goal` won't
+    /// pick these up until that date arrives (see its own `effective_from
+    /// <= as_of` filter), so until then they're neither the current phase
+    /// nor a past one.
+    private var upcomingPhaseGroups: [PhaseGroup] {
+        allPhaseGroups.filter(isUpcoming)
+    }
+
+    private func isUpcoming(_ group: PhaseGroup) -> Bool {
+        guard let startDate = DateFormatting.date(fromISODate: group.phaseStartedAt) else { return false }
+        let calendar = Calendar.current
+        return calendar.startOfDay(for: startDate) > calendar.startOfDay(for: Date())
     }
 
     private func endLabel(for group: PhaseGroup) -> String {
@@ -296,6 +324,42 @@ struct MyGoalsView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func upcomingPhaseRow(_ group: PhaseGroup) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(group.phaseType.displayName)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text("Starts \(group.phaseStartedAt)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(macroSummary(group.finalGoal))
+                .font(.caption)
+            Button("Cancel", role: .destructive) {
+                phaseGroupToCancel = group
+            }
+            .font(.caption)
+            .disabled(isCancelingPhase)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func cancelUpcomingPhase(_ group: PhaseGroup) async {
+        isCancelingPhase = true
+        defer { isCancelingPhase = false }
+        do {
+            for row in group.rows {
+                try await repository.deleteGoal(id: row.id)
+            }
+            await load()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        phaseGroupToCancel = nil
     }
 
     private func macroSummary(_ goal: UserGoal) -> String {
@@ -397,12 +461,18 @@ private struct NutritionInsightCard: View {
         insight.recommendedCalorieTarget > insight.currentCalorieTarget ? "up" : "down"
     }
 
+    private var excludedBumpDaysClause: String {
+        guard insight.excludedBumpDays > 0 else { return "." }
+        let noun = insight.excludedBumpDays == 1 ? "day" : "days"
+        return " (excludes \(insight.excludedBumpDays) off-plan-affected \(noun))."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Based on the last \(insight.windowDays) days, your calorie target looks like it should move \(direction), from \(Int(insight.currentCalorieTarget)) to \(Int(insight.recommendedCalorieTarget)) kcal.")
                 .font(.subheadline)
 
-            Text("Estimated maintenance: ~\(Int(insight.estimatedTDEE)) kcal/day, from \(insight.loggedDaysInWindow) logged days and a trend weight change of \(String(format: "%.2f", insight.trendWeightChangeKgPerWeek)) kg/week.")
+            Text("Estimated maintenance: ~\(Int(insight.estimatedTDEE)) kcal/day, from \(insight.loggedDaysInWindow) logged days and a trend weight change of \(String(format: "%.2f", insight.trendWeightChangeKgPerWeek)) kg/week\(excludedBumpDaysClause)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

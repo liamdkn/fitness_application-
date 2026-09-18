@@ -55,6 +55,9 @@ struct TrainingHistoryView: View {
             if let errorMessage {
                 Text(errorMessage).foregroundStyle(.red)
             }
+            if !workouts.isEmpty {
+                TotalWorkoutsHeadline(count: workouts.count)
+            }
             if entries.isEmpty {
                 if errorMessage == nil {
                     Text("No training logged yet.")
@@ -279,5 +282,24 @@ struct TrainingHistoryView: View {
 
     private func formattedDuration(_ interval: TimeInterval) -> String {
         "\(Int(interval) / 60) min"
+    }
+}
+
+/// Big, centered "how many strength workouts total" - a proud milestone
+/// number at the top of the list, not part of the merged workout/cardio
+/// `entries` count (cardio sessions aren't "workouts").
+private struct TotalWorkoutsHeadline: View {
+    let count: Int
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text("\(count)")
+                .font(.system(size: 44, weight: .bold, design: .rounded))
+            Text("Total Workouts")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
     }
 }

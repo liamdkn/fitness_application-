@@ -82,18 +82,18 @@ struct SetLogGridView: View {
         return count
     }
 
-    /// If a set has already been confirmed this session, every later
-    /// unconfirmed row's placeholder cascades from the most recently
-    /// confirmed set. Otherwise it falls back to this row's own set index
-    /// from last session's history.
+    /// Reps carry forward from this session's most recently confirmed set
+    /// (a reasonable "same as last set" guess) when there is one, falling
+    /// back to this row's own set index from last session's history.
+    /// Weight never cascades from this session's last set, though - unlike
+    /// reps, a work set's weight commonly differs a lot from set to set
+    /// (e.g. a lighter warmup logged as "set 1"), so it always comes from
+    /// last session's own same-set-number weight instead, never whatever
+    /// was just logged a moment ago in this one.
     private func placeholder(forRowAt setIndex: Int) -> (reps: Int, weightKg: Double)? {
-        if let last = activeExercise.loggedSets.last {
-            return (last.reps, last.weightKg)
-        }
-        if let previous = activeExercise.previousSets[safe: setIndex - 1] {
-            return (previous.reps, previous.weightKg)
-        }
-        return nil
+        guard let weightKg = activeExercise.previousSets[safe: setIndex - 1]?.weightKg else { return nil }
+        guard let reps = activeExercise.loggedSets.last?.reps ?? activeExercise.previousSets[safe: setIndex - 1]?.reps else { return nil }
+        return (reps, weightKg)
     }
 
 }
@@ -167,7 +167,7 @@ struct EditableSetRow: View {
             TextField(
                 "",
                 text: $kgText,
-                prompt: placeholder.map { Text(String(format: "%.1f", $0.weightKg)).foregroundStyle(.secondary.opacity(0.6)) }
+                prompt: placeholder.map { Text($0.weightKg, format: .number.precision(.fractionLength(0...2))).foregroundStyle(.secondary.opacity(0.6)) }
             )
             .keyboardType(.decimalPad)
             .textFieldStyle(.roundedBorder)
@@ -265,7 +265,7 @@ struct ConfirmedSetRow: View {
                 .lineLimit(1)
                 .frame(width: 28, alignment: .leading)
             Spacer(minLength: 0)
-            Text(set.weightKg, format: .number.precision(.fractionLength(0...1)))
+            Text(set.weightKg, format: .number.precision(.fractionLength(0...2)))
                 .frame(width: 66, alignment: .center)
             Text("\(set.reps)")
                 .frame(width: 44, alignment: .center)

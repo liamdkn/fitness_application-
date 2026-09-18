@@ -15,6 +15,11 @@ struct StartWorkoutView: View {
     @State private var volumeFlags: [MuscleGroupVolumeFlag] = []
     @State private var weeklyCardioMinutes = 0
     @State private var weeklyCardioSessionCount = 0
+    /// Each split day's exercise names, in position order - what the
+    /// horizontally-scrolling day cards preview below "Your Split". Keyed
+    /// by day id; a day with no entry here is either a rest day or hasn't
+    /// loaded yet.
+    @State private var dayExerciseNames: [UUID: [String]] = [:]
     @ObservedObject private var cardioMonitor = CardioSessionMonitor.shared
     private let routineRepository = RoutineRepository()
     private let workoutRepository = WorkoutRepository()
@@ -22,6 +27,7 @@ struct StartWorkoutView: View {
     private let checkinRepository = DailyCheckinRepository()
     private let muscleGroupVolumeRepository = MuscleGroupVolumeRepository()
     private let cardioSessionRepository = CardioSessionRepository()
+    private let exerciseRepository = ExerciseRepository()
 
     /// True both when there's no scheduled day at all (`isRestDay`) and
     /// when today's scheduled day is itself a rest placeholder in the split
@@ -128,20 +134,22 @@ struct StartWorkoutView: View {
                                 .font(.footnote)
                             }
                             if !days.isEmpty {
-                                ForEach(days) { day in
-                                    NavigationLink {
-                                        RoutineDayDetailView(day: day)
-                                    } label: {
-                                        HStack {
-                                            Text(day.label)
-                                            Spacer()
-                                            if todayDay?.id == day.id {
-                                                Text("Today")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(alignment: .top, spacing: 12) {
+                                        ForEach(days) { day in
+                                            NavigationLink {
+                                                RoutineDayDetailView(day: day)
+                                            } label: {
+                                                SplitDayCard(
+                                                    day: day,
+                                                    isToday: todayDay?.id == day.id,
+                                                    exerciseNames: dayExerciseNames[day.id] ?? []
+                                                )
                                             }
+                                            .buttonStyle(.plain)
                                         }
                                     }
+                                    .padding(.vertical, 2)
                                 }
                             }
                         }
@@ -280,6 +288,24 @@ struct StartWorkoutView: View {
         await loadDeloadSignal(recentWorkouts: recentWorkouts)
         await loadVolumeFlags()
         await loadWeeklyCardioSummary()
+        await loadDayExercisePreviews()
+    }
+
+    /// Each split day's exercise names, for the "Your Split" day cards -
+    /// advisory only, so a card just shows without its preview list if this
+    /// fails rather than blocking the rest of the tab.
+    private func loadDayExercisePreviews() async {
+        guard !days.isEmpty else { return }
+        guard let allExercises = try? await exerciseRepository.fetchAll() else { return }
+        let namesById = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.id, $0.name) })
+        var result: [UUID: [String]] = [:]
+        for day in days {
+            let dayExercises = (try? await routineRepository.fetchDayExercises(routineDayId: day.id)) ?? []
+            result[day.id] = dayExercises
+                .sorted { $0.position < $1.position }
+                .compactMap { namesById[$0.exerciseId] }
+        }
+        dayExerciseNames = result
     }
 
     private func loadDeloadSignal(recentWorkouts: [Workout]) async {
@@ -337,6 +363,58 @@ struct StartWorkoutView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+/// One day's card in the "Your Split" horizontal scroller - the day's
+/// label plus a preview of what's on its workout menu, so you can see the
+/// whole split at a glance without tapping into each day.
+private struct SplitDayCard: View {
+    let day: RoutineDay
+    let isToday: Bool
+    let exerciseNames: [String]
+
+    private var previewLimit: Int { 5 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(day.label)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer()
+                if isToday {
+                    Text("Today")
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.blue.opacity(0.15), in: Capsule())
+                        .foregroundStyle(.blue)
+                }
+            }
+            if exerciseNames.isEmpty {
+                Text("Rest day")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(exerciseNames.prefix(previewLimit), id: \.self) { name in
+                    Text(name)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if exerciseNames.count > previewLimit {
+                    Text("+\(exerciseNames.count - previewLimit) more")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding()
+        .frame(width: 170, alignment: .leading)
+        .frame(minHeight: 130, alignment: .topLeading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
+        .foregroundStyle(.primary)
     }
 }
 

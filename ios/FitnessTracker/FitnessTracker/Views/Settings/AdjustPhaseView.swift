@@ -1,14 +1,25 @@
 import SwiftUI
 
-struct EditPhaseView: View {
-    let goal: UserGoal
+/// Adjusts the current phase's targets - nutrition, weekly rate, steps,
+/// sleep, cardio, training - without touching history. This always inserts
+/// a new `user_goals` row effective from a chosen date (today or later),
+/// carrying every other field forward unchanged from the current phase,
+/// including `phaseStartedAt` - this is a mid-phase adjustment, not a new
+/// phase, so "week X of Y" tracking shouldn't reset. Weekly Insights and
+/// the Dashboard both look up whichever row was actually in effect for a
+/// given day, so anything before the chosen date keeps reading against the
+/// old targets.
+///
+/// What's deliberately NOT here: phase type, start date, starting weight,
+/// and duration are the phase's fixed identity - changing any of those
+/// isn't "adjusting" this phase, it's a different phase, so that goes
+/// through ending this one and starting or queuing a new one instead.
+struct AdjustPhaseView: View {
+    let currentGoal: UserGoal
     let onSaved: (UserGoal) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var phaseType: GoalPhaseType
-    @State private var startDate: Date
-    @State private var startingWeightKg: String
-    @State private var durationWeeks: String
+    @State private var effectiveDate = Date()
     @State private var dailyCalorieTarget: String
     @State private var proteinGTarget: String
     @State private var fatGTarget: String
@@ -24,27 +35,23 @@ struct EditPhaseView: View {
     private let repository = GoalsRepository()
     private let routineRepository = RoutineRepository()
 
-    init(goal: UserGoal, onSaved: @escaping (UserGoal) -> Void) {
-        self.goal = goal
+    init(currentGoal: UserGoal, onSaved: @escaping (UserGoal) -> Void) {
+        self.currentGoal = currentGoal
         self.onSaved = onSaved
-        _phaseType = State(initialValue: goal.phaseType)
-        _startDate = State(initialValue: ISO8601DateFormatter().date(from: goal.effectiveFrom + "T00:00:00Z") ?? Date())
-        _startingWeightKg = State(initialValue: goal.startingWeightKg.map { String($0) } ?? "")
-        _durationWeeks = State(initialValue: String(goal.durationWeeks))
-        _dailyCalorieTarget = State(initialValue: String(goal.dailyCalorieTarget))
-        _proteinGTarget = State(initialValue: String(goal.proteinGTarget))
-        _fatGTarget = State(initialValue: goal.fatGTarget.map { String($0) } ?? "")
-        _weeklyRateKg = State(initialValue: goal.weeklyWeightChangeKg.map { String(abs($0)) } ?? "")
-        _stepTarget = State(initialValue: goal.stepTarget.map { String($0) } ?? "")
-        _sleepTargetHours = State(initialValue: goal.sleepTargetMinutes.map { String($0 / 60) } ?? "")
-        _cardioSessionsPerWeek = State(initialValue: goal.cardioSessionsPerWeek.map { String($0) } ?? "")
-        _cardioMinutesPerSession = State(initialValue: goal.cardioMinutesPerSession.map { String($0) } ?? "")
-        _strengthSessionsPerWeek = State(initialValue: goal.strengthSessionsPerWeek.map { String($0) } ?? "")
-        _strengthOptionalSessions = State(initialValue: goal.strengthOptionalSessions.map { String($0) } ?? "")
+        _dailyCalorieTarget = State(initialValue: String(currentGoal.dailyCalorieTarget))
+        _proteinGTarget = State(initialValue: String(currentGoal.proteinGTarget))
+        _fatGTarget = State(initialValue: currentGoal.fatGTarget.map { String($0) } ?? "")
+        _weeklyRateKg = State(initialValue: currentGoal.weeklyWeightChangeKg.map { String(abs($0)) } ?? "")
+        _stepTarget = State(initialValue: currentGoal.stepTarget.map { String($0) } ?? "")
+        _sleepTargetHours = State(initialValue: currentGoal.sleepTargetMinutes.map { String($0 / 60) } ?? "")
+        _cardioSessionsPerWeek = State(initialValue: currentGoal.cardioSessionsPerWeek.map { String($0) } ?? "")
+        _cardioMinutesPerSession = State(initialValue: currentGoal.cardioMinutesPerSession.map { String($0) } ?? "")
+        _strengthSessionsPerWeek = State(initialValue: currentGoal.strengthSessionsPerWeek.map { String($0) } ?? "")
+        _strengthOptionalSessions = State(initialValue: currentGoal.strengthOptionalSessions.map { String($0) } ?? "")
     }
 
     private var isValid: Bool {
-        Double(dailyCalorieTarget) != nil && Double(proteinGTarget) != nil && Int(durationWeeks) != nil
+        Double(dailyCalorieTarget) != nil && Double(proteinGTarget) != nil
     }
 
     private var derivedCarbsG: Double? {
@@ -58,35 +65,23 @@ struct EditPhaseView: View {
     }
 
     private var weeklyRateLabel: String {
-        switch phaseType {
-        case .cut: return "Weekly Weight Loss"
-        case .bulk: return "Weekly Weight Gain"
-        case .maintain: return "Weekly Rate"
+        switch currentGoal.phaseType {
+        case .cut: "Weekly Weight Loss"
+        case .bulk: "Weekly Weight Gain"
+        case .maintain: "Weekly Rate"
         }
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Phase Type") {
-                    Picker("Type", selection: $phaseType) {
-                        ForEach(GoalPhaseType.allCases) { type in
-                            Text(type.displayName).tag(type)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                Section {
+                    DatePicker("Effective From", selection: $effectiveDate, in: Date()..., displayedComponents: .date)
+                } footer: {
+                    Text("Everything through the day before this stays exactly as it was - only days from here on are judged against the new numbers.")
                 }
 
-                Section("Details") {
-                    DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
-                    LabeledField(label: "Starting Weight", text: $startingWeightKg, unit: "kg")
-                    LabeledField(label: "Duration", text: $durationWeeks, unit: "weeks")
-                    if phaseType != .maintain {
-                        LabeledField(label: weeklyRateLabel, text: $weeklyRateKg, unit: "kg")
-                    }
-                }
-
-                Section("Nutrition Targets") {
+                Section("Nutrition") {
                     LabeledField(label: "Daily Calories", text: $dailyCalorieTarget, unit: "kcal")
                     LabeledField(label: "Protein", text: $proteinGTarget, unit: "g")
                     LabeledField(label: "Fat", text: $fatGTarget, unit: "g")
@@ -100,6 +95,12 @@ struct EditPhaseView: View {
                         Text("Protein + fat already exceed calorie target.")
                             .font(.caption)
                             .foregroundStyle(.red)
+                    }
+                }
+
+                if currentGoal.phaseType != .maintain {
+                    Section("Rate") {
+                        LabeledField(label: weeklyRateLabel, text: $weeklyRateKg, unit: "kg")
                     }
                 }
 
@@ -132,13 +133,13 @@ struct EditPhaseView: View {
                         if isSaving {
                             ProgressView()
                         } else {
-                            Text("Save Changes")
+                            Text("Save")
                         }
                     }
                     .disabled(!isValid || isSaving)
                 }
             }
-            .navigationTitle("Edit Phase")
+            .navigationTitle("Adjust Phase")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -149,34 +150,30 @@ struct EditPhaseView: View {
     }
 
     private func save() async {
-        guard
-            let calories = Double(dailyCalorieTarget),
-            let protein = Double(proteinGTarget),
-            let weeks = Int(durationWeeks)
-        else { return }
-
+        guard let calories = Double(dailyCalorieTarget), let protein = Double(proteinGTarget) else { return }
         isSaving = true
         defer { isSaving = false }
 
         let rateMagnitude = Double(weeklyRateKg).map { abs($0) }
-        let signedRate: Double? = switch phaseType {
+        let signedRate: Double? = switch currentGoal.phaseType {
         case .cut: rateMagnitude.map { -$0 }
         case .maintain: 0
         case .bulk: rateMagnitude
         }
 
         do {
-            let updated = try await repository.updateGoal(
-                goalId: goal.id,
-                effectiveFrom: startDate,
-                phaseType: phaseType,
-                startingWeightKg: Double(startingWeightKg),
-                durationWeeks: weeks,
+            let phaseStartedAt = DateFormatting.date(fromISODate: currentGoal.phaseStartedAt) ?? effectiveDate
+            let updated = try await repository.saveGoal(
+                effectiveFrom: effectiveDate,
+                phaseStartedAt: phaseStartedAt,
+                phaseType: currentGoal.phaseType,
+                startingWeightKg: currentGoal.startingWeightKg,
+                durationWeeks: currentGoal.durationWeeks,
                 dailyCalorieTarget: calories,
                 proteinGTarget: protein,
                 carbsGTarget: derivedCarbsG,
                 fatGTarget: Double(fatGTarget),
-                targetWeightKg: nil,
+                targetWeightKg: currentGoal.targetWeightKg,
                 weeklyWeightChangeKg: signedRate,
                 stepTarget: Int(stepTarget),
                 sleepTargetMinutes: Int(sleepTargetHours).map { $0 * 60 },
@@ -195,7 +192,7 @@ struct EditPhaseView: View {
 
     /// Grows (never shrinks) the active split to match the phase's
     /// strength-sessions target - see `StartNewPhaseView`'s identical
-    /// helper. Best-effort - a failure here shouldn't block the phase edit.
+    /// helper. Best-effort - a failure here shouldn't block the adjustment.
     private func growSplitToTarget(_ goal: UserGoal) async {
         guard let target = goal.strengthSessionsPerWeek else { return }
         do {

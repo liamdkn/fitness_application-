@@ -26,6 +26,15 @@ struct StartNewPhaseView: View {
     private let photoRepository = ProgressPhotoRepository()
     private let routineRepository = RoutineRepository()
 
+    /// A start date after today queues the phase rather than starting it
+    /// immediately - it stays dormant (excluded by `current_user_goal`'s
+    /// own `effective_from <= as_of` filter) until that date arrives, at
+    /// which point it naturally becomes the active phase on its own.
+    private var isQueued: Bool {
+        let calendar = Calendar.current
+        return calendar.startOfDay(for: startDate) > calendar.startOfDay(for: Date())
+    }
+
     private var isValid: Bool {
         Double(dailyCalorieTarget) != nil && Double(proteinGTarget) != nil && Int(durationWeeks) != nil
     }
@@ -52,28 +61,38 @@ struct StartNewPhaseView: View {
         NavigationStack {
             Form {
                 if let createdGoal {
-                    Section {
-                        Text("\(createdGoal.phaseType.displayName) phase started.")
-                            .font(.headline)
-                        Text("Add your starting measurements and photos below (optional, but useful to compare against later).")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Section {
-                        MeasurementsPhotosCaptureView(
-                            onSaveMeasurement: { waist, left, right in
-                                try? await measurementRepository.log(
-                                    waistCm: waist,
-                                    leftBicepCm: left,
-                                    rightBicepCm: right,
-                                    goalId: createdGoal.id,
-                                    source: "phase_start"
-                                )
-                            },
-                            onSavePhoto: { data in
-                                try? await photoRepository.upload(imageData: data, takenAt: Date(), goalId: createdGoal.id)
-                            }
-                        )
+                    if isQueued {
+                        Section {
+                            Text("\(createdGoal.phaseType.displayName) phase queued for \(createdGoal.phaseStartedAt).")
+                                .font(.headline)
+                            Text("It'll become your active phase on that date - nothing about today changes until then. Come back and add starting measurements/photos once it begins.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Section {
+                            Text("\(createdGoal.phaseType.displayName) phase started.")
+                                .font(.headline)
+                            Text("Add your starting measurements and photos below (optional, but useful to compare against later).")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Section {
+                            MeasurementsPhotosCaptureView(
+                                onSaveMeasurement: { waist, left, right in
+                                    try? await measurementRepository.log(
+                                        waistCm: waist,
+                                        leftBicepCm: left,
+                                        rightBicepCm: right,
+                                        goalId: createdGoal.id,
+                                        source: "phase_start"
+                                    )
+                                },
+                                onSavePhoto: { data in
+                                    try? await photoRepository.upload(imageData: data, takenAt: Date(), goalId: createdGoal.id)
+                                }
+                            )
+                        }
                     }
                     Section {
                         Button("Done") { dismiss() }
@@ -143,14 +162,14 @@ struct StartNewPhaseView: View {
                             if isSaving {
                                 ProgressView()
                             } else {
-                                Text("Start Phase")
+                                Text(isQueued ? "Queue Phase" : "Start Phase")
                             }
                         }
                         .disabled(!isValid || isSaving)
                     }
                 }
             }
-            .navigationTitle("New Phase")
+            .navigationTitle(isQueued ? "Queue Phase" : "New Phase")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -200,7 +219,12 @@ struct StartNewPhaseView: View {
             createdGoal = goal
             onCreated(goal)
             errorMessage = nil
-            await growSplitToTarget(goal)
+            // Only for a phase starting today - a queued future phase
+            // shouldn't change what today's split looks like before it's
+            // even active.
+            if !isQueued {
+                await growSplitToTarget(goal)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

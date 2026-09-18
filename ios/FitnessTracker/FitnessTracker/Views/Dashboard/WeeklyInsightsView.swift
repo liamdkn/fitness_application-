@@ -1,6 +1,34 @@
 import Charts
 import SwiftUI
 
+/// Which nutrition metric the Nutrition section's daily breakdown/weekly
+/// average is currently showing - one picker drives both, so switching
+/// tabs swaps the whole card rather than needing four separate ones.
+private enum NutritionMacro: String, CaseIterable, Identifiable {
+    case calories, protein, carbs, fat
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .calories: "Calories"
+        case .protein: "Protein"
+        case .carbs: "Carbs"
+        case .fat: "Fat"
+        }
+    }
+
+    var unit: String { self == .calories ? "kcal" : "g" }
+}
+
+/// One point on the weight chart's projected goal line - see
+/// `WeeklyInsightsView.goalLinePoints`.
+private struct GoalLinePoint: Identifiable {
+    let date: Date
+    let weightKg: Double
+    var id: Date { date }
+}
+
 struct WeeklyInsightsView: View {
     /// When set (e.g. a row tapped in Weekly Log), opens straight to that
     /// week instead of the current one - Weekly Log is the at-a-glance
@@ -10,6 +38,69 @@ struct WeeklyInsightsView: View {
     @StateObject private var viewModel = WeeklyInsightsViewModel()
     @StateObject private var weekPickerViewModel = WeeklyLogViewModel()
     @State private var isWeekPickerExpanded = false
+    @State private var selectedNutritionMacro: NutritionMacro = .calories
+
+    private func dailyEntries(for macro: NutritionMacro) -> [DailyMacroEntry] {
+        switch macro {
+        case .calories: viewModel.dailyCalories
+        case .protein: viewModel.dailyProtein
+        case .carbs: viewModel.dailyCarbs
+        case .fat: viewModel.dailyFat
+        }
+    }
+
+    private func target(for macro: NutritionMacro) -> Double? {
+        switch macro {
+        case .calories: viewModel.goal?.dailyCalorieTarget
+        case .protein: viewModel.goal?.proteinGTarget
+        case .carbs: viewModel.goal?.carbsGTarget
+        case .fat: viewModel.goal?.fatGTarget
+        }
+    }
+
+    private func weeklyAverage(for macro: NutritionMacro) -> Double? {
+        switch macro {
+        case .calories: viewModel.avgCaloriesPerDay
+        case .protein: viewModel.avgProteinPerDay
+        case .carbs: viewModel.avgCarbsPerDay
+        case .fat: viewModel.avgFatPerDay
+        }
+    }
+
+    /// The phase's target weight-loss/gain rate, projected across the
+    /// selected Mon-Sun week - the same projection the Dashboard's weight
+    /// card used to plot before it was stripped down to a glance card, just
+    /// scoped to whichever week is being viewed here instead of always
+    /// "now."
+    private var goalLinePoints: [GoalLinePoint] {
+        guard let goal = viewModel.goal,
+              let startingWeightKg = goal.startingWeightKg,
+              let weeklyRate = goal.weeklyWeightChangeKg,
+              let phaseStart = ISO8601DateFormatter().date(from: goal.phaseStartedAt + "T00:00:00Z")
+        else { return [] }
+
+        let calendar = Calendar.current
+        let weekStart = viewModel.selectedWeekStart
+        let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+        let today = Date()
+
+        func projectedWeight(on date: Date) -> Double {
+            let daysSince = calendar.dateComponents([.day], from: phaseStart, to: date).day ?? 0
+            return startingWeightKg + weeklyRate / 7 * Double(daysSince)
+        }
+
+        // Clipped to the selected week, and never past today (a past week's
+        // line runs its full Mon-Sun length; the current week's stops at
+        // today rather than projecting into days that haven't happened).
+        let lineStart = Swift.max(phaseStart, weekStart)
+        let lineEnd = Swift.min(today, weekEnd)
+        guard lineEnd >= lineStart else { return [] }
+
+        return [
+            GoalLinePoint(date: lineStart, weightKg: projectedWeight(on: lineStart)),
+            GoalLinePoint(date: lineEnd, weightKg: projectedWeight(on: lineEnd))
+        ]
+    }
 
     private var weekRangeLabel: String {
         if viewModel.isCurrentWeek { return "This Week" }
@@ -131,24 +222,31 @@ struct WeeklyInsightsView: View {
                 // so they simply don't appear on a past week.
                 if !viewModel.dailyCalories.isEmpty {
                     Section("Nutrition") {
-                        WeeklyNutritionAveragesView(
-                            avgCalories: viewModel.avgCaloriesPerDay,
-                            avgProtein: viewModel.avgProteinPerDay,
-                            avgCarbs: viewModel.avgCarbsPerDay,
-                            avgFat: viewModel.avgFatPerDay,
-                            goal: viewModel.goal
+                        Picker("Macro", selection: $selectedNutritionMacro) {
+                            ForEach(NutritionMacro.allCases) { macro in
+                                Text(macro.label).tag(macro)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .listRowInsets(EdgeInsets())
+                        .padding(.horizontal)
+                        .padding(.vertical, 4)
+                        .listRowSeparator(.hidden)
+                        DailyMacroBreakdown(
+                            days: dailyEntries(for: selectedNutritionMacro),
+                            target: target(for: selectedNutritionMacro),
+                            unit: selectedNutritionMacro.unit,
+                            weeklyAverage: weeklyAverage(for: selectedNutritionMacro)
                         )
                         if let nutritionDebt = viewModel.nutritionDebt, nutritionDebt.hasAny {
                             NutritionDebtSummaryView(debt: nutritionDebt)
-                        }
-                        DisclosureGroup("Daily Breakdown") {
-                            DailyCaloriesBreakdown(days: viewModel.dailyCalories, calorieTarget: viewModel.goal?.dailyCalorieTarget)
                         }
                     }
                 }
 
                 if !viewModel.dailySteps.isEmpty {
                     Section("Steps") {
+                        DailyStepsBreakdown(days: viewModel.dailySteps, stepTarget: viewModel.goal?.stepTarget)
                         InsightRow(
                             icon: "figure.walk",
                             label: "Avg steps",
@@ -158,38 +256,36 @@ struct WeeklyInsightsView: View {
                         if let stepsDebt = viewModel.stepsDebt, let stepTarget = viewModel.goal?.stepTarget {
                             StepsDebtRow(debt: stepsDebt, stepTarget: stepTarget)
                         }
-                        DisclosureGroup("Daily Breakdown") {
-                            DailyStepsBreakdown(days: viewModel.dailySteps, stepTarget: viewModel.goal?.stepTarget)
-                        }
                     }
                 }
 
                 Section("Weight") {
-                    if !viewModel.weekWeights.isEmpty {
-                        WeeklyWeightChart(weights: viewModel.weekWeights)
-                    }
                     if let avgThisWeek = viewModel.avgWeightThisWeek {
-                        WeightAverageComparisonRow(
-                            avgThisWeek: avgThisWeek,
-                            avgLastWeek: viewModel.avgWeightLastWeek,
-                            trend: viewModel.weightTrendVsLastWeek
+                        WeeklyWeightHeadline(
+                            avgWeightKg: avgThisWeek,
+                            isCurrentWeek: viewModel.isCurrentWeek,
+                            excludedBumpDays: viewModel.avgWeightThisWeekExcludedBumpDays
                         )
                     }
-                    if let weightChange = summary.weightChangeThisWeekKg {
+                    if !viewModel.weekWeights.isEmpty {
+                        InteractiveWeeklyWeightChart(weights: viewModel.weekWeights, goalLinePoints: goalLinePoints)
+                    }
+                    if let avgLastWeek = viewModel.avgWeightLastWeek {
                         InsightRow(
-                            icon: "scalemass.fill",
-                            label: "Weight change",
-                            value: "\(String(format: "%+.1f", weightChange)) kg",
-                            target: viewModel.goal?.weeklyWeightChangeKg.map { "\(String(format: "%+.1f", $0)) kg" }
+                            icon: "calendar",
+                            label: "Last week's average",
+                            value: String(format: "%.1f kg", avgLastWeek),
+                            target: nil
                         )
-                    } else {
-                        Text("Not enough weigh-ins this week to show a change.")
-                            .foregroundStyle(.secondary)
                     }
-                    NavigationLink("Weigh-In History") {
-                        WeightHistoryView()
+                    if let totalChange = viewModel.totalPhaseWeightChangeKg {
+                        InsightRow(
+                            icon: totalChange > 0 ? "chart.line.uptrend.xyaxis" : "chart.line.downtrend.xyaxis",
+                            label: totalChange < 0 ? "Total lost this phase" : totalChange > 0 ? "Total gained this phase" : "Total change this phase",
+                            value: String(format: "%.1f kg", abs(totalChange)),
+                            target: nil
+                        )
                     }
-                    .font(.footnote)
                 }
 
                 if viewModel.isCurrentWeek {
@@ -486,8 +582,8 @@ private struct DayAdherenceInlineDetail: View {
     }
 }
 
-/// Monday-Sunday row-per-day steps list, shown inside a `DisclosureGroup` so
-/// it doesn't crowd the summary numbers above it by default.
+/// Monday-Sunday row-per-day steps list - the front-and-center view for
+/// "how is this week going," with the average/debt summary below it.
 private struct DailyStepsBreakdown: View {
     let days: [DailyStepEntry]
     let stepTarget: Int?
@@ -545,15 +641,24 @@ private struct DailyStepsBreakdown: View {
     }
 }
 
-/// Monday-Sunday row-per-day calories list, same layout as
-/// `DailyStepsBreakdown` - a plain magnitude bar, not colored by over/under
-/// target, since unlike steps a low calorie day isn't universally "good."
-private struct DailyCaloriesBreakdown: View {
-    let days: [DailyCalorieEntry]
-    let calorieTarget: Double?
+/// Monday-Sunday row-per-day breakdown for whichever nutrition macro is
+/// selected, same layout as `DailyStepsBreakdown` - a plain magnitude bar,
+/// not colored by over/under target, since unlike steps a low day isn't
+/// universally "good" for calories or any macro. A plain "Avg" text row
+/// (value vs. target, no progress bar) sits right under Sunday, matching
+/// the Steps section's own "Avg steps" row.
+private struct DailyMacroBreakdown: View {
+    let days: [DailyMacroEntry]
+    let target: Double?
+    let unit: String
+    let weeklyAverage: Double?
 
-    private var maxCalories: Double {
-        max(days.compactMap(\.calories).max() ?? 0, calorieTarget ?? 0, 1)
+    private var maxValue: Double {
+        max(days.compactMap(\.value).max() ?? 0, target ?? 0, 1)
+    }
+
+    private func formatted(_ value: Double) -> String {
+        unit == "kcal" ? "\(Int(value.rounded())) kcal" : "\(Int(value.rounded()))\(unit)"
     }
 
     var body: some View {
@@ -561,12 +666,15 @@ private struct DailyCaloriesBreakdown: View {
             ForEach(days) { day in
                 dayRow(day)
             }
+            Divider()
+                .padding(.top, 6)
+            averageRow
         }
         .padding(.vertical, 4)
     }
 
     @ViewBuilder
-    private func dayRow(_ day: DailyCalorieEntry) -> some View {
+    private func dayRow(_ day: DailyMacroEntry) -> some View {
         HStack(spacing: 12) {
             Text(weekdayLabel(day.date))
                 .font(.caption.weight(.semibold))
@@ -576,21 +684,37 @@ private struct DailyCaloriesBreakdown: View {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.secondary.opacity(0.15))
-                    if let calories = day.calories {
+                    if let value = day.value {
                         Capsule()
                             .fill(Color.blue)
-                            .frame(width: geometry.size.width * min(calories / maxCalories, 1))
+                            .frame(width: geometry.size.width * min(value / maxValue, 1))
                     }
                 }
             }
             .frame(height: 8)
 
-            Text(day.calories.map { "\(Int($0.rounded()))" } ?? "-")
+            Text(day.value.map(formatted) ?? "-")
                 .font(.caption)
-                .foregroundStyle(day.calories == nil ? .secondary : .primary)
-                .frame(width: 56, alignment: .trailing)
+                .foregroundStyle(day.value == nil ? .secondary : .primary)
+                .frame(width: 72, alignment: .trailing)
                 .monospacedDigit()
         }
+    }
+
+    private var averageRow: some View {
+        HStack {
+            Text("Avg")
+            Spacer()
+            Text(averageText)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 2)
+    }
+
+    private var averageText: String {
+        let avgText = weeklyAverage.map(formatted) ?? "-"
+        guard let target else { return avgText }
+        return "\(avgText) / \(formatted(target))"
     }
 
     private func weekdayLabel(_ date: Date) -> String {
@@ -642,55 +766,6 @@ private struct StepsDebtRow: View {
 /// "You need X/day..." for calories and each macro, to land this week on
 /// target - only ever shown for the live current week (see
 /// `NutritionDebtSummary`'s doc comment).
-/// This week's average calories/protein/carbs/fat against target, as
-/// progress bars - same `ProgressView`-per-macro layout as the Dashboard's
-/// own "today" macro bars, just averaged over the week instead of one day.
-private struct WeeklyNutritionAveragesView: View {
-    let avgCalories: Double?
-    let avgProtein: Double?
-    let avgCarbs: Double?
-    let avgFat: Double?
-    let goal: UserGoal?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            macroLine(label: "Calories", value: avgCalories, target: goal?.dailyCalorieTarget, unit: "kcal")
-            macroLine(label: "Protein", value: avgProtein, target: goal?.proteinGTarget, unit: "g")
-            macroLine(label: "Carbs", value: avgCarbs, target: goal?.carbsGTarget, unit: "g")
-            macroLine(label: "Fat", value: avgFat, target: goal?.fatGTarget, unit: "g")
-        }
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private func macroLine(label: String, value: Double?, target: Double?, unit: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.caption)
-                .frame(width: 60, alignment: .leading)
-            if let target, target > 0 {
-                ProgressView(value: min((value ?? 0) / target, 1))
-            } else {
-                ProgressView(value: 0)
-            }
-            Text(macroText(value: value, target: target, unit: unit))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 100, alignment: .trailing)
-        }
-    }
-
-    private func formatted(_ value: Double, unit: String) -> String {
-        unit == "kcal" ? "\(Int(value.rounded())) kcal" : "\(Int(value.rounded()))\(unit)"
-    }
-
-    private func macroText(value: Double?, target: Double?, unit: String) -> String {
-        let valueText = value.map { formatted($0, unit: unit) } ?? "-"
-        guard let target else { return valueText }
-        return "\(valueText)/\(formatted(target, unit: unit))"
-    }
-}
-
 private struct NutritionDebtSummaryView: View {
     let debt: NutritionDebtSummary
 
@@ -747,23 +822,79 @@ private struct MacroDebtRow: View {
     }
 }
 
-/// This week's raw weigh-ins plotted across the selected Mon-Sun week - a
-/// quick "what actually happened" visual to sit above the plainer
-/// average/change numbers below it.
-private struct WeeklyWeightChart: View {
+/// The big headline number - this week's average weight (or "so far," if
+/// the week's still in progress and not every day has a weigh-in yet).
+private struct WeeklyWeightHeadline: View {
+    let avgWeightKg: Double
+    let isCurrentWeek: Bool
+    let excludedBumpDays: Int
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(String(format: "%.1f kg", avgWeightKg))
+                .font(.system(size: 40, weight: .bold, design: .rounded))
+            Text(isCurrentWeek ? "Average so far this week" : "Average this week")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if excludedBumpDays > 0 {
+                Text("Excludes \(excludedBumpDays) post-off-plan \(excludedBumpDays == 1 ? "reading" : "readings")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
+    }
+}
+
+/// This week's raw weigh-ins plotted across the selected Mon-Sun week, plus
+/// the phase's projected goal line - tap or drag over a point to see that
+/// day's reading, the same way the Health app's own charts work.
+private struct InteractiveWeeklyWeightChart: View {
     let weights: [BodyWeightLog]
+    let goalLinePoints: [GoalLinePoint]
+
+    @State private var selectedLog: BodyWeightLog?
 
     var body: some View {
         Chart {
             ForEach(weights) { log in
                 LineMark(
                     x: .value("Date", log.loggedAt),
-                    y: .value("Weight (kg)", log.weightKg)
+                    y: .value("Weight (kg)", log.weightKg),
+                    series: .value("Series", "Actual")
                 )
+                .foregroundStyle(.blue)
                 PointMark(
                     x: .value("Date", log.loggedAt),
                     y: .value("Weight (kg)", log.weightKg)
                 )
+                .foregroundStyle(.blue)
+                .symbolSize(log.id == selectedLog?.id ? 60 : 30)
+            }
+            ForEach(goalLinePoints) { point in
+                LineMark(
+                    x: .value("Date", point.date),
+                    y: .value("Weight (kg)", point.weightKg),
+                    series: .value("Series", "Goal")
+                )
+                .foregroundStyle(.red.opacity(0.6))
+                .lineStyle(StrokeStyle(dash: [5, 3]))
+            }
+            if let selectedLog {
+                RuleMark(x: .value("Date", selectedLog.loggedAt))
+                    .foregroundStyle(.secondary.opacity(0.25))
+                    .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                        VStack(spacing: 1) {
+                            Text(selectedLog.loggedAt, format: .dateTime.weekday(.abbreviated).day().month(.abbreviated))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.1f kg", selectedLog.weightKg))
+                                .font(.caption.bold())
+                        }
+                        .padding(6)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                    }
             }
         }
         .chartXAxis {
@@ -772,50 +903,25 @@ private struct WeeklyWeightChart: View {
                 AxisValueLabel(format: .dateTime.weekday(.narrow))
             }
         }
-        .frame(height: 120)
+        .frame(height: 160)
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                Rectangle().fill(.clear).contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in selectNearestLog(at: value.location, proxy: proxy, geometry: geometry) }
+                    )
+                    .onTapGesture { location in selectNearestLog(at: location, proxy: proxy, geometry: geometry) }
+            }
+        }
         .padding(.vertical, 4)
     }
-}
 
-/// This week's average weight vs last week's, with the same up/down/stable
-/// framing as the Dashboard's weight glance card (`WeightTrend`).
-private struct WeightAverageComparisonRow: View {
-    let avgThisWeek: Double
-    let avgLastWeek: Double?
-    let trend: WeightTrend?
-
-    private var trendText: String {
-        switch trend {
-        case .up: "Up"
-        case .down: "Down"
-        case .stable: "Stable"
-        case nil: "-"
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("This week's average")
-                Spacer()
-                Text(String(format: "%.1f kg", avgThisWeek))
-                    .fontWeight(.semibold)
-            }
-            HStack {
-                Text("vs last week")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if let avgLastWeek {
-                    Text("\(String(format: "%.1f kg", avgLastWeek)) \u{00B7} \(trendText)")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("No data")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .font(.caption)
-        }
-        .padding(.vertical, 2)
+    private func selectNearestLog(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
+        let origin = geometry[proxy.plotFrame!].origin
+        let xPosition = location.x - origin.x
+        guard let date: Date = proxy.value(atX: xPosition) else { return }
+        selectedLog = weights.min { abs($0.loggedAt.timeIntervalSince(date)) < abs($1.loggedAt.timeIntervalSince(date)) }
     }
 }
 
