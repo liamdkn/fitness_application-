@@ -9,7 +9,7 @@ struct MainTabView: View {
                 .tabItem { Label("Dashboard", systemImage: "chart.bar.fill") }
             StartWorkoutView()
                 .tabItem { Label("Train", systemImage: "figure.strengthtraining.traditional") }
-            NutritionEntryView()
+            NutritionTabView()
                 .tabItem { Label("Nutrition", systemImage: "fork.knife") }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
@@ -32,6 +32,31 @@ struct MainTabView: View {
                 await HealthSyncService.shared.requestAuthorizationAndSync()
                 await DailyCheckinReminderService.shared.refresh()
             }
+        }
+    }
+}
+
+/// Routes the Nutrition tab to whichever screen matches the current
+/// `NutritionSource` - `MealLogHomeView` for `.inHouse` (see
+/// `docs/nutrition-in-house-revamp-brief.md`), `NutritionEntryView` for
+/// `.healthkitManual`. Loaded once per tab-view lifetime, same limitation
+/// `NutritionEntryView` already had loading this itself: flipping the
+/// Settings toggle mid-session doesn't re-route an already-alive tab until
+/// next launch/tab-recreation.
+private struct NutritionTabView: View {
+    @State private var nutritionSource: NutritionSource = .healthkitManual
+    private let preferencesRepository = UserPreferencesRepository()
+
+    var body: some View {
+        Group {
+            if nutritionSource == .inHouse {
+                MealLogHomeView()
+            } else {
+                NutritionEntryView()
+            }
+        }
+        .task {
+            nutritionSource = (try? await preferencesRepository.fetch())?.nutritionSource ?? .healthkitManual
         }
     }
 }

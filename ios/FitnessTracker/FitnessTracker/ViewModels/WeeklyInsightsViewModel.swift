@@ -144,8 +144,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
     /// compared.
     @Published var weeklyCheckin: WeeklyCheckin?
     /// Monday of whichever week is currently being viewed - defaults to
-    /// this week, but `goToPreviousWeek()`/`goToNextWeek()` can walk it
-    /// back through history (never past the current week).
+    /// this week; `selectWeek(startingAt:)` is the only way to change it.
     @Published private(set) var selectedWeekStart = WeeklyInsightsViewModel.mondayOfWeek(containing: Date())
     @Published var errorMessage: String?
     @Published var isLoading = false
@@ -199,23 +198,9 @@ final class WeeklyInsightsViewModel: ObservableObject {
         selectedWeekStart == Self.mondayOfWeek(containing: Date())
     }
 
-    func goToPreviousWeek() {
-        guard let newStart = Calendar.current.date(byAdding: .day, value: -7, to: selectedWeekStart) else { return }
-        selectedWeekStart = newStart
-        Task { await load() }
-    }
-
-    func goToNextWeek() {
-        guard !isCurrentWeek else { return }
-        guard let newStart = Calendar.current.date(byAdding: .day, value: 7, to: selectedWeekStart) else { return }
-        selectedWeekStart = newStart
-        Task { await load() }
-    }
-
-    /// Jumps straight to an arbitrary week (e.g. a row tapped in Weekly
-    /// Log) rather than stepping through `goToPreviousWeek()` one week at a
-    /// time - `weekStart` is normalized to its Monday regardless of what
-    /// date within that week is passed in.
+    /// Jumps straight to an arbitrary week (picked from the week-picker
+    /// dropdown, the only way to change weeks) - `weekStart` is normalized
+    /// to its Monday regardless of what date within that week is passed in.
     func selectWeek(startingAt weekStart: Date) {
         selectedWeekStart = Self.mondayOfWeek(containing: weekStart)
         Task { await load() }
@@ -240,7 +225,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
         // week before this one, a partial count for the current week
         // (today itself is still "in progress" and never counts as
         // completed), 0 if this were somehow a future week (can't happen -
-        // `goToNextWeek()` is capped at the current week). The cap is
+        // the week-picker dropdown never offers a week past the current
+        // one). The cap is
         // `sundayThisWeek` plus one day, not `sundayThisWeek` itself -
         // Monday-to-Sunday is a 6-day difference in date-component terms,
         // so capping at the Sunday itself silently excluded Sunday from
@@ -353,9 +339,18 @@ final class WeeklyInsightsViewModel: ObservableObject {
 
         let isThisWeekCurrent = weekStart == Self.mondayOfWeek(containing: Date())
 
-        // Averaged over days elapsed so far, not padded with zeros for days
-        // that haven't happened - meaningful for any week, past or current.
-        let resolvedAvgSteps = average(dailyStepsBuilder.compactMap { $0.steps.map(Double.init) })
+        // Averaged over days that have actually FINISHED, not today's
+        // still-in-progress count - a live partial day mixed into the same
+        // average as completed ones understates how the completed days
+        // actually went (a 169-step Saturday morning dragging down what
+        // was otherwise a strong week) without being a real "today" number
+        // either. `completedDays` is 7 for any past week (the whole week
+        // has finished), so this is unchanged there - only the live
+        // current week ever excludes today from this average. Steps debt
+        // is the one that answers "am I on track today," using today's
+        // partial count on purpose - this figure answers "how did the
+        // week go so far," which today can't answer yet.
+        let resolvedAvgSteps = average(dailyStepsBuilder.prefix(completedDays).compactMap { $0.steps.map(Double.init) })
 
         // Only meaningful for the live current week - see `StepsDebt`'s doc
         // comment.

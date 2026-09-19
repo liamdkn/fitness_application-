@@ -369,6 +369,41 @@ struct WorkoutRepository {
             .value
     }
 
+    private struct HealthKitEnrichmentUpdate: Encodable {
+        let avg_heart_rate: Int?
+        let active_calories: Double?
+        let healthkit_workout_uuid: String
+    }
+
+    /// Adds a matched Apple Watch "Functional Strength Training" workout's
+    /// heart rate/calories onto an already-logged workout - see
+    /// `WatchActivityViewModel`. Only ever called after the user confirms
+    /// the match; `healthkitWorkoutUUID` is stored so this same Watch
+    /// workout is never offered again on a future review.
+    @discardableResult
+    func enrichFromHealthKit(
+        workoutId: UUID,
+        avgHeartRate: Int?,
+        activeCalories: Double?,
+        healthkitWorkoutUUID: String
+    ) async throws -> Workout {
+        let updated: [Workout] = try await client
+            .from("workouts")
+            .update(HealthKitEnrichmentUpdate(
+                avg_heart_rate: avgHeartRate,
+                active_calories: activeCalories,
+                healthkit_workout_uuid: healthkitWorkoutUUID
+            ))
+            .eq("id", value: workoutId)
+            .select()
+            .execute()
+            .value
+        guard let workout = updated.first else {
+            throw RepositoryError.insertFailed
+        }
+        return workout
+    }
+
     /// Per-workout progression points for a single exercise (est. 1RM, max
     /// weight, volume), oldest first - the raw series for a progression
     /// chart.

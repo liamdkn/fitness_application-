@@ -13,11 +13,13 @@ struct FoodPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var results: [Food] = []
+    @State private var recentFoods: [Food] = []
     @State private var errorMessage: String?
     @State private var pendingFood: Food?
     @State private var showingAddCustom = false
     @State private var showingScanner = false
     private let repository = FoodRepository()
+    private let mealEntryRepository = MealEntryRepository()
 
     var body: some View {
         NavigationStack {
@@ -25,30 +27,28 @@ struct FoodPickerView: View {
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(.red)
                 }
-                Button {
-                    showingScanner = true
-                } label: {
-                    Label("Scan Barcode", systemImage: "barcode.viewfinder")
+                HStack(spacing: 12) {
+                    quickActionButton(icon: "barcode.viewfinder", label: "Barcode Scan") { showingScanner = true }
+                    quickActionButton(icon: "bolt.fill", label: "Quick Add") { showingAddCustom = true }
                 }
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 if searchText.isEmpty {
-                    Text("Search for a food to log to \(mealSlotName).")
-                        .foregroundStyle(.secondary)
+                    if recentFoods.isEmpty {
+                        Text("Search for a food to log to \(mealSlotName), or scan a barcode.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Section("Recently Used") {
+                            ForEach(recentFoods) { food in
+                                foodRow(food)
+                            }
+                        }
+                    }
                 } else if results.isEmpty {
                     Text("No matches - try a different search, or add a new food.")
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(results) { food in
-                        Button {
-                            pendingFood = food
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(food.displayName)
-                                    .foregroundStyle(.primary)
-                                Text("\(Int(food.calories)) kcal per \(food.servingLabel)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                        foodRow(food)
                     }
                 }
             }
@@ -64,6 +64,9 @@ struct FoodPickerView: View {
                 guard !Task.isCancelled else { return }
                 await search(searchText)
             }
+            .task {
+                await loadRecentlyUsed()
+            }
             .navigationTitle("Add Food")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -74,7 +77,7 @@ struct FoodPickerView: View {
                 }
             }
             .sheet(item: $pendingFood) { food in
-                LogFoodQuantityView(food: food) { quantity in
+                LogFoodQuantityView(food: food, mealSlotName: mealSlotName) { quantity in
                     onLog(food, quantity)
                     dismiss()
                 }
@@ -92,6 +95,42 @@ struct FoodPickerView: View {
         }
     }
 
+    /// "Quick Add" opens the exact same custom-food sheet as the "New Food"
+    /// toolbar button - a name plus calories/macros, no catalog lookup -
+    /// which is exactly what a "quick add" means in other food-logging
+    /// apps: skip search entirely and just type the numbers. No separate
+    /// flow needed.
+    private func quickActionButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.title3)
+                Text(label)
+                    .font(.caption)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.blue)
+    }
+
+    @ViewBuilder
+    private func foodRow(_ food: Food) -> some View {
+        Button {
+            pendingFood = food
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(food.displayName)
+                    .foregroundStyle(.primary)
+                Text("\(Int(food.calories)) kcal per \(food.servingLabel)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private func search(_ query: String) async {
         do {
             results = try await repository.search(query: query)
@@ -99,33 +138,94 @@ struct FoodPickerView: View {
             errorMessage = error.localizedDescription
         }
     }
+
+    /// Most-recently-logged foods, most recent first - `fetchByIds` doesn't
+    /// preserve the order its ids were passed in (a plain SQL `IN`), so the
+    /// fetched foods are re-sorted back into that recency order rather than
+    /// whatever order the database happened to return them in.
+    private func loadRecentlyUsed() async {
+        do {
+            let ids = try await mealEntryRepository.fetchRecentlyLoggedFoodIds()
+            let foods = try await repository.fetchByIds(ids)
+            let foodsById = Dictionary(uniqueKeysWithValues: foods.map { ($0.id, $0) })
+            recentFoods = ids.compactMap { foodsById[$0] }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+/// Which unit the quantity `TextField` is being entered in - `.servings` is
+/// a multiplier on the food's own defined serving (e.g. "1.5 \u{00d7} 100g"),
+/// `.amount` is a raw number in the food's own serving unit (e.g. "137",
+/// meaning 137g) so a user who thinks in grams doesn't have to do the
+/// division themselves. Both ultimately resolve to the same servings
+/// multiplier `onConfirm` expects - this only changes what the field
+/// displays and how what's typed in it is interpreted.
+private enum QuantityInputMode: Hashable {
+    case servings, amount
 }
 
 private struct LogFoodQuantityView: View {
     let food: Food
+    /// Context only, not a picker - which slot this logs into is already
+    /// fixed by which slot's card was tapped to get here, so this is a
+    /// read-only label rather than a reassignment control.
+    let mealSlotName: String
     let onConfirm: (Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var quantityText = "1"
+    @State private var inputMode: QuantityInputMode = .servings
+    private let mealEntryRepository = MealEntryRepository()
+    /// Keyed per-food so switching foods never leaks one food's preferred
+    /// mode onto another - a food you always weigh in grams and a food you
+    /// always log as "2 slices" can each keep their own default.
+    private var inputModeDefaultsKey: String { "foodQuantityInputMode.\(food.id.uuidString)" }
 
-    private var quantity: Double? { Double(quantityText) }
+    private var quantity: Double? {
+        guard let entered = Double(quantityText) else { return nil }
+        switch inputMode {
+        case .servings: return entered
+        case .amount: return food.servingSize > 0 ? entered / food.servingSize : nil
+        }
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
+                    LabeledContent("Meal", value: mealSlotName)
+                    Picker("Enter as", selection: $inputMode) {
+                        Text("Servings").tag(QuantityInputMode.servings)
+                        Text(food.servingUnit.capitalized).tag(QuantityInputMode.amount)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: inputMode) { oldMode, newMode in
+                        convertQuantityText(from: oldMode, to: newMode)
+                        UserDefaults.standard.set(newMode == .amount, forKey: inputModeDefaultsKey)
+                    }
                     HStack {
-                        Text("Servings")
+                        Text(inputMode == .servings ? "Servings" : "Amount")
                         Spacer()
                         TextField("1", text: $quantityText)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
-                            .frame(width: 60)
-                        Text("\u{00d7} \(food.servingLabel)")
+                            .frame(width: 70)
+                        Text(inputMode == .servings ? "\u{00d7} \(food.servingLabel)" : food.servingUnit)
                             .foregroundStyle(.secondary)
                     }
                 }
                 if let quantity, quantity > 0 {
+                    Section {
+                        MacroBreakdownRing(
+                            calories: food.calories(at: quantity),
+                            carbsG: food.carbsG(at: quantity),
+                            fatG: food.fatG(at: quantity),
+                            proteinG: food.proteinG(at: quantity)
+                        )
+                        .padding(.vertical, 8)
+                    }
                     Section("Adds") {
                         LabeledContent("Calories", value: "\(Int(food.calories(at: quantity))) kcal")
                         LabeledContent("Protein", value: "\(Int(food.proteinG(at: quantity)))g")
@@ -150,6 +250,99 @@ private struct LogFoodQuantityView: View {
                     .disabled(!(quantity.map { $0 > 0 } ?? false))
                 }
             }
+            .task {
+                await loadDefaults()
+            }
+        }
+    }
+
+    /// Pre-fills with whatever this food was logged as last time, instead
+    /// of always resetting to "1 serving" - the mode preference is a local,
+    /// per-food `UserDefaults` flag (just a display choice, not something
+    /// worth a sync round-trip), while the actual last-used amount comes
+    /// from this user's own `meal_entries` history so it's consistent
+    /// across devices.
+    private func loadDefaults() async {
+        inputMode = UserDefaults.standard.bool(forKey: inputModeDefaultsKey) ? .amount : .servings
+        guard let lastQuantity = try? await mealEntryRepository.fetchLastQuantity(foodId: food.id) else { return }
+        quantityText = formattedQuantity(inputMode == .amount ? lastQuantity * food.servingSize : lastQuantity)
+    }
+
+    private func convertQuantityText(from oldMode: QuantityInputMode, to newMode: QuantityInputMode) {
+        guard oldMode != newMode, let entered = Double(quantityText), food.servingSize > 0 else { return }
+        switch newMode {
+        case .servings: quantityText = formattedQuantity(entered / food.servingSize)
+        case .amount: quantityText = formattedQuantity(entered * food.servingSize)
+        }
+    }
+
+    private func formattedQuantity(_ value: Double) -> String {
+        value == value.rounded() ? "\(Int(value))" : String(format: "%.1f", value)
+    }
+}
+
+/// Calories at center, ringed by carbs/fat/protein's share of those
+/// calories (4/9/4 kcal-per-gram, standard macro energy factors) - not
+/// their share of a daily target, since this view has no target context,
+/// just "what this one food/quantity adds."
+private struct MacroBreakdownRing: View {
+    let calories: Double
+    let carbsG: Double
+    let fatG: Double
+    let proteinG: Double
+
+    private var carbsCal: Double { carbsG * 4 }
+    private var fatCal: Double { fatG * 9 }
+    private var proteinCal: Double { proteinG * 4 }
+    private var totalMacroCal: Double { max(carbsCal + fatCal + proteinCal, 1) }
+
+    private var carbsFraction: Double { carbsCal / totalMacroCal }
+    private var fatFraction: Double { fatCal / totalMacroCal }
+    private var proteinFraction: Double { proteinCal / totalMacroCal }
+
+    var body: some View {
+        HStack(spacing: 24) {
+            ZStack {
+                ZStack {
+                    Circle().stroke(Color.secondary.opacity(0.15), lineWidth: 10)
+                    Circle()
+                        .trim(from: 0, to: carbsFraction)
+                        .stroke(Color.green, style: StrokeStyle(lineWidth: 10, lineCap: .butt))
+                    Circle()
+                        .trim(from: carbsFraction, to: carbsFraction + fatFraction)
+                        .stroke(Color.yellow, style: StrokeStyle(lineWidth: 10, lineCap: .butt))
+                    Circle()
+                        .trim(from: carbsFraction + fatFraction, to: min(carbsFraction + fatFraction + proteinFraction, 1))
+                        .stroke(Color.blue, style: StrokeStyle(lineWidth: 10, lineCap: .butt))
+                }
+                .rotationEffect(.degrees(-90))
+
+                VStack(spacing: 0) {
+                    Text("\(Int(calories))")
+                        .font(.title2.bold())
+                    Text("cal")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 92, height: 92)
+
+            VStack(alignment: .leading, spacing: 8) {
+                macroPercentRow("Carbs", carbsFraction, .green)
+                macroPercentRow("Fat", fatFraction, .yellow)
+                macroPercentRow("Protein", proteinFraction, .blue)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func macroPercentRow(_ label: String, _ fraction: Double, _ color: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label).font(.caption)
+            Spacer(minLength: 20)
+            Text("\(Int((fraction * 100).rounded()))%")
+                .font(.caption.bold())
         }
     }
 }

@@ -191,14 +191,8 @@ struct NutritionEntryView: View {
     @State private var chartRange: NutritionChartRange = .month
     @State private var showingManualEntry = false
     @State private var errorMessage: String?
-    @State private var nutritionSource: NutritionSource = .healthkitManual
-    @State private var showingRepeatDay = false
-    @State private var showingSavedDaysPicker = false
-    @State private var showingSaveDay = false
-    @StateObject private var mealLogViewModel = MealLogViewModel()
     private let repository = NutritionRepository()
     private let goalsRepository = GoalsRepository()
-    private let preferencesRepository = UserPreferencesRepository()
 
     private var isToday: Bool {
         Calendar.current.isDateInToday(selectedDate)
@@ -233,9 +227,6 @@ struct NutritionEntryView: View {
                             Task {
                                 await loadForSelectedDate()
                                 await loadGoal()
-                                if nutritionSource == .inHouse {
-                                    await mealLogViewModel.loadEntries(date: newDate)
-                                }
                             }
                         }
                         Spacer()
@@ -248,14 +239,14 @@ struct NutritionEntryView: View {
                     }
                     .listRowSeparator(.hidden)
 
-                    MacroRingsView(rings: nutritionSource == .inHouse ? mealLogMacroRings : macroRings)
+                    MacroRingsView(rings: macroRings)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                    ForEach(nutritionSource == .inHouse ? mealLogMacroRings : macroRings) { ring in
+                    ForEach(macroRings) { ring in
                         MacroLegendRow(ring: ring)
                     }
 
-                    if nutritionSource == .healthkitManual, currentLogSource == "healthkit" {
+                    if currentLogSource == "healthkit" {
                         Text("Synced from Health - editing and saving will switch this day to manual.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -264,32 +255,8 @@ struct NutritionEntryView: View {
                     if let errorMessage {
                         Text(errorMessage).foregroundStyle(.red)
                     }
-                    if let mealLogError = mealLogViewModel.errorMessage {
-                        Text(mealLogError).foregroundStyle(.red)
-                    }
 
-                    if nutritionSource == .healthkitManual {
-                        Button("Log Manually") { showingManualEntry = true }
-                    }
-
-                    if nutritionSource == .inHouse {
-                        Menu {
-                            Button("Repeat Yesterday") {
-                                Task { await repeatDay(from: Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate) }
-                            }
-                            Button("Repeat a Day...") { showingRepeatDay = true }
-                            Button("Apply a Saved Day...") { showingSavedDaysPicker = true }
-                            if !mealLogViewModel.entries.isEmpty {
-                                Button("Save This Day") { showingSaveDay = true }
-                            }
-                        } label: {
-                            Label("Day Actions", systemImage: "ellipsis.circle")
-                        }
-                    }
-                }
-
-                if nutritionSource == .inHouse {
-                    MealLogSection(viewModel: mealLogViewModel, date: selectedDate)
+                    Button("Log Manually") { showingManualEntry = true }
                 }
 
                 Section("Trend") {
@@ -364,15 +331,10 @@ struct NutritionEntryView: View {
             }
             .navigationTitle("Nutrition")
             .task {
-                await loadNutritionSource()
                 await loadForSelectedDate()
                 await loadRecent()
                 await loadAllLogs()
                 await loadGoal()
-                if nutritionSource == .inHouse {
-                    await mealLogViewModel.loadMealSlots()
-                    await mealLogViewModel.loadEntries(date: selectedDate)
-                }
             }
             .sheet(isPresented: $showingManualEntry) {
                 ManualNutritionEntrySheet(
@@ -387,24 +349,7 @@ struct NutritionEntryView: View {
                     await loadAllLogs()
                 }
             }
-            .sheet(isPresented: $showingRepeatDay) {
-                RepeatDaySheet(targetDate: selectedDate) { sourceDate in
-                    Task { await repeatDay(from: sourceDate) }
-                }
-            }
-            .sheet(isPresented: $showingSavedDaysPicker) {
-                SavedDaysPickerView { items in
-                    Task { await mealLogViewModel.applySavedDay(items, date: selectedDate) }
-                }
-            }
-            .sheet(isPresented: $showingSaveDay) {
-                SaveDaySheet(totals: mealLogViewModel.dayTotals, entries: mealLogViewModel.entries) {}
-            }
         }
-    }
-
-    private func repeatDay(from sourceDate: Date) async {
-        await mealLogViewModel.repeatDay(from: sourceDate, to: selectedDate)
     }
 
     private func changeDay(by offset: Int) {
@@ -413,28 +358,7 @@ struct NutritionEntryView: View {
         Task {
             await loadForSelectedDate()
             await loadGoal()
-            if nutritionSource == .inHouse {
-                await mealLogViewModel.loadEntries(date: newDate)
-            }
         }
-    }
-
-    private func loadNutritionSource() async {
-        nutritionSource = (try? await preferencesRepository.fetch())?.nutritionSource ?? .healthkitManual
-    }
-
-    /// Rings for the in-house path - built from `meal_entries` summed live
-    /// via `MealLogViewModel.dayTotals`, rather than the legacy
-    /// `calories`/`protein`/`carbs`/`fat` fields those only ever hold a
-    /// `nutrition_logs` row's values.
-    private var mealLogMacroRings: [MacroRing] {
-        let totals = mealLogViewModel.dayTotals
-        return [
-            MacroRing(label: "Calories", value: totals.calories, target: goal?.dailyCalorieTarget, unit: "kcal", color: .orange),
-            MacroRing(label: "Protein", value: totals.proteinG, target: goal?.proteinGTarget, unit: "g", color: .blue),
-            MacroRing(label: "Carbs", value: totals.carbsG, target: goal?.carbsGTarget, unit: "g", color: .green),
-            MacroRing(label: "Fat", value: totals.fatG, target: goal?.fatGTarget, unit: "g", color: .yellow)
-        ]
     }
 
     /// Rings reflect whichever date is selected - the currently loaded

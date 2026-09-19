@@ -11,6 +11,20 @@ struct CardioSessionRepository {
         let steps_before: Int?
     }
 
+    /// A Watch-recorded session imports as already-finished - unlike
+    /// `NewCardioSession`, there's no live start/pause/finish lifecycle to
+    /// go through, the Watch already has the whole thing.
+    private struct NewHealthKitCardioSession: Encodable {
+        let user_id: UUID
+        let cardio_type: String
+        let started_at: Date
+        let ended_at: Date
+        let avg_heart_rate: Int?
+        let active_calories: Double?
+        let source: String
+        let healthkit_uuid: String
+    }
+
     private struct PauseUpdate: Encodable {
         let paused_at: Date
     }
@@ -44,6 +58,41 @@ struct CardioSessionRepository {
         let inserted: [CardioTrackingSession] = try await client
             .from("cardio_tracking_sessions")
             .insert(NewCardioSession(user_id: userId, cardio_type: cardioType.rawValue, steps_before: stepsBefore))
+            .select()
+            .execute()
+            .value
+        guard let session = inserted.first else {
+            throw RepositoryError.insertFailed
+        }
+        return session
+    }
+
+    /// Only ever called after the user confirms importing a specific
+    /// detected Watch workout (see `WatchActivityViewModel`) - never from
+    /// the background health sync, which only reads/detects, never writes
+    /// a cardio session on its own.
+    @discardableResult
+    func importFromHealthKit(
+        cardioType: CardioType,
+        startedAt: Date,
+        endedAt: Date,
+        avgHeartRate: Int?,
+        activeCalories: Double?,
+        healthkitUUID: String
+    ) async throws -> CardioTrackingSession {
+        let userId = try await client.auth.session.user.id
+        let inserted: [CardioTrackingSession] = try await client
+            .from("cardio_tracking_sessions")
+            .insert(NewHealthKitCardioSession(
+                user_id: userId,
+                cardio_type: cardioType.rawValue,
+                started_at: startedAt,
+                ended_at: endedAt,
+                avg_heart_rate: avgHeartRate,
+                active_calories: activeCalories,
+                source: "healthkit",
+                healthkit_uuid: healthkitUUID
+            ))
             .select()
             .execute()
             .value

@@ -9,6 +9,13 @@ struct Workout: Codable, Identifiable, Hashable {
     let name: String?
     let notes: String?
     let rating: Int?
+    /// Populated only if a same-day Apple Watch "Functional Strength
+    /// Training" workout was matched and the user confirmed enriching
+    /// this workout with it (see `WatchActivityViewModel`) - never set by
+    /// anything logged in-app.
+    let avgHeartRate: Int?
+    let activeCalories: Double?
+    let healthkitWorkoutUUID: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -17,6 +24,9 @@ struct Workout: Codable, Identifiable, Hashable {
         case startedAt = "started_at"
         case endedAt = "ended_at"
         case name, notes, rating
+        case avgHeartRate = "avg_heart_rate"
+        case activeCalories = "active_calories"
+        case healthkitWorkoutUUID = "healthkit_workout_uuid"
     }
 
     var duration: TimeInterval? {

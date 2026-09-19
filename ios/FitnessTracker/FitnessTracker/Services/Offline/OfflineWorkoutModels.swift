@@ -122,7 +122,10 @@ extension QueuedWorkout {
             endedAt: endedAt,
             name: nil,
             notes: notes,
-            rating: rating
+            rating: rating,
+            avgHeartRate: nil,
+            activeCalories: nil,
+            healthkitWorkoutUUID: nil
         )
     }
 }

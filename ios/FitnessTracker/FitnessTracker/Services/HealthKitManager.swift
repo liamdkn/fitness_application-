@@ -17,6 +17,33 @@ struct DailyNutrition {
     let fatG: Double
 }
 
+/// Which of our own concepts a Watch-recorded `HKWorkout` maps to - the
+/// only three `HKWorkoutActivityType`s `fetchRecentWorkouts` looks for at
+/// all, everything else is dropped before it ever reaches app code.
+enum WatchWorkoutKind {
+    case walk
+    case stairmaster
+    case functionalStrength
+}
+
+/// One Watch-recorded workout, already reduced to just what
+/// `WatchActivityViewModel` needs - no `HealthKit` types escape
+/// `HealthKitManager` itself.
+struct DetectedWatchWorkout: Identifiable {
+    let id: String
+    let kind: WatchWorkoutKind
+    let startedAt: Date
+    let endedAt: Date
+    let avgHeartRate: Int?
+    let activeCalories: Double?
+    /// Only meaningful for `.walk` - whether the Watch itself was started
+    /// as an Indoor Walk vs Outdoor Walk (`HKMetadataKeyIndoorWorkout`).
+    /// `nil` when the Watch didn't record that flag at all (older watchOS
+    /// versions, or a source other than the Watch's own Workout app) -
+    /// callers should read that as "unknown," not "outdoor."
+    let isIndoor: Bool?
+}
+
 final class HealthKitManager {
     private let store = HKHealthStore()
 
@@ -26,13 +53,60 @@ final class HealthKitManager {
     private var proteinType: HKQuantityType { HKQuantityType(.dietaryProtein) }
     private var carbsType: HKQuantityType { HKQuantityType(.dietaryCarbohydrates) }
     private var fatType: HKQuantityType { HKQuantityType(.dietaryFatTotal) }
+    private var heartRateType: HKQuantityType { HKQuantityType(.heartRate) }
+    private var activeEnergyType: HKQuantityType { HKQuantityType(.activeEnergyBurned) }
 
     func requestAuthorization() async throws {
         guard HKHealthStore.isHealthDataAvailable() else { throw HealthKitError.notAvailable }
         try await store.requestAuthorization(
             toShare: [],
-            read: [stepType, sleepType, caloriesType, proteinType, carbsType, fatType]
+            read: [
+                stepType, sleepType, caloriesType, proteinType, carbsType, fatType,
+                heartRateType, activeEnergyType, HKObjectType.workoutType()
+            ]
         )
+    }
+
+    /// Every Watch-recorded Indoor Walk, Stairmaster, or Functional
+    /// Strength Training session in the last `daysBack` days - read-only,
+    /// detection only. Nothing here writes anything; turning a result into
+    /// an imported cardio session or an enriched workout only happens once
+    /// the user confirms it (`WatchActivityViewModel`), never automatically.
+    func fetchRecentWorkouts(daysBack: Int) async throws -> [DetectedWatchWorkout] {
+        let calendar = Calendar.current
+        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.workout(predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)]
+        )
+        let workouts = try await descriptor.result(for: store)
+
+        return workouts.compactMap { workout -> DetectedWatchWorkout? in
+            let kind: WatchWorkoutKind
+            switch workout.workoutActivityType {
+            case .walking: kind = .walk
+            case .stairClimbing: kind = .stairmaster
+            case .functionalStrengthTraining: kind = .functionalStrength
+            default: return nil
+            }
+            let avgHeartRate = workout.statistics(for: heartRateType)?
+                .averageQuantity()?
+                .doubleValue(for: .count().unitDivided(by: .minute()))
+            let activeCalories = workout.statistics(for: activeEnergyType)?
+                .sumQuantity()?
+                .doubleValue(for: .kilocalorie())
+            let isIndoor = workout.metadata?[HKMetadataKeyIndoorWorkout] as? Bool
+            return DetectedWatchWorkout(
+                id: workout.uuid.uuidString,
+                kind: kind,
+                startedAt: workout.startDate,
+                endedAt: workout.endDate,
+                avgHeartRate: avgHeartRate.map { Int($0.rounded()) },
+                activeCalories: activeCalories,
+                isIndoor: kind == .walk ? isIndoor : nil
+            )
+        }
     }
 
     func fetchDailySteps(daysBack: Int, source: StepSource) async throws -> [Date: Int] {
@@ -118,40 +192,69 @@ final class HealthKitManager {
         return false
     }
 
+    /// A night's samples aren't one continuous block - Watch sleep-stage
+    /// tracking writes many small, separately-timestamped samples across
+    /// the night. Bucketing each sample by its OWN end date (the previous
+    /// approach) silently split a night at midnight: the chunk between
+    /// bedtime and 00:00 landed on yesterday, undercounting last night's
+    /// total by however long that pre-midnight chunk was. Consecutive
+    /// samples less than this far apart are treated as the same night
+    /// (comfortably wider than any mid-sleep awake gap, but tight enough
+    /// to still separate a night from, say, an afternoon nap).
+    private static let sleepSessionGapThreshold: TimeInterval = 4 * 60 * 60
+
     func fetchDailySleep(daysBack: Int) async throws -> [Date: DailySleep] {
         let calendar = Calendar.current
         let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
         let descriptor = HKSampleQueryDescriptor(
             predicates: [.categorySample(type: sleepType, predicate: predicate)],
-            sortDescriptors: [SortDescriptor(\.endDate)]
+            sortDescriptors: [SortDescriptor(\.startDate)]
         )
         let samples = try await descriptor.result(for: store)
 
         var totals: [Date: (asleep: Int, inBed: Int)] = [:]
-        for sample in samples {
-            // Attribute to the date the sample ends on (the wake-up date), so
-            // a night's sleep that spans midnight counts as one consistent
-            // day rather than splitting across two.
-            let wakeDay = calendar.startOfDay(for: sample.endDate)
-            let minutes = Int(sample.endDate.timeIntervalSince(sample.startDate) / 60)
+        var sessionEnd: Date?
+        var sessionAsleep = 0
+        var sessionInBed = 0
 
+        func commitSession() {
+            guard let sessionEnd else { return }
+            // The whole night is attributed to its wake-up date, not any
+            // individual sample's end date, so a night that started before
+            // midnight still counts as one consistent day.
+            let wakeDay = calendar.startOfDay(for: sessionEnd)
             var entry = totals[wakeDay] ?? (asleep: 0, inBed: 0)
+            entry.asleep += sessionAsleep
+            entry.inBed += sessionInBed
+            totals[wakeDay] = entry
+        }
+
+        for sample in samples {
+            if let sessionEnd, sample.startDate.timeIntervalSince(sessionEnd) > Self.sleepSessionGapThreshold {
+                commitSession()
+                sessionAsleep = 0
+                sessionInBed = 0
+            }
+            sessionEnd = Swift.max(sessionEnd ?? sample.endDate, sample.endDate)
+
+            let minutes = Int(sample.endDate.timeIntervalSince(sample.startDate) / 60)
             if let value = HKCategoryValueSleepAnalysis(rawValue: sample.value) {
                 switch value {
                 case .asleepUnspecified, .asleepCore, .asleepDeep, .asleepREM:
-                    entry.asleep += minutes
-                    entry.inBed += minutes
+                    sessionAsleep += minutes
+                    sessionInBed += minutes
                 case .inBed:
-                    entry.inBed += minutes
+                    sessionInBed += minutes
                 case .awake:
                     break
                 @unknown default:
                     break
                 }
             }
-            totals[wakeDay] = entry
         }
+        commitSession()
+
         return totals.mapValues { DailySleep(totalMinutes: $0.asleep, inBedMinutes: $0.inBed) }
     }
 

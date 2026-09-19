@@ -147,15 +147,11 @@ struct WeeklyInsightsView: View {
 
     /// Tapping the week label expands it into a scrollable list of every
     /// past week (oldest to newest, phase-labeled) to jump to directly -
-    /// this absorbs what used to be the separate Weekly Log list screen, so
-    /// the prev/next chevrons only need to step one week at a time.
+    /// this absorbs what used to be the separate Weekly Log list screen, and
+    /// is the only way to change weeks (no prev/next chevrons - the dropdown
+    /// is the one navigation surface).
     private var weekNavHeader: some View {
         HStack {
-            Button {
-                viewModel.goToPreviousWeek()
-            } label: {
-                Image(systemName: "chevron.left")
-            }
             Spacer()
             Button {
                 if weekPickerViewModel.entries.isEmpty {
@@ -173,12 +169,6 @@ struct WeeklyInsightsView: View {
             }
             .buttonStyle(.plain)
             Spacer()
-            Button {
-                viewModel.goToNextWeek()
-            } label: {
-                Image(systemName: "chevron.right")
-            }
-            .disabled(viewModel.isCurrentWeek)
         }
     }
 
@@ -856,6 +846,19 @@ private struct InteractiveWeeklyWeightChart: View {
 
     @State private var selectedLog: BodyWeightLog?
 
+    /// A day-to-day weight chart lives in a narrow band (a kg or two), so
+    /// letting the axis auto-scale from zero squashes every real move flat
+    /// against the top. Centering tightly on the actual readings (plus the
+    /// goal line, so it's never clipped) with a little headroom makes the
+    /// week's actual movement visible.
+    private var yAxisDomain: ClosedRange<Double> {
+        let values = weights.map(\.weightKg) + goalLinePoints.map(\.weightKg)
+        guard let min = values.min(), let max = values.max() else { return 0...100 }
+        guard max > min else { return (min - 1)...(max + 1) }
+        let padding = Swift.max((max - min) * 0.2, 0.5)
+        return (min - padding)...(max + padding)
+    }
+
     var body: some View {
         Chart {
             ForEach(weights) { log in
@@ -903,6 +906,7 @@ private struct InteractiveWeeklyWeightChart: View {
                 AxisValueLabel(format: .dateTime.weekday(.narrow))
             }
         }
+        .chartYScale(domain: yAxisDomain)
         .frame(height: 160)
         .chartOverlay { proxy in
             GeometryReader { geometry in

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DashboardView: View {
     @StateObject private var viewModel = DashboardViewModel()
+    @StateObject private var watchActivityViewModel = WatchActivityViewModel()
     @State private var activeSheet: DashboardSheet?
     @State private var selectedDate = Date()
     @ObservedObject private var checkinAvailability = CheckinAvailabilityService.shared
@@ -41,6 +42,8 @@ struct DashboardView: View {
                             onTapWeekly: { activeSheet = .weeklyCheckin }
                         )
                     }
+
+                    WatchActivityCard(viewModel: watchActivityViewModel)
 
                     WeeklyLogLinkCard()
 
@@ -124,6 +127,10 @@ struct DashboardView: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
+                            NavigationLink("Weigh-In History") {
+                                WeightHistoryView()
+                            }
+                            .font(.caption)
                         }
                     }
 
@@ -140,6 +147,7 @@ struct DashboardView: View {
                 await viewModel.loadOffPlanInsights()
                 await viewModel.loadTodayChecklist()
                 await checkinAvailability.refresh()
+                await watchActivityViewModel.loadCandidates()
             }
             .refreshable {
                 await viewModel.load(date: selectedDate)
@@ -147,6 +155,7 @@ struct DashboardView: View {
                 await viewModel.loadOffPlanInsights()
                 await viewModel.loadTodayChecklist()
                 await checkinAvailability.refresh()
+                await watchActivityViewModel.loadCandidates()
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
@@ -252,7 +261,7 @@ private struct WeeklyLogLinkCard: View {
                 WeeklyInsightsView()
             } label: {
                 HStack {
-                    Text("Weekly Log")
+                    Text("Weekly Insights")
                     Spacer()
                     Image(systemName: "chevron.right")
                         .foregroundStyle(.secondary)

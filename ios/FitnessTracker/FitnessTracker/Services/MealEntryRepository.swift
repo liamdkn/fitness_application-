@@ -46,6 +46,46 @@ struct MealEntryRepository {
             .value
     }
 
+    /// The quantity (servings multiplier) this user entered the last time
+    /// they logged this exact food, if ever - what the quantity-entry
+    /// screen pre-fills with instead of always defaulting back to 1
+    /// serving, so a food you always log as "137g" keeps offering 137g.
+    func fetchLastQuantity(foodId: UUID) async throws -> Double? {
+        struct Row: Decodable { let quantity: Double }
+        let rows: [Row] = try await client
+            .from("meal_entries")
+            .select("quantity")
+            .eq("food_id", value: foodId)
+            .order("logged_at", ascending: false)
+            .limit(1)
+            .execute()
+            .value
+        return rows.first?.quantity
+    }
+
+    /// This user's most recently logged foods (recipes excluded), deduped
+    /// to distinct foods and most-recently-logged first - what the food
+    /// picker's "Recently Used" list is built from. Over-fetches raw rows
+    /// before deduping, since the same food logged on several different
+    /// days would otherwise crowd out real variety within `limit`.
+    func fetchRecentlyLoggedFoodIds(limit: Int = 20) async throws -> [UUID] {
+        let rows: [MealEntry] = try await client
+            .from("meal_entries")
+            .select()
+            .order("logged_at", ascending: false)
+            .limit(limit * 6)
+            .execute()
+            .value
+        var seen = Set<UUID>()
+        var ordered: [UUID] = []
+        for row in rows {
+            guard let foodId = row.foodId, seen.insert(foodId).inserted else { continue }
+            ordered.append(foodId)
+            if ordered.count == limit { break }
+        }
+        return ordered
+    }
+
     /// Every entry within an inclusive calendar range - used for the
     /// day-to-day trend/history reads once those become cutover-aware
     /// (Section 4 of the nutrition rebuild plan), same shape as

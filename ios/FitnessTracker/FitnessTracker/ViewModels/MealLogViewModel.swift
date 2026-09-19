@@ -13,6 +13,10 @@ struct MealSlotEntry: Identifiable {
     var name: String { food?.displayName ?? recipe?.name ?? "" }
     var servingLabel: String { food?.servingLabel ?? recipe?.servingUnit ?? "" }
     var calories: Double { food?.calories(at: entry.quantity) ?? recipe?.calories(at: entry.quantity) ?? 0 }
+    var proteinG: Double { food?.proteinG(at: entry.quantity) ?? recipe?.proteinG(at: entry.quantity) ?? 0 }
+    var carbsG: Double { food?.carbsG(at: entry.quantity) ?? recipe?.carbsG(at: entry.quantity) ?? 0 }
+    var fatG: Double { food?.fatG(at: entry.quantity) ?? recipe?.fatG(at: entry.quantity) ?? 0 }
+    var fiberG: Double { food?.fiberG(at: entry.quantity) ?? recipe?.fiberG(at: entry.quantity) ?? 0 }
 }
 
 struct MealSlotGroup: Identifiable {
@@ -20,9 +24,11 @@ struct MealSlotGroup: Identifiable {
     let entries: [MealSlotEntry]
     var id: UUID { slot.id }
 
-    var totalCalories: Double {
-        entries.reduce(0) { $0 + $1.calories }
-    }
+    var totalCalories: Double { entries.reduce(0) { $0 + $1.calories } }
+    var totalProteinG: Double { entries.reduce(0) { $0 + $1.proteinG } }
+    var totalCarbsG: Double { entries.reduce(0) { $0 + $1.carbsG } }
+    var totalFatG: Double { entries.reduce(0) { $0 + $1.fatG } }
+    var totalFiberG: Double { entries.reduce(0) { $0 + $1.fiberG } }
 }
 
 struct DayMacroTotals {

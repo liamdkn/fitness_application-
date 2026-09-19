@@ -10,6 +10,13 @@ struct CardioTrackingSession: Codable, Identifiable, Hashable {
     let stepsBefore: Int?
     let stepsAfter: Int?
     let avgHeartRate: Int?
+    let activeCalories: Double?
+    /// `"app"` for a session started/finished through this app's own live
+    /// tracker, `"healthkit"` for one imported from a Watch-recorded
+    /// workout (see `WatchActivityViewModel`) - only ever set at import
+    /// time, never toggled after the fact.
+    let source: String
+    let healthkitUUID: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -21,6 +28,9 @@ struct CardioTrackingSession: Codable, Identifiable, Hashable {
         case stepsBefore = "steps_before"
         case stepsAfter = "steps_after"
         case avgHeartRate = "avg_heart_rate"
+        case activeCalories = "active_calories"
+        case source
+        case healthkitUUID = "healthkit_uuid"
     }
 
     var isPaused: Bool { pausedAt != nil }
