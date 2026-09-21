@@ -56,16 +56,36 @@ struct BodyWeightRepository {
             .execute()
     }
 
-    func hasLoggedToday() async throws -> Bool {
+    private struct WeightUpdate: Encodable {
+        let weight_kg: Double
+    }
+
+    /// Corrects today's already-logged weigh-in in place (e.g. re-opening
+    /// the Daily Check-In after mistyping this morning's weight) instead of
+    /// adding a second entry for the same day. Updates whichever log is
+    /// most recent for today, regardless of source - a manual correction
+    /// should win over a stale HealthKit sync too. Returns `nil` when
+    /// nothing's logged yet today, so the caller knows to insert instead.
+    @discardableResult
+    func updateTodaysWeight(kg: Double) async throws -> BodyWeightLog? {
         let startOfToday = Calendar.current.startOfDay(for: Date())
-        let logs: [BodyWeightLog] = try await client
+        let todaysLogs: [BodyWeightLog] = try await client
             .from("body_weight_logs")
             .select()
             .gte("logged_at", value: startOfToday.ISO8601Format())
+            .order("logged_at", ascending: false)
             .limit(1)
             .execute()
             .value
-        return !logs.isEmpty
+        guard let latest = todaysLogs.first else { return nil }
+        let updated: [BodyWeightLog] = try await client
+            .from("body_weight_logs")
+            .update(WeightUpdate(weight_kg: kg))
+            .eq("id", value: latest.id)
+            .select()
+            .execute()
+            .value
+        return updated.first
     }
 
     @discardableResult

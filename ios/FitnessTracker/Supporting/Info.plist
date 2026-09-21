@@ -23,7 +23,7 @@
     <key>NSHealthShareUsageDescription</key>
     <string>Fitness Tracker reads your steps, sleep, and logged nutrition (e.g. from MyFitnessPal) from Health to show them alongside your workouts on your dashboard.</string>
     <key>NSCameraUsageDescription</key>
-    <string>Fitness Tracker uses the camera to scan a food's barcode so you can log it without typing.</string>
+    <string>Fitness Tracker uses the camera to scan a food's barcode or nutrition label so you can log it without typing.</string>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>
@@ -42,7 +42,6 @@
     <key>UISupportedInterfaceOrientations~ipad</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationPortraitUpsideDown</string>
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>

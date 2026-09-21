@@ -18,10 +18,16 @@ struct WeeklyCheckinFlow: View {
     @State private var weightText = ""
     @State private var activeGoal: UserGoal?
     @State private var weekNumber: Int?
+    @State private var avgWeightThisWeek: Double?
+    @State private var avgWeightLastWeek: Double?
 
     // Page 3
     @State private var recap: WeeklyCheckinRecap?
     @State private var isLoadingRecap = false
+    @State private var nutritionRating = 3
+    @State private var nutritionNotes = ""
+    @State private var trainingRating = 3
+    @State private var trainingNotes = ""
 
     @State private var savedCheckin: WeeklyCheckin?
     @State private var errorMessage: String?
@@ -84,9 +90,9 @@ struct WeeklyCheckinFlow: View {
                 if page == 2 {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button("Done") {
-                            CheckinAvailabilityService.shared.checkinCompleted(.weekly)
-                            dismiss()
+                            Task { await saveRatingsAndFinish() }
                         }
+                        .disabled(isSaving)
                     }
                 }
             }
@@ -95,7 +101,16 @@ struct WeeklyCheckinFlow: View {
         }
     }
 
+    @ViewBuilder
     private var pageOne: some View {
+        if let weekNumber, let activeGoal {
+            Section {
+                Text("Week \(weekNumber) of your \(activeGoal.phaseType.displayName) complete!")
+                    .font(.headline)
+                Text(weightSummaryText)
+                    .foregroundStyle(.secondary)
+            }
+        }
         Section("This Week") {
             HStack {
                 Text("Weight")
@@ -115,6 +130,29 @@ struct WeeklyCheckinFlow: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// "Your average weight this week was 80.9 kg, 0.4 kg down from last
+    /// week's average." - both averages are the same rolling-7-days
+    /// windows `loadContext()` computes, not a single weigh-in, so a
+    /// noisy single reading doesn't read as the week's real trend. Falls
+    /// back to just this week's number (or a "not enough weigh-ins yet"
+    /// line) when there isn't a full prior week to compare against.
+    private var weightSummaryText: String {
+        guard let avgWeightThisWeek else {
+            return "Not enough weigh-ins yet this week to show an average."
+        }
+        let thisWeekText = String(format: "%.1f kg", avgWeightThisWeek)
+        guard let avgWeightLastWeek else {
+            return "Your average weight this week was \(thisWeekText)."
+        }
+        let delta = avgWeightThisWeek - avgWeightLastWeek
+        let deltaText = String(format: "%.1f kg", abs(delta))
+        if abs(delta) < 0.05 {
+            return "Your average weight this week was \(thisWeekText), unchanged from last week's average."
+        }
+        let direction = delta < 0 ? "down" : "up"
+        return "Your average weight this week was \(thisWeekText), which is \(deltaText) \(direction) from last week's average."
     }
 
     @ViewBuilder
@@ -161,6 +199,9 @@ struct WeeklyCheckinFlow: View {
             Section("Nutrition") {
                 recapRow(label: "Avg calories", actual: recap.avgCalories.map { Int($0) }, target: recap.calorieTarget.map { Int($0) }, unit: "kcal")
                 recapRow(label: "Avg protein", actual: recap.avgProteinG.map { Int($0) }, target: recap.proteinTarget.map { Int($0) }, unit: "g")
+                ratingPicker(label: "Rate this week's nutrition", selection: $nutritionRating)
+                TextField("What could we do better next week?", text: $nutritionNotes, axis: .vertical)
+                    .lineLimit(2...4)
             }
             Section("Activity") {
                 recapRow(label: "Avg steps", actual: recap.avgSteps, target: recap.stepTarget, unit: nil)
@@ -168,6 +209,9 @@ struct WeeklyCheckinFlow: View {
                 if recap.cardioSessionsTarget != nil {
                     recapCountRow(label: "Cardio sessions", completed: recap.cardioSessionsCompleted, target: recap.cardioSessionsTarget)
                 }
+                ratingPicker(label: "Rate this week's training sessions", selection: $trainingRating)
+                TextField("What could we do better next week?", text: $trainingNotes, axis: .vertical)
+                    .lineLimit(2...4)
             }
             Section("Weight") {
                 HStack {
@@ -221,6 +265,24 @@ struct WeeklyCheckinFlow: View {
         }
     }
 
+    /// Same 1-5 segmented picker `DailyCheckinSheet.ratingPicker` uses for
+    /// Energy/Soreness - matching that existing convention rather than
+    /// introducing a different rating control for these two.
+    @ViewBuilder
+    private func ratingPicker(label: String, selection: Binding<Int>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.subheadline)
+            Picker(label, selection: selection) {
+                ForEach(1...5, id: \.self) { value in
+                    Text("\(value)").tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        }
+    }
+
     @ViewBuilder
     private func recapCountRow(label: String, completed: Int, target: Int?) -> some View {
         HStack {
@@ -249,9 +311,50 @@ struct WeeklyCheckinFlow: View {
             if let mostRecent = try await checkinRepository.fetchMostRecent(), let weight = mostRecent.weightKg {
                 weightText = String(format: "%.1f", weight)
             }
+
+            // Same rolling-7-days convention `loadRecap()` uses below, just
+            // two windows back to back - this week's and the one before it.
+            let calendar = Calendar.current
+            let end = calendar.startOfDay(for: Date())
+            let thisWeekStart = calendar.date(byAdding: .day, value: -6, to: end) ?? end
+            let lastWeekEnd = calendar.date(byAdding: .day, value: -1, to: thisWeekStart) ?? thisWeekStart
+            let lastWeekStart = calendar.date(byAdding: .day, value: -6, to: lastWeekEnd) ?? lastWeekEnd
+
+            async let thisWeekWeightsResult = try? bodyWeightRepository.fetchRange(from: thisWeekStart, to: end)
+            async let lastWeekWeightsResult = try? bodyWeightRepository.fetchRange(from: lastWeekStart, to: lastWeekEnd)
+            let thisWeekWeights = await thisWeekWeightsResult ?? []
+            let lastWeekWeights = await lastWeekWeightsResult ?? []
+            avgWeightThisWeek = average(thisWeekWeights.map(\.weightKg))
+            avgWeightLastWeek = average(lastWeekWeights.map(\.weightKg))
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Saves the recap page's ratings/notes onto the row `save()` already
+    /// created when page 1 advanced, then marks the check-in complete -
+    /// mirrors `saveCheckinAndAdvance()`'s own error handling rather than
+    /// silently swallowing a failed save.
+    private func saveRatingsAndFinish() async {
+        isSaving = true
+        defer { isSaving = false }
+
+        if let savedCheckin {
+            do {
+                try await checkinRepository.updateRatings(
+                    id: savedCheckin.id,
+                    nutritionRating: nutritionRating,
+                    nutritionNotes: nutritionNotes.isEmpty ? nil : nutritionNotes,
+                    trainingRating: trainingRating,
+                    trainingNotes: trainingNotes.isEmpty ? nil : trainingNotes
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+        CheckinAvailabilityService.shared.checkinCompleted(.weekly)
+        dismiss()
     }
 
     private func saveCheckinAndAdvance() async {

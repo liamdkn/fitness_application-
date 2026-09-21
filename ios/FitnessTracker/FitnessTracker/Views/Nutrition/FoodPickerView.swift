@@ -18,6 +18,13 @@ struct FoodPickerView: View {
     @State private var pendingFood: Food?
     @State private var showingAddCustom = false
     @State private var showingScanner = false
+    @State private var showingLabelScanner = false
+    /// Set right before `showingLabelScanner` when this came from a failed
+    /// barcode lookup (see `BarcodeScannerView.onScanLabelInstead`), so the
+    /// scanned label still gets attached to that barcode; `nil` for the
+    /// standalone "Scan Label" quick action.
+    @State private var labelScanBarcode: String?
+    @State private var scannedLabelDraft: ScannedLabelDraft?
     private let repository = FoodRepository()
     private let mealEntryRepository = MealEntryRepository()
 
@@ -29,6 +36,10 @@ struct FoodPickerView: View {
                 }
                 HStack(spacing: 12) {
                     quickActionButton(icon: "barcode.viewfinder", label: "Barcode Scan") { showingScanner = true }
+                    quickActionButton(icon: "text.viewfinder", label: "Scan Label") {
+                        labelScanBarcode = nil
+                        showingLabelScanner = true
+                    }
                     quickActionButton(icon: "bolt.fill", label: "Quick Add") { showingAddCustom = true }
                 }
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -88,11 +99,39 @@ struct FoodPickerView: View {
                 }
             }
             .sheet(isPresented: $showingScanner) {
-                BarcodeScannerView { food in
-                    pendingFood = food
+                BarcodeScannerView(
+                    onFound: { food in pendingFood = food },
+                    onScanLabelInstead: { barcode in
+                        labelScanBarcode = barcode
+                        showingScanner = false
+                        showingLabelScanner = true
+                    }
+                )
+            }
+            .sheet(isPresented: $showingLabelScanner) {
+                NutritionLabelScannerView(barcode: labelScanBarcode) { parsed, barcode in
+                    scannedLabelDraft = ScannedLabelDraft(parsed: parsed, barcode: barcode)
                 }
             }
+            .sheet(item: $scannedLabelDraft) { draft in
+                AddCustomFoodView(
+                    onCreated: { food in pendingFood = food },
+                    initialServingSize: draft.parsed.servingSize.map { formattedOCRValue($0) } ?? "100",
+                    initialServingUnit: draft.parsed.servingUnit ?? "g",
+                    initialCalories: draft.parsed.caloriesKcal.map { formattedOCRValue($0) } ?? "",
+                    initialProtein: draft.parsed.proteinG.map { formattedOCRValue($0) } ?? "",
+                    initialCarbs: draft.parsed.carbsG.map { formattedOCRValue($0) } ?? "",
+                    initialFat: draft.parsed.fatG.map { formattedOCRValue($0) } ?? "",
+                    initialFiber: draft.parsed.fiberG.map { formattedOCRValue($0) } ?? "",
+                    source: "ocr",
+                    barcode: draft.barcode
+                )
+            }
         }
+    }
+
+    private func formattedOCRValue(_ value: Double) -> String {
+        value == value.rounded() ? "\(Int(value))" : String(format: "%.1f", value)
     }
 
     /// "Quick Add" opens the exact same custom-food sheet as the "New Food"
@@ -131,9 +170,18 @@ struct FoodPickerView: View {
         }
     }
 
+    /// A keystroke arriving while an earlier search is still in flight
+    /// cancels that older `.task(id:)` mid-request (see its own doc
+    /// comment) - the underlying network call surfaces that as a thrown
+    /// `CancellationError`, not a real failure, so it's dropped here rather
+    /// than shown as one. A newer search is already on its way to replace
+    /// these `results` regardless.
     private func search(_ query: String) async {
         do {
             results = try await repository.search(query: query)
+            errorMessage = nil
+        } catch is CancellationError {
+            // Superseded by a newer keystroke - nothing to show.
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -162,8 +210,18 @@ struct FoodPickerView: View {
 /// division themselves. Both ultimately resolve to the same servings
 /// multiplier `onConfirm` expects - this only changes what the field
 /// displays and how what's typed in it is interpreted.
-private enum QuantityInputMode: Hashable {
+enum QuantityInputMode: Hashable {
     case servings, amount
+}
+
+/// A completed label scan, on its way to the confirm/edit form
+/// (`AddCustomFoodView`) - wrapped just to give `.sheet(item:)` an
+/// `Identifiable` to key off, since `ParsedNutritionLabel` itself has no
+/// natural identity.
+private struct ScannedLabelDraft: Identifiable {
+    let id = UUID()
+    let parsed: ParsedNutritionLabel
+    let barcode: String?
 }
 
 private struct LogFoodQuantityView: View {
@@ -285,7 +343,7 @@ private struct LogFoodQuantityView: View {
 /// calories (4/9/4 kcal-per-gram, standard macro energy factors) - not
 /// their share of a daily target, since this view has no target context,
 /// just "what this one food/quantity adds."
-private struct MacroBreakdownRing: View {
+struct MacroBreakdownRing: View {
     let calories: Double
     let carbsG: Double
     let fatG: Double
@@ -347,22 +405,56 @@ private struct MacroBreakdownRing: View {
     }
 }
 
-private struct AddCustomFoodView: View {
+/// Also the confirm/edit step for an OCR'd nutrition label
+/// (`NutritionLabelScannerView`) - same form, just pre-filled and carrying
+/// `source`/`barcode` through to the save, rather than a second near-
+/// identical form. Every field stays editable either way, which is the
+/// actual point for an OCR read: catching a mis-scanned number before it's
+/// saved, not just displaying what the camera found.
+struct AddCustomFoodView: View {
     let onCreated: (Food) -> Void
+    private let source: String
+    private let barcode: String?
 
     @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
+    @State private var name: String
     @State private var brand = ""
-    @State private var servingSize = "100"
-    @State private var servingUnit = "g"
-    @State private var calories = ""
-    @State private var protein = ""
-    @State private var carbs = ""
-    @State private var fat = ""
-    @State private var fiber = ""
+    @State private var servingSize: String
+    @State private var servingUnit: String
+    @State private var calories: String
+    @State private var protein: String
+    @State private var carbs: String
+    @State private var fat: String
+    @State private var fiber: String
     @State private var errorMessage: String?
     @State private var isSaving = false
     private let repository = FoodRepository()
+
+    init(
+        onCreated: @escaping (Food) -> Void,
+        initialName: String = "",
+        initialServingSize: String = "100",
+        initialServingUnit: String = "g",
+        initialCalories: String = "",
+        initialProtein: String = "",
+        initialCarbs: String = "",
+        initialFat: String = "",
+        initialFiber: String = "",
+        source: String = "user",
+        barcode: String? = nil
+    ) {
+        self.onCreated = onCreated
+        self.source = source
+        self.barcode = barcode
+        _name = State(initialValue: initialName)
+        _servingSize = State(initialValue: initialServingSize)
+        _servingUnit = State(initialValue: initialServingUnit)
+        _calories = State(initialValue: initialCalories)
+        _protein = State(initialValue: initialProtein)
+        _carbs = State(initialValue: initialCarbs)
+        _fat = State(initialValue: initialFat)
+        _fiber = State(initialValue: initialFiber)
+    }
 
     private var isValid: Bool {
         !name.isEmpty && Double(servingSize) != nil && !servingUnit.isEmpty
@@ -395,7 +487,7 @@ private struct AddCustomFoodView: View {
                     Text(errorMessage).foregroundStyle(.red)
                 }
             }
-            .navigationTitle("New Food")
+            .navigationTitle(source == "ocr" ? "Confirm Scanned Label" : "New Food")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -438,7 +530,9 @@ private struct AddCustomFoodView: View {
                 proteinG: p,
                 carbsG: c,
                 fatG: f,
-                fiberG: Double(fiber)
+                fiberG: Double(fiber),
+                barcode: barcode,
+                source: source
             )
             onCreated(food)
             dismiss()

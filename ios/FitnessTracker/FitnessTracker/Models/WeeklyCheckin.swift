@@ -18,6 +18,15 @@ struct WeeklyCheckin: Codable, Identifiable {
     let nutritionAdherence: Int?
     let disciplineLevel: Int?
     let upcomingDistractions: String?
+    /// The current flow's own two ratings (see `WeeklyCheckinFlow`'s recap
+    /// page) - deliberately separate from `nutritionAdherence`/
+    /// `trainingAdherence` above, which are the *old* survey's fields and
+    /// still gate `hasSurveyContent`; reusing them would resurrect the
+    /// deprecated `WeeklyCheckinSummary` card for every new check-in.
+    let nutritionRating: Int?
+    let nutritionNotes: String?
+    let trainingRating: Int?
+    let trainingNotes: String?
 
     /// True once the old subjective survey (overall rating, discipline,
     /// stress, biggest win, mood notes, self-rated adherence) has any
@@ -56,5 +65,9 @@ struct WeeklyCheckin: Codable, Identifiable {
         case nutritionAdherence = "nutrition_adherence"
         case disciplineLevel = "discipline_level"
         case upcomingDistractions = "upcoming_distractions"
+        case nutritionRating = "nutrition_rating"
+        case nutritionNotes = "nutrition_notes"
+        case trainingRating = "training_rating"
+        case trainingNotes = "training_notes"
     }
 }

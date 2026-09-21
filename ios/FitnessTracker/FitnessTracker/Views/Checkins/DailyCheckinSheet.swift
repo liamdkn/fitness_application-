@@ -239,8 +239,11 @@ struct DailyCheckinSheet: View {
                 yesterdayOffPlanNotes: yesterdayOffPlan ? yesterdayOffPlanNotes : nil
             )
 
-            if let weightKg, try await !bodyWeightRepository.hasLoggedToday() {
-                try? await bodyWeightRepository.logWeight(kg: weightKg)
+            if let weightKg {
+                let updated = try? await bodyWeightRepository.updateTodaysWeight(kg: weightKg)
+                if updated == nil {
+                    try? await bodyWeightRepository.logWeight(kg: weightKg)
+                }
             }
 
             if let sleepHours = Double(yesterdaySleepHoursText) {

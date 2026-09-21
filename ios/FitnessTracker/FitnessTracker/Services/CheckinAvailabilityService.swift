@@ -13,7 +13,11 @@ final class CheckinAvailabilityService: ObservableObject {
     /// Drives the persistent Dashboard Check-Ins card. Check-ins are opened
     /// at the user's discretion, not auto-prompted.
     @Published var dailyCompletedToday = false
-    @Published var weeklyDue = false
+    /// Whether a weekly check-in has been filed since the start of the
+    /// user's current check-in week - the row itself always stays on the
+    /// Dashboard (see `CheckInsCard`), same as Daily; this only toggles its
+    /// checkmark, it doesn't hide anything.
+    @Published var weeklyCompletedThisWeek = false
 
     private let dailyCheckinRepository = DailyCheckinRepository()
     private let weeklyCheckinRepository = WeeklyCheckinRepository()
@@ -28,8 +32,7 @@ final class CheckinAvailabilityService: ObservableObject {
 
             let preferences = try await preferencesRepository.fetch()
             let weekStart = DateFormatting.startOfCheckinWeek(weekday: preferences.weeklyCheckinWeekday)
-            let hasWeeklyCheckin = try await weeklyCheckinRepository.hasCheckinSince(weekStart)
-            weeklyDue = !hasWeeklyCheckin
+            weeklyCompletedThisWeek = try await weeklyCheckinRepository.hasCheckinSince(weekStart)
         } catch {
             // Don't block the dashboard on a check-in availability query failure.
         }
@@ -40,7 +43,7 @@ final class CheckinAvailabilityService: ObservableObject {
         case .daily:
             dailyCompletedToday = true
             DailyCheckinReminderService.shared.cancelTodaysReminder()
-        case .weekly: weeklyDue = false
+        case .weekly: weeklyCompletedThisWeek = true
         }
     }
 }

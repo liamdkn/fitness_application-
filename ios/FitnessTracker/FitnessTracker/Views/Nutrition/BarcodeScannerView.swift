@@ -77,10 +77,16 @@ private struct BarcodeScannerRepresentable: UIViewControllerRepresentable {
 /// message pointing back at search/manual entry.
 struct BarcodeScannerView: View {
     let onFound: (Food) -> Void
+    /// Called with the barcode that came back empty when the user taps
+    /// "Scan Nutrition Label Instead" - the caller opens
+    /// `NutritionLabelScannerView` with it so the OCR'd food still gets
+    /// attached to it (see `docs/nutrition-label-scan-brief.md` Section 3).
+    var onScanLabelInstead: ((String) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var isLookingUp = false
     @State private var errorMessage: String?
+    @State private var notFoundBarcode: String?
     private let foodRepository = FoodRepository()
 
     var body: some View {
@@ -90,6 +96,12 @@ struct BarcodeScannerView: View {
                     Task { await handleScan(barcode) }
                 }
                 .ignoresSafeArea()
+                // The camera preview has nothing to tap on its own -
+                // without this, its full-screen UIKit view intercepts
+                // touches meant for the SwiftUI buttons overlaid on top of
+                // it (the not-found banner's "Scan Nutrition Label
+                // Instead"), swallowing every tap on them.
+                .allowsHitTesting(false)
 
                 if isLookingUp {
                     ProgressView("Looking up...")
@@ -97,15 +109,21 @@ struct BarcodeScannerView: View {
                         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
                 if let errorMessage {
-                    VStack {
+                    VStack(spacing: 12) {
                         Spacer()
                         Text(errorMessage)
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.white)
                             .padding()
                             .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 12))
-                            .padding(.bottom, 40)
+                        if let notFoundBarcode, let onScanLabelInstead {
+                            Button("Scan Nutrition Label Instead") {
+                                onScanLabelInstead(notFoundBarcode)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
                     }
+                    .padding(.bottom, 40)
                 }
             }
             .navigationTitle("Scan Barcode")
@@ -122,6 +140,7 @@ struct BarcodeScannerView: View {
         guard !isLookingUp else { return }
         isLookingUp = true
         errorMessage = nil
+        notFoundBarcode = nil
         defer { isLookingUp = false }
         do {
             if let existing = try await foodRepository.fetchByBarcode(barcode) {
@@ -130,7 +149,8 @@ struct BarcodeScannerView: View {
                 return
             }
             guard let lookup = try await OpenFoodFactsService.lookup(barcode: barcode) else {
-                errorMessage = "No food found for that barcode. Try search or add it manually."
+                errorMessage = "No food found for that barcode. Try search, add it manually, or scan the label."
+                notFoundBarcode = barcode
                 return
             }
             let inserted = try await foodRepository.insertFromOpenFoodFacts(barcode: barcode, lookup: lookup)

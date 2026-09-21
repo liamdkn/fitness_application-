@@ -136,6 +136,15 @@ struct WeeklyInsightsView: View {
             .refreshable { await viewModel.load() }
         }
         .navigationTitle("Weekly Insights")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    WeeklyLogTableView()
+                } label: {
+                    Image(systemName: "tablecells")
+                }
+            }
+        }
         .task {
             if let initialWeekStart {
                 viewModel.selectWeek(startingAt: initialWeekStart)

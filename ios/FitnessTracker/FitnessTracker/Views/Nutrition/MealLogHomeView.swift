@@ -13,6 +13,7 @@ struct MealLogHomeView: View {
     @State private var showingRepeatDay = false
     @State private var showingSavedDaysPicker = false
     @State private var showingSaveDay = false
+    @State private var addingFoodToSlot: MealSlot?
     @StateObject private var viewModel = MealLogViewModel()
     private let goalsRepository = GoalsRepository()
 
@@ -40,12 +41,12 @@ struct MealLogHomeView: View {
                         Text("Meals")
                             .font(.title3.bold())
                         ForEach(viewModel.slotGroups) { group in
-                            NavigationLink {
-                                MealSlotDetailView(viewModel: viewModel, slot: group.slot, date: selectedDate)
-                            } label: {
-                                MealSlotSummaryRow(group: group)
-                            }
-                            .buttonStyle(.plain)
+                            MealSlotCard(
+                                group: group,
+                                date: selectedDate,
+                                viewModel: viewModel,
+                                onLogTapped: { addingFoodToSlot = group.slot }
+                            )
                         }
                     }
 
@@ -89,6 +90,11 @@ struct MealLogHomeView: View {
             }
             .sheet(isPresented: $showingSaveDay) {
                 SaveDaySheet(totals: viewModel.dayTotals, entries: viewModel.entries) {}
+            }
+            .sheet(item: $addingFoodToSlot) { slot in
+                FoodPickerView(mealSlotName: slot.name) { food, quantity in
+                    Task { await viewModel.logFood(food, quantity: quantity, mealSlotId: slot.id, date: selectedDate) }
+                }
             }
         }
     }
@@ -161,17 +167,51 @@ private struct CalorieProgressBar: View {
     }
 }
 
-/// One meal slot's summary card - title, total calories, and (once
-/// anything's logged) the C/F/P subtotal plus every entry itemized below a
-/// divider, each with its quantity and calories, the same shape the slot's
-/// own detail screen shows. The whole card is one `NavigationLink` (see the
-/// `.buttonStyle(.plain)` caller) rather than a separate Button sharing the
-/// row - two tap targets in the same List/Stack row has repeatedly
-/// misattributed taps elsewhere in this app (see `SetLogGridView`,
-/// `WeeklyInsightsView`'s week nav), so "Log"/"Log more" here is just a
-/// visual pill, not its own control; tapping anywhere opens
-/// `MealSlotDetailView`, where entries can actually be deleted.
-private struct MealSlotSummaryRow: View {
+/// One meal slot's card - the summary content (title/macros/itemized
+/// entries) is its own `NavigationLink` to `MealSlotDetailView`, and
+/// "Log"/"Log more" is a real, separate `Button` straight to
+/// `FoodPickerView` - not text nested inside that same NavigationLink's
+/// label. They're siblings in this VStack, not one nested inside the
+/// other's tappable area, which is what actually caused mis-attributed
+/// taps elsewhere in this app (see `SetLogGridView`,
+/// `WeeklyInsightsView`'s week nav - both were a control embedded *inside*
+/// another control's row/label); two plainly-separate, non-overlapping
+/// controls in a VStack don't have that problem.
+private struct MealSlotCard: View {
+    let group: MealSlotGroup
+    let date: Date
+    @ObservedObject var viewModel: MealLogViewModel
+    let onLogTapped: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NavigationLink {
+                MealSlotDetailView(viewModel: viewModel, slot: group.slot, date: date)
+            } label: {
+                MealSlotSummaryContent(group: group)
+            }
+            .buttonStyle(.plain)
+
+            HStack {
+                Spacer()
+                Button(action: onLogTapped) {
+                    Text(group.entries.isEmpty ? "Log" : "Log more")
+                        .font(.subheadline.bold())
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(.blue.opacity(0.15), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct MealSlotSummaryContent: View {
     let group: MealSlotGroup
 
     var body: some View {
@@ -199,20 +239,8 @@ private struct MealSlotSummaryRow: View {
                     }
                 }
             }
-
-            HStack {
-                Spacer()
-                Text(group.entries.isEmpty ? "Log" : "Log more")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.blue)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(.blue.opacity(0.15), in: Capsule())
-            }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .contentShape(Rectangle())
     }
 
     private var macroSummary: some View {

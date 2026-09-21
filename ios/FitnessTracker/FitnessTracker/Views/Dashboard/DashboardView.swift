@@ -31,17 +31,16 @@ struct DashboardView: View {
                         TodayChecklistCard(checklist: todayChecklist)
                     }
 
-                    // Hidden entirely once there's nothing left to act on -
-                    // daily done and no weekly due - same reasoning that
-                    // already keeps the Weekly row hidden until it's due.
-                    if !checkinAvailability.dailyCompletedToday || checkinAvailability.weeklyDue {
-                        CheckInsCard(
-                            dailyCompleted: checkinAvailability.dailyCompletedToday,
-                            weeklyDue: checkinAvailability.weeklyDue,
-                            onTapDaily: { activeSheet = .dailyCheckin },
-                            onTapWeekly: { activeSheet = .weeklyCheckin }
-                        )
-                    }
+                    // Both rows always stay - completing one doesn't make
+                    // it un-tappable, since a mistyped number (weight, most
+                    // often) is only fixable by reopening the same sheet,
+                    // which already loads the saved answers back in.
+                    CheckInsCard(
+                        dailyCompleted: checkinAvailability.dailyCompletedToday,
+                        weeklyCompleted: checkinAvailability.weeklyCompletedThisWeek,
+                        onTapDaily: { activeSheet = .dailyCheckin },
+                        onTapWeekly: { activeSheet = .weeklyCheckin }
+                    )
 
                     WatchActivityCard(viewModel: watchActivityViewModel)
 
@@ -212,37 +211,39 @@ struct DashboardView: View {
 
 private struct CheckInsCard: View {
     let dailyCompleted: Bool
-    let weeklyDue: Bool
+    let weeklyCompleted: Bool
     let onTapDaily: () -> Void
     let onTapWeekly: () -> Void
 
     var body: some View {
         DashboardCard(title: "Check-Ins") {
             VStack(alignment: .leading, spacing: 12) {
-                if !dailyCompleted {
-                    Button(action: onTapDaily) {
-                        checkinRow(label: "Daily Check-In")
-                    }
-                    .buttonStyle(.plain)
+                Button(action: onTapDaily) {
+                    checkinRow(label: "Daily Check-In", completed: dailyCompleted)
                 }
+                .buttonStyle(.plain)
 
-                if weeklyDue {
-                    if !dailyCompleted {
-                        Divider()
-                    }
-                    Button(action: onTapWeekly) {
-                        checkinRow(label: "Weekly Check-In")
-                    }
-                    .buttonStyle(.plain)
+                Divider()
+                Button(action: onTapWeekly) {
+                    checkinRow(label: "Weekly Check-In", completed: weeklyCompleted)
                 }
+                .buttonStyle(.plain)
             }
         }
     }
 
+    /// Tapping a completed row reopens the same sheet, pre-filled with
+    /// today's saved answers - the only way to fix something mistyped
+    /// earlier (weight, most often) is to edit and re-save it, not to
+    /// lose access to the form the moment it's done once.
     @ViewBuilder
-    private func checkinRow(label: String) -> some View {
+    private func checkinRow(label: String, completed: Bool) -> some View {
         HStack {
             Text(label)
+            if completed {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            }
             Spacer()
             Image(systemName: "chevron.right")
                 .foregroundStyle(.secondary)

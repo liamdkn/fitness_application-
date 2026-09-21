@@ -14,6 +14,7 @@ struct FoodRepository {
         let carbs_g: Double
         let fat_g: Double
         let fiber_g: Double?
+        let barcode: String?
         let source: String
         let is_custom: Bool
         let created_by: UUID
@@ -108,6 +109,14 @@ struct FoodRepository {
             .value
     }
 
+    /// `source`/`barcode` default to a plain manual add - `source: "ocr"`
+    /// and a real `barcode` are passed when this came from
+    /// `NutritionLabelScannerView` instead (see
+    /// `docs/nutrition-label-scan-brief.md`), so the row still ends up
+    /// `is_custom: true` (it's still one person's OCR read, not a
+    /// professionally verified source) but is distinguishable from a
+    /// typed-by-hand entry, and doubles as a barcode cache hit for next
+    /// time if one was scanned.
     @discardableResult
     func createCustom(
         name: String,
@@ -118,7 +127,9 @@ struct FoodRepository {
         proteinG: Double,
         carbsG: Double,
         fatG: Double,
-        fiberG: Double?
+        fiberG: Double?,
+        barcode: String? = nil,
+        source: String = "user"
     ) async throws -> Food {
         let userId = try await client.auth.session.user.id
         let inserted: [Food] = try await client
@@ -133,7 +144,8 @@ struct FoodRepository {
                 carbs_g: carbsG,
                 fat_g: fatG,
                 fiber_g: fiberG,
-                source: "user",
+                barcode: barcode,
+                source: source,
                 is_custom: true,
                 created_by: userId
             ))

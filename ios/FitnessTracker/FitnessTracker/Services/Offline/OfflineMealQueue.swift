@@ -116,6 +116,26 @@ final class OfflineMealQueue {
         return byId.values.sorted { $0.loggedAt < $1.loggedAt }
     }
 
+    /// Correcting a mistyped amount after the fact (e.g. tapping a logged
+    /// item to reopen its grams editor) - same local-first shape as
+    /// `deleteEntry`: a still-`.pending` local row is edited in place and
+    /// syncs on the next flush regardless; an already-`.synced` local row
+    /// is reset back to `.pending` so the flush re-upserts it with the new
+    /// quantity instead of leaving Supabase with the stale value.
+    func updateQuantity(id: UUID, quantity: Double) async throws -> MealEntry {
+        if let local = try fetchLocalEntry(id: id) {
+            local.quantity = quantity
+            if local.syncState == .synced {
+                local.syncState = .pending
+            }
+            try context.save()
+            scheduleFlush()
+            return local.asMealEntry()
+        } else {
+            return try await mealEntryRepository.updateQuantity(id: id, quantity: quantity)
+        }
+    }
+
     func deleteEntry(id: UUID) async throws {
         if let local = try fetchLocalEntry(id: id) {
             if local.syncState == .pending {

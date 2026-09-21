@@ -137,6 +137,17 @@ final class MealLogViewModel: ObservableObject {
         }
     }
 
+    func updateQuantity(_ entry: MealEntry, quantity: Double) async {
+        do {
+            let updated = try await offlineQueue.updateQuantity(id: entry.id, quantity: quantity)
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                entries[index] = updated
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func repeatDay(from sourceDate: Date, to targetDate: Date) async {
         do {
             let copied = try await mealEntryRepository.copyEntries(from: sourceDate, to: targetDate)

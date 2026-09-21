@@ -22,6 +22,17 @@ struct WeeklyCheckinRepository {
         let nutrition_adherence: Int?
         let discipline_level: Int?
         let upcoming_distractions: String?
+        let nutrition_rating: Int?
+        let nutrition_notes: String?
+        let training_rating: Int?
+        let training_notes: String?
+    }
+
+    private struct RatingsUpdate: Encodable {
+        let nutrition_rating: Int?
+        let nutrition_notes: String?
+        let training_rating: Int?
+        let training_notes: String?
     }
 
     func fetch(date: Date) async throws -> WeeklyCheckin? {
@@ -105,7 +116,11 @@ struct WeeklyCheckinRepository {
         trainingAdherence: Int?,
         nutritionAdherence: Int?,
         disciplineLevel: Int?,
-        upcomingDistractions: String?
+        upcomingDistractions: String?,
+        nutritionRating: Int? = nil,
+        nutritionNotes: String? = nil,
+        trainingRating: Int? = nil,
+        trainingNotes: String? = nil
     ) async throws -> WeeklyCheckin {
         let userId = try await client.auth.session.user.id
         let payload = NewWeeklyCheckin(
@@ -125,7 +140,11 @@ struct WeeklyCheckinRepository {
             training_adherence: trainingAdherence,
             nutrition_adherence: nutritionAdherence,
             discipline_level: disciplineLevel,
-            upcoming_distractions: upcomingDistractions
+            upcoming_distractions: upcomingDistractions,
+            nutrition_rating: nutritionRating,
+            nutrition_notes: nutritionNotes,
+            training_rating: trainingRating,
+            training_notes: trainingNotes
         )
         let saved: [WeeklyCheckin] = try await client
             .from("weekly_checkins")
@@ -134,6 +153,37 @@ struct WeeklyCheckinRepository {
             .execute()
             .value
         guard let checkin = saved.first else {
+            throw RepositoryError.insertFailed
+        }
+        return checkin
+    }
+
+    /// Fills in the recap page's two ratings/notes onto an already-created
+    /// row (from `save()`'s earlier call when page 1 advanced) - a plain
+    /// column update rather than another `upsert`, since re-`upsert`ing
+    /// the whole row here would need every other field re-supplied too
+    /// just to avoid clobbering them back to nil.
+    @discardableResult
+    func updateRatings(
+        id: UUID,
+        nutritionRating: Int?,
+        nutritionNotes: String?,
+        trainingRating: Int?,
+        trainingNotes: String?
+    ) async throws -> WeeklyCheckin {
+        let updated: [WeeklyCheckin] = try await client
+            .from("weekly_checkins")
+            .update(RatingsUpdate(
+                nutrition_rating: nutritionRating,
+                nutrition_notes: nutritionNotes,
+                training_rating: trainingRating,
+                training_notes: trainingNotes
+            ))
+            .eq("id", value: id)
+            .select()
+            .execute()
+            .value
+        guard let checkin = updated.first else {
             throw RepositoryError.insertFailed
         }
         return checkin
