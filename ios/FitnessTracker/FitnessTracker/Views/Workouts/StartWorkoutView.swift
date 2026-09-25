@@ -2,9 +2,9 @@ import SwiftUI
 
 struct StartWorkoutView: View {
     @State private var routine: Routine?
-    @State private var todayDay: RoutineDay?
-    @State private var isRestDay = false
     @State private var days: [RoutineDay] = []
+    @State private var weeklySchedule: [WeeklyScheduleDay] = []
+    @State private var hasCenteredOnToday = false
     @State private var errorMessage: String?
     @State private var startedWorkout: Workout?
     @State private var activeWorkout: Workout?
@@ -15,26 +15,26 @@ struct StartWorkoutView: View {
     @State private var volumeFlags: [MuscleGroupVolumeFlag] = []
     @State private var weeklyCardioMinutes = 0
     @State private var weeklyCardioSessionCount = 0
-    /// Each split day's exercise names, in position order - what the
-    /// horizontally-scrolling day cards preview below "Your Split". Keyed
-    /// by day id; a day with no entry here is either a rest day or hasn't
-    /// loaded yet.
+    @State private var preferredGymId: UUID?
+    /// Each workout day's exercise names, in position order - what a
+    /// carousel card previews. Keyed by `RoutineDay.id`.
     @State private var dayExerciseNames: [UUID: [String]] = [:]
     @ObservedObject private var cardioMonitor = CardioSessionMonitor.shared
     private let routineRepository = RoutineRepository()
+    private let scheduleRepository = WeeklyScheduleRepository()
     private let workoutRepository = WorkoutRepository()
     private let offlineQueue = OfflineWorkoutQueue.shared
     private let checkinRepository = DailyCheckinRepository()
+    private let preferencesRepository = UserPreferencesRepository()
     private let muscleGroupVolumeRepository = MuscleGroupVolumeRepository()
     private let cardioSessionRepository = CardioSessionRepository()
     private let exerciseRepository = ExerciseRepository()
 
-    /// True both when there's no scheduled day at all (`isRestDay`) and
-    /// when today's scheduled day is itself a rest placeholder in the split
-    /// (e.g. a 4-day Push/Pull/Legs/Rest rotation) - either way, there's
-    /// nothing to start, so "Start Today's Workout" shouldn't show.
-    private var isEffectivelyRestDay: Bool {
-        isRestDay || todayDay?.label.caseInsensitiveCompare("Rest") == .orderedSame
+    private var todaysWeekday: Int { Calendar.current.component(.weekday, from: Date()) }
+
+    private func routineDay(for slot: WeeklyScheduleDay) -> RoutineDay? {
+        guard let id = slot.routineDayId else { return nil }
+        return days.first { $0.id == id }
     }
 
     var body: some View {
@@ -81,50 +81,9 @@ struct StartWorkoutView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     } else {
-                        if let todayDay {
-                            Text(todayDay.label)
-                                .font(.largeTitle.bold())
-                        } else if isRestDay {
-                            Text("Rest")
-                                .font(.largeTitle.bold())
-                        } else {
-                            Text("Add a day to your split first.")
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if isEffectivelyRestDay {
-                            Text("Rest day - no workout scheduled.")
-                                .foregroundStyle(.secondary)
-                        } else if todayDay != nil && activeWorkout == nil {
-                            if todayCompletedWorkout != nil {
-                                Label("Session Completed", systemImage: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                    .font(.headline)
-                            } else {
-                                // Hidden (not just disabled) whenever a
-                                // workout is already active - the Resume
-                                // banner above is the only way in, so a
-                                // second one can't get started by mistake
-                                // the way this one was.
-                                Button {
-                                    Task { await startWorkout() }
-                                } label: {
-                                    if isStarting {
-                                        ProgressView()
-                                    } else {
-                                        Text("Start Today's Workout")
-                                    }
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(isStarting)
-                            }
-                        }
-
-                        Divider()
-
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("Your Split")
+                                Text("This Week")
                                     .font(.headline)
                                     .foregroundStyle(.secondary)
                                 Spacer()
@@ -133,23 +92,46 @@ struct StartWorkoutView: View {
                                 }
                                 .font(.footnote)
                             }
-                            if !days.isEmpty {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(alignment: .top, spacing: 12) {
-                                        ForEach(days) { day in
-                                            NavigationLink {
-                                                RoutineDayDetailView(day: day)
-                                            } label: {
-                                                SplitDayCard(
-                                                    day: day,
-                                                    isToday: todayDay?.id == day.id,
-                                                    exerciseNames: dayExerciseNames[day.id] ?? []
+
+                            if !weeklySchedule.isEmpty {
+                                ScrollViewReader { proxy in
+                                    ScrollView(.horizontal) {
+                                        LazyHStack(spacing: 16) {
+                                            ForEach(weeklySchedule) { slot in
+                                                WeekDayCard(
+                                                    slot: slot,
+                                                    routineDay: routineDay(for: slot),
+                                                    exerciseNames: routineDay(for: slot).flatMap { dayExerciseNames[$0.id] } ?? [],
+                                                    isToday: slot.weekday == todaysWeekday,
+                                                    hasActiveWorkout: activeWorkout != nil,
+                                                    isCompletedToday: todayCompletedWorkout != nil,
+                                                    isStarting: isStarting,
+                                                    onStartWorkout: { day in Task { await startWorkout(routineDayId: day.id) } }
                                                 )
+                                                .id(slot.weekday)
+                                                .containerRelativeFrame(.horizontal, count: 1, spacing: 16)
                                             }
-                                            .buttonStyle(.plain)
+                                        }
+                                        .scrollTargetLayout()
+                                    }
+                                    .scrollTargetBehavior(.viewAligned)
+                                    .scrollIndicators(.hidden)
+                                    // A default starting position only, not a
+                                    // reset every reappearance - `scrollTo`'s
+                                    // target frame isn't resolved yet on the
+                                    // very first layout pass if called
+                                    // straight from `onAppear`, so this
+                                    // defers one runloop turn; `hasCentered`
+                                    // then keeps it from re-firing and
+                                    // yanking the carousel back to today if
+                                    // the user had manually scrolled away.
+                                    .onAppear {
+                                        guard !hasCenteredOnToday else { return }
+                                        hasCenteredOnToday = true
+                                        DispatchQueue.main.async {
+                                            proxy.scrollTo(todaysWeekday, anchor: .center)
                                         }
                                     }
-                                    .padding(.vertical, 2)
                                 }
                             }
                         }
@@ -159,7 +141,7 @@ struct StartWorkoutView: View {
                     // Always available (even on a rest day, or with no split
                     // set up) so an unplanned gym session isn't blocked on
                     // today's scheduled day - hidden only while another
-                    // workout is already active, same rule as the split's
+                    // workout is already active, same rule as a day card's
                     // own Start button.
                     if activeWorkout == nil {
                         Button {
@@ -258,19 +240,7 @@ struct StartWorkoutView: View {
             routine = activeRoutine
             guard let activeRoutine else { return }
             days = try await routineRepository.fetchDays(routineId: activeRoutine.id)
-
-            if let checkin = try await checkinRepository.fetch(date: Date()) {
-                if let routineDayId = checkin.routineDayId {
-                    todayDay = days.first { $0.id == routineDayId }
-                    isRestDay = false
-                } else {
-                    todayDay = nil
-                    isRestDay = true
-                }
-            } else {
-                todayDay = try await workoutRepository.nextRoutineDay(routineId: activeRoutine.id)
-                isRestDay = false
-            }
+            weeklySchedule = try await scheduleRepository.fetchSchedule(routineId: activeRoutine.id)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -279,11 +249,13 @@ struct StartWorkoutView: View {
         // shows its Resume banner if this view reloads mid-session.
         activeWorkout = try? await offlineQueue.fetchActive()
         let recentWorkouts = (try? await workoutRepository.fetchHistory(limit: 10)) ?? []
+        let todaysRoutineDayId = weeklySchedule.first { $0.weekday == todaysWeekday }?.routineDayId
         todayCompletedWorkout = recentWorkouts.first { workout in
-            workout.routineDayId == todayDay?.id
+            workout.routineDayId == todaysRoutineDayId
                 && workout.endedAt != nil
                 && Calendar.current.isDateInToday(workout.performedAt)
         }
+        preferredGymId = try? await preferencesRepository.fetch().preferredGymId
         await CardioSessionMonitor.shared.refresh()
         await loadDeloadSignal(recentWorkouts: recentWorkouts)
         await loadVolumeFlags()
@@ -291,9 +263,9 @@ struct StartWorkoutView: View {
         await loadDayExercisePreviews()
     }
 
-    /// Each split day's exercise names, for the "Your Split" day cards -
-    /// advisory only, so a card just shows without its preview list if this
-    /// fails rather than blocking the rest of the tab.
+    /// Each workout day's exercise names, for its carousel card - advisory
+    /// only, so a card just shows without its preview list if this fails
+    /// rather than blocking the rest of the tab.
     private func loadDayExercisePreviews() async {
         guard !days.isEmpty else { return }
         guard let allExercises = try? await exerciseRepository.fetchAll() else { return }
@@ -339,8 +311,7 @@ struct StartWorkoutView: View {
         }
     }
 
-    private func startWorkout() async {
-        guard let todayDay else { return }
+    private func startWorkout(routineDayId: UUID) async {
         // Defensive - the button that calls this is already hidden while
         // `activeWorkout` is set, but re-check here too so this can never
         // create a second concurrent workout regardless of UI state.
@@ -348,7 +319,7 @@ struct StartWorkoutView: View {
         isStarting = true
         defer { isStarting = false }
         do {
-            startedWorkout = try await offlineQueue.startWorkout(routineDayId: todayDay.id)
+            startedWorkout = try await offlineQueue.startWorkout(routineDayId: routineDayId, gymId: preferredGymId)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -359,30 +330,38 @@ struct StartWorkoutView: View {
         isStartingOpen = true
         defer { isStartingOpen = false }
         do {
-            startedWorkout = try await offlineQueue.startWorkout(routineDayId: nil)
+            startedWorkout = try await offlineQueue.startWorkout(routineDayId: nil, gymId: preferredGymId)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 }
 
-/// One day's card in the "Your Split" horizontal scroller - the day's
-/// label plus a preview of what's on its workout menu, so you can see the
-/// whole split at a glance without tapping into each day.
-private struct SplitDayCard: View {
-    let day: RoutineDay
-    let isToday: Bool
+/// One weekday's card in the "This Week" carousel - a workout day previews
+/// its exercises and offers to start it (today's card additionally shows
+/// "Session Completed" once it's done); an active rest day names its
+/// cardio type and offers to start that; a rest day is just a plain
+/// placeholder. None of the start actions are limited to today - the split
+/// is a plan, not a lock (see `actionRow`). Enlarged to near-full-width so
+/// the carousel reads as one day at a time, snapping to whichever is
+/// centered.
+private struct WeekDayCard: View {
+    let slot: WeeklyScheduleDay
+    let routineDay: RoutineDay?
     let exerciseNames: [String]
+    let isToday: Bool
+    let hasActiveWorkout: Bool
+    let isCompletedToday: Bool
+    let isStarting: Bool
+    let onStartWorkout: (RoutineDay) -> Void
 
-    private var previewLimit: Int { 5 }
+    private var previewLimit: Int { 6 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(day.label)
-                    .font(.headline)
-                    .lineLimit(1)
-                Spacer()
+                Text(slot.weekdayName)
+                    .font(.title3.bold())
                 if isToday {
                     Text("Today")
                         .font(.caption2.bold())
@@ -391,30 +370,134 @@ private struct SplitDayCard: View {
                         .background(.blue.opacity(0.15), in: Capsule())
                         .foregroundStyle(.blue)
                 }
+                Spacer()
             }
-            if exerciseNames.isEmpty {
-                Text("Rest day")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(exerciseNames.prefix(previewLimit), id: \.self) { name in
-                    Text(name)
+
+            switch slot.dayType {
+            case .workout:
+                if let routineDay {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(routineDay.label)
+                            .font(.headline)
+                        if exerciseNames.isEmpty {
+                            Text("No exercises added yet")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(exerciseNames.prefix(previewLimit), id: \.self) { name in
+                                Text(name)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            if exerciseNames.count > previewLimit {
+                                Text("+\(exerciseNames.count - previewLimit) more")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    actionRow(routineDay: routineDay)
+                } else {
+                    Text("No day linked - edit this in your split.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            case .activeRest:
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(slot.cardioType?.displayName ?? "Active Rest", systemImage: "figure.run")
+                        .font(.headline)
+                    Text("Active rest day")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
                 }
-                if exerciseNames.count > previewLimit {
-                    Text("+\(exerciseNames.count - previewLimit) more")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                // Not gated to today - a scheduled run/walk is just as
+                // startable a day early or a day late as a workout is (see
+                // `actionRow`'s own reasoning below), only actually blocked
+                // while another workout is already in progress.
+                if !hasActiveWorkout {
+                    NavigationLink {
+                        StartCardioSessionView(initialCardioType: slot.cardioType ?? .inclineTreadmill)
+                    } label: {
+                        Text("Start Cardio Session")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
+            case .rest:
+                Text("Rest Day")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
             }
+
+            Spacer(minLength: 0)
         }
         .padding()
-        .frame(width: 170, alignment: .leading)
-        .frame(minHeight: 130, alignment: .topLeading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
+        .frame(minHeight: 220, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 18))
         .foregroundStyle(.primary)
+        .overlay(alignment: .bottomTrailing) {
+            if slot.dayType == .workout, let routineDay {
+                menuButton(routineDay: routineDay)
+            }
+        }
+    }
+
+    /// The day's exercise "menu" (`RoutineDayDetailView`) - kept to a small,
+    /// deliberate corner affordance rather than making the whole card a
+    /// `NavigationLink`, so brushing past the exercise preview doesn't
+    /// accidentally navigate away from the "Start Workout" button beneath it.
+    private func menuButton(routineDay: RoutineDay) -> some View {
+        NavigationLink {
+            RoutineDayDetailView(day: routineDay)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+                .background(.fill.tertiary, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(12)
+    }
+
+    /// Available on every workout-type card, not just today's - the split
+    /// is a plan, not a lock: catching up on a missed day, or getting ahead
+    /// on tomorrow's before you're too tired later, both start the same way
+    /// `startWorkout(routineDayId:)` always did (it's never been date-gated
+    /// server-side, only this card was). Only actually blocked while
+    /// another workout is already active - same single-active-session rule
+    /// as everywhere else in Train. "Session Completed" stays specific to
+    /// today, since that's the only day with a real "already done today"
+    /// answer to show.
+    @ViewBuilder
+    private func actionRow(routineDay: RoutineDay) -> some View {
+        if hasActiveWorkout {
+            EmptyView()
+        } else if isToday && isCompletedToday {
+            Label("Session Completed", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.subheadline.bold())
+        } else {
+            Button {
+                onStartWorkout(routineDay)
+            } label: {
+                if isStarting {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Text("Start Workout")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.vertical, 10)
+            .buttonStyle(.borderedProminent)
+            .disabled(isStarting)
+        }
     }
 }
 

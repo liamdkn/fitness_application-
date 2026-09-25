@@ -30,6 +30,22 @@ struct SetLogGridView: View {
                         : "\(setIndex)"
                     ConfirmedSetRow(label: label, set: set, isLast: isLast, onAddDrop: onAddDrop, onUnlogSet: onUnlogSet)
                         .listRowSeparator(.hidden)
+                        // Same action as the row's own "+ Drop" button
+                        // (only ever meaningful on the last confirmed set,
+                        // same as that button), just also reachable by
+                        // swipe - empty when not last, rather than omitting
+                        // the modifier outright, since `.swipeActions`
+                        // can't be attached conditionally.
+                        .swipeActions(edge: .trailing) {
+                            if isLast {
+                                Button {
+                                    onAddDrop()
+                                } label: {
+                                    Label("Add Drop", systemImage: "arrow.turn.down.right")
+                                }
+                                .tint(.blue)
+                            }
+                        }
                 } else {
                     let pendingIndex = setIndex - activeExercise.loggedSets.count - 1
                     let kind = activeExercise.pendingRows[safe: pendingIndex] ?? .normal
@@ -167,7 +183,7 @@ struct EditableSetRow: View {
             TextField(
                 "",
                 text: $kgText,
-                prompt: placeholder.map { Text($0.weightKg, format: .number.precision(.fractionLength(0...2))).foregroundStyle(.secondary.opacity(0.6)) }
+                prompt: placeholder.map { Text($0.weightKg, format: .number.precision(.fractionLength(0...2))).foregroundStyle(.secondary) }
             )
             .keyboardType(.decimalPad)
             .textFieldStyle(.roundedBorder)
@@ -193,7 +209,7 @@ struct EditableSetRow: View {
             TextField(
                 "",
                 text: $repsText,
-                prompt: placeholder.map { Text("\($0.reps)").foregroundStyle(.secondary.opacity(0.6)) }
+                prompt: placeholder.map { Text("\($0.reps)").foregroundStyle(.secondary) }
             )
             .keyboardType(.numberPad)
             .textFieldStyle(.roundedBorder)

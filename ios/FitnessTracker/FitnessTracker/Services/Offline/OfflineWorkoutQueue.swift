@@ -86,13 +86,25 @@ final class OfflineWorkoutQueue {
 
     // MARK: - Active workout
 
-    func startWorkout(routineDayId: UUID?) async throws -> Workout {
+    func startWorkout(routineDayId: UUID?, gymId: UUID? = nil) async throws -> Workout {
         let now = Date()
-        let local = QueuedWorkout(id: UUID(), routineDayId: routineDayId, startedAt: now, performedAt: now, syncState: .pending)
+        let local = QueuedWorkout(id: UUID(), routineDayId: routineDayId, gymId: gymId, startedAt: now, performedAt: now, syncState: .pending)
         context.insert(local)
         try context.save()
         scheduleFlush()
         return local.asWorkout()
+    }
+
+    /// Changes which gym an already-started workout is logged against -
+    /// e.g. correcting the default preferred gym for a one-off session
+    /// somewhere else. Only affects this workout, never the preference
+    /// itself.
+    func setGym(workout: Workout, gymId: UUID?) async throws {
+        let localWorkout = try ensureLocalWorkout(matching: workout)
+        localWorkout.gymId = gymId
+        localWorkout.syncState = .pending
+        try context.save()
+        scheduleFlush()
     }
 
     /// The in-progress workout, if any. Checked locally first - this is the
@@ -109,6 +121,7 @@ final class OfflineWorkoutQueue {
         let mirrored = QueuedWorkout(
             id: remote.id,
             routineDayId: remote.routineDayId,
+            gymId: remote.gymId,
             startedAt: remote.startedAt,
             performedAt: remote.performedAt,
             syncState: .synced
@@ -305,6 +318,7 @@ final class OfflineWorkoutQueue {
         let recreated = QueuedWorkout(
             id: workout.id,
             routineDayId: workout.routineDayId,
+            gymId: workout.gymId,
             startedAt: workout.startedAt,
             performedAt: workout.performedAt,
             syncState: .pending
@@ -377,6 +391,7 @@ final class OfflineWorkoutQueue {
                 try await workoutRepository.upsertWorkout(
                     id: workout.id,
                     routineDayId: workout.routineDayId,
+                    gymId: workout.gymId,
                     startedAt: workout.startedAt,
                     performedAt: workout.performedAt,
                     endedAt: workout.endedAt,

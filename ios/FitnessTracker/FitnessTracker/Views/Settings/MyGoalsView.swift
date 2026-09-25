@@ -18,11 +18,15 @@ struct MyGoalsView: View {
     @State private var showingAdjustPhase = false
     @State private var phaseGroupToCancel: PhaseGroup?
     @State private var isCancelingPhase = false
+    @State private var dailyWaterMlTargetMin = 2500
+    @State private var dailyWaterMlTargetMax = 3000
+    @State private var waterTargetError: String?
     private let repository = GoalsRepository()
     private let tdeeEstimateRepository = TDEEEstimateRepository()
     private let bodyWeightRepository = BodyWeightRepository()
     private let nutritionRepository = NutritionRepository()
     private let dailyCheckinRepository = DailyCheckinRepository()
+    private let preferencesRepository = UserPreferencesRepository()
     private let tdeeWindowDays = 21
 
     var body: some View {
@@ -38,6 +42,32 @@ struct MyGoalsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Button("Start New Phase") { showingNewPhase = true }
+            }
+
+            Section("Hydration") {
+                Stepper(value: $dailyWaterMlTargetMin, in: 500...dailyWaterMlTargetMax, step: 250) {
+                    HStack {
+                        Text("Min")
+                        Spacer()
+                        Text("\(dailyWaterMlTargetMin) ml").foregroundStyle(.secondary)
+                    }
+                }
+                .onChange(of: dailyWaterMlTargetMin) { _, newValue in
+                    Task { await saveWaterTargetRange(min: newValue, max: dailyWaterMlTargetMax) }
+                }
+                Stepper(value: $dailyWaterMlTargetMax, in: dailyWaterMlTargetMin...8000, step: 250) {
+                    HStack {
+                        Text("Max")
+                        Spacer()
+                        Text("\(dailyWaterMlTargetMax) ml").foregroundStyle(.secondary)
+                    }
+                }
+                .onChange(of: dailyWaterMlTargetMax) { _, newValue in
+                    Task { await saveWaterTargetRange(min: dailyWaterMlTargetMin, max: newValue) }
+                }
+                if let waterTargetError {
+                    Text(waterTargetError).foregroundStyle(.red)
+                }
             }
 
             if !upcomingPhaseGroups.isEmpty {
@@ -380,7 +410,20 @@ struct MyGoalsView: View {
         // Current Phase display above.
         tdeeHistory = (try? await tdeeEstimateRepository.fetchHistory()) ?? []
         recentWeights = (try? await bodyWeightRepository.fetchRecent(days: 30)) ?? []
+        if let preferences = try? await preferencesRepository.fetch() {
+            dailyWaterMlTargetMin = preferences.dailyWaterMlTargetMin
+            dailyWaterMlTargetMax = preferences.dailyWaterMlTargetMax
+        }
         await refreshNutritionInsight()
+    }
+
+    private func saveWaterTargetRange(min: Int, max: Int) async {
+        do {
+            try await preferencesRepository.setDailyWaterMlTargetRange(min: min, max: max)
+            waterTargetError = nil
+        } catch {
+            waterTargetError = error.localizedDescription
+        }
     }
 
     /// Only recomputes roughly weekly (a fresh estimate replaces a

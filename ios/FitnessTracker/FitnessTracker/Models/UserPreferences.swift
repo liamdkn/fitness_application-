@@ -11,6 +11,9 @@ struct UserPreferences: Codable {
     let stepSource: StepSource
     let enabledCardioTypes: [String]
     let nutritionSource: NutritionSource
+    let preferredGymId: UUID?
+    let dailyWaterMlTargetMin: Int
+    let dailyWaterMlTargetMax: Int
 
     enum CodingKeys: String, CodingKey {
         case weeklyCheckinWeekday = "weekly_checkin_weekday"
@@ -18,5 +21,8 @@ struct UserPreferences: Codable {
         case stepSource = "step_source"
         case enabledCardioTypes = "enabled_cardio_types"
         case nutritionSource = "nutrition_source"
+        case preferredGymId = "preferred_gym_id"
+        case dailyWaterMlTargetMin = "daily_water_ml_target_min"
+        case dailyWaterMlTargetMax = "daily_water_ml_target_max"
     }
 }

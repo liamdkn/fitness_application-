@@ -29,9 +29,26 @@ struct CardioSessionRepository {
         let paused_at: Date
     }
 
+    // These three manually implement `encode(to:)` because the auto-synthesized
+    // conformance uses `encodeIfPresent` for Optional properties, which OMITS
+    // the JSON key entirely when a value is nil - Supabase's update only touches
+    // columns present in the request body, so `paused_at: nil` here would leave
+    // the row's existing (non-null) paused_at untouched instead of clearing it,
+    // which is exactly what resuming/finishing a paused session needs to do
+    // (and finishing while still marked paused_at violates the DB's
+    // `ended_at IS NULL OR paused_at IS NULL` check constraint). Same fix
+    // `DailyCheckinRepository.NewDailyCheckin` already uses for this reason.
     private struct ResumeUpdate: Encodable {
         let paused_at: Date?
         let paused_seconds: Int
+
+        enum CodingKeys: String, CodingKey { case paused_at, paused_seconds }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(paused_at, forKey: .paused_at)
+            try container.encode(paused_seconds, forKey: .paused_seconds)
+        }
     }
 
     private struct FinishUpdate: Encodable {
@@ -40,12 +57,32 @@ struct CardioSessionRepository {
         let paused_seconds: Int
         let steps_after: Int?
         let avg_heart_rate: Int
+
+        enum CodingKeys: String, CodingKey { case ended_at, paused_at, paused_seconds, steps_after, avg_heart_rate }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(ended_at, forKey: .ended_at)
+            try container.encode(paused_at, forKey: .paused_at)
+            try container.encode(paused_seconds, forKey: .paused_seconds)
+            try container.encode(steps_after, forKey: .steps_after)
+            try container.encode(avg_heart_rate, forKey: .avg_heart_rate)
+        }
     }
 
     private struct FinishWithoutDetailsUpdate: Encodable {
         let ended_at: Date
         let paused_at: Date?
         let paused_seconds: Int
+
+        enum CodingKeys: String, CodingKey { case ended_at, paused_at, paused_seconds }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(ended_at, forKey: .ended_at)
+            try container.encode(paused_at, forKey: .paused_at)
+            try container.encode(paused_seconds, forKey: .paused_seconds)
+        }
     }
 
     private struct DetailsUpdate: Encodable {

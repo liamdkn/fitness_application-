@@ -1,6 +1,11 @@
 import SwiftUI
 
 struct StartCardioSessionView: View {
+    /// Preselects the type when opened from a scheduled active-rest day
+    /// (see `StartWorkoutView`'s week carousel) - still changeable, just a
+    /// better default than always landing on Incline Walk.
+    var initialCardioType: CardioType = .inclineTreadmill
+
     @State private var cardioType: CardioType = .inclineTreadmill
     @State private var enabledTypes: [CardioType] = [.inclineTreadmill, .stairmaster]
     @State private var showingManageTypes = false
@@ -10,6 +15,11 @@ struct StartCardioSessionView: View {
     @State private var startedSession: CardioTrackingSession?
     private let repository = CardioSessionRepository()
     private let preferencesRepository = UserPreferencesRepository()
+
+    init(initialCardioType: CardioType = .inclineTreadmill) {
+        self.initialCardioType = initialCardioType
+        _cardioType = State(initialValue: initialCardioType)
+    }
 
     private var stepsBeforeValue: Int? { Int(stepsBeforeText) }
 
@@ -76,8 +86,16 @@ struct StartCardioSessionView: View {
     private func loadEnabledTypes() async {
         do {
             let preferences = try await preferencesRepository.fetch()
-            let types = preferences.enabledCardioTypes.compactMap(CardioType.init(rawValue:))
-            applyEnabledTypes(types.isEmpty ? [.inclineTreadmill, .stairmaster] : types)
+            var types = preferences.enabledCardioTypes.compactMap(CardioType.init(rawValue:))
+            if types.isEmpty { types = [.inclineTreadmill, .stairmaster] }
+            // A day scheduled as Active Rest (e.g. a Run) should preselect
+            // that type even if it isn't in the user's usual short list -
+            // otherwise `applyEnabledTypes` below would silently swap the
+            // selection back to whatever's first the moment this loads.
+            if !types.contains(initialCardioType) {
+                types.insert(initialCardioType, at: 0)
+            }
+            applyEnabledTypes(types)
         } catch {
             // Advisory only - the built-in default list still works offline.
         }

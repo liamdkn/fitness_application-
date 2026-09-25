@@ -29,6 +29,32 @@ struct UserPreferencesRepository {
         let nutrition_source: String
     }
 
+    private struct UpsertDailyWaterMlTargetRange: Encodable {
+        let user_id: UUID
+        let daily_water_ml_target_min: Int
+        let daily_water_ml_target_max: Int
+    }
+
+    // Manually implements `encode(to:)` because the auto-synthesized conformance
+    // uses `encodeIfPresent` for Optional properties, which OMITS the JSON key
+    // entirely when a value is nil - clearing the preferred gym back to "none"
+    // (preferred_gym_id: nil) needs that key sent as an explicit null, or the
+    // column just keeps its old value. Same fix used elsewhere in this codebase
+    // (`DailyCheckinRepository`, `CardioSessionRepository`, `WeeklyScheduleRepository`)
+    // for the same reason.
+    private struct UpsertPreferredGym: Encodable {
+        let user_id: UUID
+        let preferred_gym_id: UUID?
+
+        enum CodingKeys: String, CodingKey { case user_id, preferred_gym_id }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(user_id, forKey: .user_id)
+            try container.encode(preferred_gym_id, forKey: .preferred_gym_id)
+        }
+    }
+
     func fetch() async throws -> UserPreferences {
         let userId = try await client.auth.session.user.id
         let rows: [UserPreferences] = try await client
@@ -43,8 +69,44 @@ struct UserPreferencesRepository {
             cardioStepExclusionEnabled: false,
             stepSource: .merged,
             enabledCardioTypes: [CardioType.inclineTreadmill.rawValue, CardioType.stairmaster.rawValue],
-            nutritionSource: .healthkitManual
+            nutritionSource: .healthkitManual,
+            preferredGymId: nil,
+            dailyWaterMlTargetMin: 2500,
+            dailyWaterMlTargetMax: 3000
         )
+    }
+
+    @discardableResult
+    func setDailyWaterMlTargetRange(min: Int, max: Int) async throws -> UserPreferences {
+        let userId = try await client.auth.session.user.id
+        let saved: [UserPreferences] = try await client
+            .from("user_preferences")
+            .upsert(
+                UpsertDailyWaterMlTargetRange(user_id: userId, daily_water_ml_target_min: min, daily_water_ml_target_max: max),
+                onConflict: "user_id"
+            )
+            .select()
+            .execute()
+            .value
+        guard let preferences = saved.first else {
+            throw RepositoryError.insertFailed
+        }
+        return preferences
+    }
+
+    @discardableResult
+    func setPreferredGym(_ gymId: UUID?) async throws -> UserPreferences {
+        let userId = try await client.auth.session.user.id
+        let saved: [UserPreferences] = try await client
+            .from("user_preferences")
+            .upsert(UpsertPreferredGym(user_id: userId, preferred_gym_id: gymId), onConflict: "user_id")
+            .select()
+            .execute()
+            .value
+        guard let preferences = saved.first else {
+            throw RepositoryError.insertFailed
+        }
+        return preferences
     }
 
     @discardableResult

@@ -7,6 +7,7 @@ struct WorkoutRepository {
     private struct NewWorkout: Encodable {
         let user_id: UUID
         let routine_day_id: UUID?
+        let gym_id: UUID?
     }
 
     private struct NewWorkoutSet: Encodable {
@@ -24,15 +25,41 @@ struct WorkoutRepository {
     /// Explicit-id variant of `NewWorkout`, for `upsertWorkout` - the
     /// offline queue generates the id client-side up front, before the row
     /// exists on the server at all.
+    // Manually implements `encode(to:)` because the auto-synthesized conformance
+    // uses `encodeIfPresent` for Optional properties, which OMITS the JSON key
+    // entirely when a value is nil - this upsert re-runs on every flush of a
+    // locally-edited workout, so clearing a field back to nil (e.g. changing
+    // the gym for this session back to "none") needs that key sent as an
+    // explicit null, or the column just keeps its old value. Same fix used
+    // elsewhere in this codebase (`DailyCheckinRepository`,
+    // `CardioSessionRepository`) for the same reason.
     private struct UpsertWorkout: Encodable {
         let id: UUID
         let user_id: UUID
         let routine_day_id: UUID?
+        let gym_id: UUID?
         let started_at: Date
         let performed_at: Date
         let ended_at: Date?
         let notes: String?
         let rating: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case id, user_id, routine_day_id, gym_id, started_at, performed_at, ended_at, notes, rating
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encode(user_id, forKey: .user_id)
+            try container.encode(routine_day_id, forKey: .routine_day_id)
+            try container.encode(gym_id, forKey: .gym_id)
+            try container.encode(started_at, forKey: .started_at)
+            try container.encode(performed_at, forKey: .performed_at)
+            try container.encode(ended_at, forKey: .ended_at)
+            try container.encode(notes, forKey: .notes)
+            try container.encode(rating, forKey: .rating)
+        }
     }
 
     /// Explicit-id variant of `NewWorkoutSet`, for `upsertSet`.
@@ -71,8 +98,9 @@ struct WorkoutRepository {
         let for_routine_id: UUID
     }
 
-    private struct ExerciseIdParam: Encodable {
+    private struct PreviousSetsParams: Encodable {
         let for_exercise_id: UUID
+        let for_gym_id: UUID?
     }
 
     // `next_routine_day` returns a single `routine_days` row, not a set. When
@@ -107,9 +135,15 @@ struct WorkoutRepository {
         return result.routineDay
     }
 
-    func previousSets(exerciseId: UUID) async throws -> [WorkoutSet] {
+    /// `gymId`, when given, prefers this exercise's history from the same
+    /// gym (see the migration's own comment on `previous_exercise_sets` for
+    /// why - equipment commonly differs enough between gyms that a
+    /// suggestion based on a different one's last session can be actively
+    /// wrong), falling back to the most recent workout anywhere if it's
+    /// never been logged at that gym before.
+    func previousSets(exerciseId: UUID, gymId: UUID? = nil) async throws -> [WorkoutSet] {
         try await client
-            .rpc("previous_exercise_sets", params: ExerciseIdParam(for_exercise_id: exerciseId))
+            .rpc("previous_exercise_sets", params: PreviousSetsParams(for_exercise_id: exerciseId, for_gym_id: gymId))
             .execute()
             .value
     }
@@ -143,11 +177,11 @@ struct WorkoutRepository {
             .value
     }
 
-    func startWorkout(routineDayId: UUID?) async throws -> Workout {
+    func startWorkout(routineDayId: UUID?, gymId: UUID? = nil) async throws -> Workout {
         let userId = try await client.auth.session.user.id
         let inserted: [Workout] = try await client
             .from("workouts")
-            .insert(NewWorkout(user_id: userId, routine_day_id: routineDayId))
+            .insert(NewWorkout(user_id: userId, routine_day_id: routineDayId, gym_id: gymId))
             .select()
             .execute()
             .value
@@ -167,6 +201,7 @@ struct WorkoutRepository {
     func upsertWorkout(
         id: UUID,
         routineDayId: UUID?,
+        gymId: UUID?,
         startedAt: Date,
         performedAt: Date,
         endedAt: Date?,
@@ -181,6 +216,7 @@ struct WorkoutRepository {
                     id: id,
                     user_id: userId,
                     routine_day_id: routineDayId,
+                    gym_id: gymId,
                     started_at: startedAt,
                     performed_at: performedAt,
                     ended_at: endedAt,

@@ -9,6 +9,11 @@ struct Workout: Codable, Identifiable, Hashable {
     let name: String?
     let notes: String?
     let rating: Int?
+    /// Which gym this session happened at, if the user's set one - lets
+    /// weight suggestions (`WorkoutRepository.previousSets`) prefer history
+    /// from the same gym, since equipment (dumbbell jumps, machine brands)
+    /// commonly differs between gyms.
+    let gymId: UUID?
     /// Populated only if a same-day Apple Watch "Functional Strength
     /// Training" workout was matched and the user confirmed enriching
     /// this workout with it (see `WatchActivityViewModel`) - never set by
@@ -27,6 +32,7 @@ struct Workout: Codable, Identifiable, Hashable {
         case avgHeartRate = "avg_heart_rate"
         case activeCalories = "active_calories"
         case healthkitWorkoutUUID = "healthkit_workout_uuid"
+        case gymId = "gym_id"
     }
 
     var duration: TimeInterval? {

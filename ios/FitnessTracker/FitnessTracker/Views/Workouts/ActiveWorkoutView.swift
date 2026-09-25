@@ -8,6 +8,10 @@ struct ActiveWorkoutView: View {
     @State private var showingRatingSheet = false
     @State private var noteEditingExercise: ActiveExercise?
     @State private var historyExercise: Exercise?
+    @State private var replacingExercise: ActiveExercise?
+    @State private var gyms: [Gym] = []
+    @State private var showingGymPicker = false
+    private let gymRepository = GymRepository()
     @State private var elapsed: TimeInterval = 0
     @State private var restRemaining: TimeInterval = 0
     @Environment(\.dismiss) private var dismiss
@@ -22,6 +26,10 @@ struct ActiveWorkoutView: View {
             totalExercises: viewModel.activeExercises.count,
             completedExercises: viewModel.activeExercises.filter { !$0.loggedSets.isEmpty }.count
         )
+    }
+
+    private var currentGymName: String {
+        gyms.first { $0.id == viewModel.workout.gymId }?.name ?? "Set Gym"
     }
 
     private var supersetLabels: [UUID: String] {
@@ -96,6 +104,15 @@ struct ActiveWorkoutView: View {
                 Text(formattedElapsed)
                     .font(.system(.title, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .center)
+                Button {
+                    showingGymPicker = true
+                } label: {
+                    Label(currentGymName, systemImage: "mappin.and.ellipse")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .buttonStyle(.plain)
             }
 
             if let errorMessage = viewModel.errorMessage {
@@ -156,7 +173,15 @@ struct ActiveWorkoutView: View {
         }
         .navigationTitle("Workout")
         .navigationBarBackButtonHidden()
-        .task { await viewModel.loadTemplate() }
+        .task {
+            await viewModel.loadTemplate()
+            gyms = (try? await gymRepository.fetchAll()) ?? []
+        }
+        .sheet(isPresented: $showingGymPicker) {
+            GymPickerSheet(gyms: gyms, selectedGymId: viewModel.workout.gymId) { gymId in
+                Task { await viewModel.setGym(gymId) }
+            }
+        }
         .onReceive(timer) { _ in
             elapsed = Date().timeIntervalSince(viewModel.workout.startedAt)
             if let restTimerEndDate = viewModel.restTimerEndDate {
@@ -188,6 +213,11 @@ struct ActiveWorkoutView: View {
                 exerciseName: activeExercise.exercise.name
             )
         }
+        .sheet(item: $replacingExercise) { activeExercise in
+            ExercisePickerView { newExercise in
+                Task { await viewModel.replaceExercise(oldExerciseId: activeExercise.id, with: newExercise) }
+            }
+        }
         .navigationDestination(item: $historyExercise) { exercise in
             ExerciseHistoryView(exercise: exercise)
         }
@@ -212,6 +242,11 @@ struct ActiveWorkoutView: View {
                 .font(.caption)
                 .foregroundStyle(.orange)
         }
+        if let lastNote = activeExercise.lastNote {
+            Label(lastNote.note, systemImage: "note.text")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
         if let suggestion = activeExercise.suggestion {
             VStack(alignment: .leading, spacing: 2) {
                 Text(suggestionHeadline(suggestion))
@@ -224,6 +259,11 @@ struct ActiveWorkoutView: View {
             Text("Last time: " + previousSetsSummary(activeExercise.previousSets))
                 .font(.caption)
                 .foregroundStyle(.primary.opacity(0.75))
+        }
+        if let incompleteSetsNote = activeExercise.incompleteSetsNote {
+            Text(incompleteSetsNote)
+                .font(.caption)
+                .foregroundStyle(.orange)
         }
     }
 
@@ -266,6 +306,11 @@ struct ActiveWorkoutView: View {
                         historyExercise = activeExercise.exercise
                     } label: {
                         Label("View History", systemImage: "chart.bar.doc.horizontal")
+                    }
+                    Button {
+                        replacingExercise = activeExercise
+                    } label: {
+                        Label("Replace Exercise", systemImage: "arrow.triangle.2.circlepath")
                     }
                     Button("Remove From Workout", role: .destructive) {
                         Task { await viewModel.removeExercise(exerciseId: activeExercise.id) }
@@ -329,6 +374,11 @@ struct ActiveWorkoutView: View {
                                 historyExercise = activeExercise.exercise
                             } label: {
                                 Label("View History", systemImage: "chart.bar.doc.horizontal")
+                            }
+                            Button {
+                                replacingExercise = activeExercise
+                            } label: {
+                                Label("Replace Exercise", systemImage: "arrow.triangle.2.circlepath")
                             }
                             Button("Remove From Workout", role: .destructive) {
                                 Task { await viewModel.removeExercise(exerciseId: activeExercise.id) }
@@ -414,5 +464,63 @@ private struct RestTimerBanner: View {
         }
         .padding()
         .background(.bar)
+    }
+}
+
+/// Which gym this one workout is logged against - editable per session
+/// (e.g. the preferred default is wrong for a one-off elsewhere), not a
+/// preference change. Adding a new gym happens in Settings, not here -
+/// this is just picking among what already exists.
+private struct GymPickerSheet: View {
+    let gyms: [Gym]
+    let selectedGymId: UUID?
+    let onSelect: (UUID?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Button {
+                    onSelect(nil)
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text("None")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if selectedGymId == nil {
+                            Image(systemName: "checkmark").foregroundStyle(.blue)
+                        }
+                    }
+                }
+                ForEach(gyms) { gym in
+                    Button {
+                        onSelect(gym.id)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Text(gym.name)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if selectedGymId == gym.id {
+                                Image(systemName: "checkmark").foregroundStyle(.blue)
+                            }
+                        }
+                    }
+                }
+                if gyms.isEmpty {
+                    Text("No gyms added yet - add one in Settings.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Gym")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
     }
 }

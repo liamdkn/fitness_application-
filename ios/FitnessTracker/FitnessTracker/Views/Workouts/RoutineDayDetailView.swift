@@ -1,16 +1,21 @@
 import SwiftUI
 
+/// The day's exercise "menu" - purely a read-only plan list. Starting the
+/// workout itself lives only on the Train tab's day card (`WeekDayCard`'s
+/// `actionRow`, via `OfflineWorkoutQueue`), not here - this screen used to
+/// have its own separate "Start This Workout" button that bypassed the
+/// offline queue entirely (called `WorkoutRepository.startWorkout`
+/// directly), which meant a workout started from here wouldn't show up as
+/// active if you lost signal mid-gym-session. Removed rather than fixed,
+/// since duplicating the entry point was the actual problem.
 struct RoutineDayDetailView: View {
     let day: RoutineDay
 
     @State private var dayExercises: [RoutineDayExercise] = []
     @State private var exerciseNames: [UUID: String] = [:]
     @State private var errorMessage: String?
-    @State private var startedWorkout: Workout?
-    @State private var isStarting = false
     private let routineRepository = RoutineRepository()
     private let exerciseRepository = ExerciseRepository()
-    private let workoutRepository = WorkoutRepository()
 
     var body: some View {
         List {
@@ -39,25 +44,9 @@ struct RoutineDayDetailView: View {
                     }
                 }
             }
-
-            Section {
-                Button {
-                    Task { await startWorkout() }
-                } label: {
-                    if isStarting {
-                        ProgressView()
-                    } else {
-                        Text("Start This Workout")
-                    }
-                }
-                .disabled(isStarting)
-            }
         }
         .navigationTitle(day.label)
         .task { await load() }
-        .navigationDestination(item: $startedWorkout) { workout in
-            ActiveWorkoutView(workout: workout)
-        }
     }
 
     private func load() async {
@@ -65,16 +54,6 @@ struct RoutineDayDetailView: View {
             dayExercises = try await routineRepository.fetchDayExercises(routineDayId: day.id)
             let allExercises = try await exerciseRepository.fetchAll()
             exerciseNames = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.id, $0.name) })
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func startWorkout() async {
-        isStarting = true
-        defer { isStarting = false }
-        do {
-            startedWorkout = try await workoutRepository.startWorkout(routineDayId: day.id)
         } catch {
             errorMessage = error.localizedDescription
         }

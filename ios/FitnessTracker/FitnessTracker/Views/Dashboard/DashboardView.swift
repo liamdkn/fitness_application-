@@ -31,12 +31,23 @@ struct DashboardView: View {
                         TodayChecklistCard(checklist: todayChecklist)
                     }
 
-                    // Both rows always stay - completing one doesn't make
-                    // it un-tappable, since a mistyped number (weight, most
-                    // often) is only fixable by reopening the same sheet,
-                    // which already loads the saved answers back in.
+                    WaterCard(
+                        totalMl: viewModel.todayWaterMl,
+                        targetMinMl: viewModel.waterTargetMinMl,
+                        targetMaxMl: viewModel.waterTargetMaxMl,
+                        onLogged: { await viewModel.loadWaterGlance() }
+                    )
+
+                    // The Daily row always stays - completing it doesn't
+                    // make it un-tappable, since a mistyped number (weight,
+                    // most often) is only fixable by reopening the same
+                    // sheet, which already loads the saved answers back in.
+                    // Weekly follows the same "don't disappear the instant
+                    // it's done" rule, but only on its own scheduled day -
+                    // it's not a whole-week fixture the way Daily is.
                     CheckInsCard(
                         dailyCompleted: checkinAvailability.dailyCompletedToday,
+                        weeklyDueToday: checkinAvailability.weeklyDueToday,
                         weeklyCompleted: checkinAvailability.weeklyCompletedThisWeek,
                         onTapDaily: { activeSheet = .dailyCheckin },
                         onTapWeekly: { activeSheet = .weeklyCheckin }
@@ -145,6 +156,7 @@ struct DashboardView: View {
                 await viewModel.loadWeightGlance()
                 await viewModel.loadOffPlanInsights()
                 await viewModel.loadTodayChecklist()
+                await viewModel.loadWaterGlance()
                 await checkinAvailability.refresh()
                 await watchActivityViewModel.loadCandidates()
             }
@@ -153,6 +165,7 @@ struct DashboardView: View {
                 await viewModel.loadWeightGlance()
                 await viewModel.loadOffPlanInsights()
                 await viewModel.loadTodayChecklist()
+                await viewModel.loadWaterGlance()
                 await checkinAvailability.refresh()
                 await watchActivityViewModel.loadCandidates()
             }
@@ -211,6 +224,7 @@ struct DashboardView: View {
 
 private struct CheckInsCard: View {
     let dailyCompleted: Bool
+    let weeklyDueToday: Bool
     let weeklyCompleted: Bool
     let onTapDaily: () -> Void
     let onTapWeekly: () -> Void
@@ -223,11 +237,13 @@ private struct CheckInsCard: View {
                 }
                 .buttonStyle(.plain)
 
-                Divider()
-                Button(action: onTapWeekly) {
-                    checkinRow(label: "Weekly Check-In", completed: weeklyCompleted)
+                if weeklyDueToday {
+                    Divider()
+                    Button(action: onTapWeekly) {
+                        checkinRow(label: "Weekly Check-In", completed: weeklyCompleted)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
     }

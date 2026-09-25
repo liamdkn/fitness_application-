@@ -62,7 +62,17 @@ final class WatchActivityViewModel: ObservableObject {
 
             let detected = try await detectedResult
             let dismissed = try await dismissedResult
-            let importedCardioIds = Set((try await cardioHistoryResult).compactMap(\.healthkitUUID))
+            let cardioHistory = try await cardioHistoryResult
+            let importedCardioIds = Set(cardioHistory.compactMap(\.healthkitUUID))
+            // Sessions the user tracked live in-app (started/stopped here,
+            // steps entered by hand) - never Watch-sourced ones, so this
+            // can't match a Watch session against itself. Checked by time
+            // overlap rather than cardio type, since the Watch's own
+            // auto-detected type is coarser than what's picked in-app (e.g.
+            // it says plain "Walk" for what was logged here as "Incline
+            // Walk") - matching on type would miss exactly the duplicate
+            // this exists to catch.
+            let appCardioSessions = cardioHistory.filter { $0.source == "app" }
             let appWorkouts = try await appWorkoutsResult
             let enrichedWorkoutIds = Set(appWorkouts.compactMap(\.healthkitWorkoutUUID))
 
@@ -77,9 +87,11 @@ final class WatchActivityViewModel: ObservableObject {
                 switch workout.kind {
                 case .walk:
                     guard !importedCardioIds.contains(workout.id) else { continue }
+                    guard !overlapsExistingAppSession(workout, in: appCardioSessions) else { continue }
                     built.append(.cardio(workout, cardioType: .outdoorWalk))
                 case .stairmaster:
                     guard !importedCardioIds.contains(workout.id) else { continue }
+                    guard !overlapsExistingAppSession(workout, in: appCardioSessions) else { continue }
                     built.append(.cardio(workout, cardioType: .stairmaster))
                 case .functionalStrength:
                     guard !enrichedWorkoutIds.contains(workout.id) else { continue }
@@ -95,6 +107,20 @@ final class WatchActivityViewModel: ObservableObject {
             candidates = built
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Whether this detected Watch workout's time range overlaps a cardio
+    /// session already tracked live in the app - e.g. recording a treadmill
+    /// walk here to log exact steps, which the Watch also auto-detected as
+    /// its own separate "Walk" session. A plain overlap check (rather than
+    /// requiring one to fully contain the other) since the Watch's
+    /// auto-detected start/end rarely lines up exactly with a manual
+    /// start/stop.
+    private func overlapsExistingAppSession(_ detected: DetectedWatchWorkout, in appSessions: [CardioTrackingSession]) -> Bool {
+        appSessions.contains { session in
+            guard let sessionEnd = session.endedAt else { return false }
+            return detected.startedAt < sessionEnd && session.startedAt < detected.endedAt
         }
     }
 

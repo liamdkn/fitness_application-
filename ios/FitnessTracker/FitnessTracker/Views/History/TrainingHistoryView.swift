@@ -82,6 +82,8 @@ struct TrainingHistoryView: View {
                 initialAvgHeartRate: session.avgHeartRate,
                 requiresSteps: session.cardioType.involvesSteps,
                 allowsCancelActions: false,
+                stepsBefore: session.stepsBefore,
+                elapsedMinutes: session.elapsed() / 60,
                 onSave: { stepsAfter, avgHeartRate in
                     await completeCardio(session, stepsAfter: stepsAfter, avgHeartRate: avgHeartRate)
                 }

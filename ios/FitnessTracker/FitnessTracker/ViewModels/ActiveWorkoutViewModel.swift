@@ -10,6 +10,11 @@ struct ActiveExercise: Identifiable {
     let target: RoutineDayExercise?
     var previousSets: [WorkoutSet] = []
     var loggedSets: [WorkoutSet] = []
+    /// The most recent note left on this exercise in a *past* workout (not
+    /// this one) - surfaced as a reminder when the exercise comes up again,
+    /// e.g. "shoulder was sore on this one" showing up right when it's
+    /// relevant instead of only living in `ExerciseHistoryView`.
+    var lastNote: ExerciseNote?
     /// One entry per not-yet-confirmed row currently shown, in display order.
     /// Confirming a row always consumes `pendingRows.first` - rows confirm
     /// in order, same as before this became an array instead of a count.
@@ -20,6 +25,19 @@ struct ActiveExercise: Identifiable {
     var suggestion: ProgressionSuggestion? {
         guard let target else { return nil }
         return ProgressionCalculator.suggest(previousSets: previousSets, target: target)
+    }
+
+    /// Flags when last session fell short of the day's planned set count
+    /// (cut short by time, fatigue, equipment - whatever) - a nudge to
+    /// actually hit all of them this time, distinct from `suggestion`'s
+    /// weight/rep guidance. Counts only normal sets, same as
+    /// `restoreExistingSets` already does elsewhere - a drop set is extra,
+    /// not one of the planned working sets.
+    var incompleteSetsNote: String? {
+        guard let target, !previousSets.isEmpty else { return nil }
+        let previousNormalSets = previousSets.filter { !$0.isDropSet }.count
+        guard previousNormalSets > 0, previousNormalSets < target.targetSets else { return nil }
+        return "Last time you only did \(previousNormalSets) of \(target.targetSets) sets."
     }
 
     init(exercise: Exercise, target: RoutineDayExercise?) {
@@ -49,6 +67,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
     private let offlineQueue = OfflineWorkoutQueue.shared
     private let exerciseRepository = ExerciseRepository()
     private let injuryRepository = InjuryRepository()
+    private let exerciseNoteRepository = ExerciseNoteRepository()
 
     init(workout: Workout) {
         self.workout = workout
@@ -124,7 +143,13 @@ final class ActiveWorkoutViewModel: ObservableObject {
             for workoutExercise in workoutExercises.sorted(by: { $0.position < $1.position }) {
                 guard let exercise = byId[workoutExercise.exerciseId] else { continue }
                 var active = ActiveExercise(exercise: exercise, target: dayExercisesById[workoutExercise.exerciseId])
-                active.previousSets = (try? await workoutRepository.previousSets(exerciseId: exercise.id)) ?? []
+                active.previousSets = (try? await workoutRepository.previousSets(exerciseId: exercise.id, gymId: workout.gymId)) ?? []
+                // The most recent note from a *previous* workout - never
+                // this one, so reopening a session you've already left a
+                // note in this session doesn't show it back as if it were
+                // old context.
+                active.lastNote = (try? await exerciseNoteRepository.fetchNotes(exerciseId: exercise.id))?
+                    .first { $0.workoutId != workout.id }
                 restoreExistingSets(existingSetsByExercise[workoutExercise.exerciseId] ?? [], into: &active)
                 activeExercises.append(active)
             }
@@ -151,7 +176,9 @@ final class ActiveWorkoutViewModel: ObservableObject {
     func addAdHocExercise(_ exercise: Exercise) async {
         guard !activeExercises.contains(where: { $0.id == exercise.id }) else { return }
         var active = ActiveExercise(exercise: exercise, target: nil)
-        active.previousSets = (try? await workoutRepository.previousSets(exerciseId: exercise.id)) ?? []
+        active.previousSets = (try? await workoutRepository.previousSets(exerciseId: exercise.id, gymId: workout.gymId)) ?? []
+        active.lastNote = (try? await exerciseNoteRepository.fetchNotes(exerciseId: exercise.id))?
+            .first { $0.workoutId != workout.id }
         activeExercises.append(active)
         do {
             try await offlineQueue.addWorkoutExercise(workout: workout, exerciseId: exercise.id, position: activeExercises.count - 1)
@@ -170,6 +197,35 @@ final class ActiveWorkoutViewModel: ObservableObject {
             // would reappear (with zero sets) the next time this workout
             // is resumed.
             try await offlineQueue.removeWorkoutExercise(workout: workout, exerciseId: exerciseId)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Swaps one exercise for another at the same spot in this workout only
+    /// - the routine day's own template is untouched, so next time this day
+    /// comes up it's back to normal. Any sets already logged against the
+    /// old exercise are dropped along with it (they're not valid history for
+    /// whatever replaces it), same as `removeExercise`; the new exercise
+    /// starts ad hoc, with no day-template target of its own, same as
+    /// `addAdHocExercise` - a swapped-in exercise wasn't part of today's
+    /// plan.
+    func replaceExercise(oldExerciseId: UUID, with newExercise: Exercise) async {
+        guard let index = activeExercises.firstIndex(where: { $0.id == oldExerciseId }) else { return }
+        // The DB's (workout_id, exercise_id) uniqueness means swapping in an
+        // exercise already elsewhere in this workout (e.g. a superset
+        // partner) would collide - same guard `addAdHocExercise` already
+        // uses for the plain "add" case.
+        guard !activeExercises.contains(where: { $0.id == newExercise.id }) else { return }
+        do {
+            try await offlineQueue.deleteSets(workout: workout, exerciseId: oldExerciseId)
+            try await offlineQueue.removeWorkoutExercise(workout: workout, exerciseId: oldExerciseId)
+            try await offlineQueue.addWorkoutExercise(workout: workout, exerciseId: newExercise.id, position: index)
+            var replacement = ActiveExercise(exercise: newExercise, target: nil)
+            replacement.previousSets = (try? await workoutRepository.previousSets(exerciseId: newExercise.id, gymId: workout.gymId)) ?? []
+            replacement.lastNote = (try? await exerciseNoteRepository.fetchNotes(exerciseId: newExercise.id))?
+                .first { $0.workoutId != workout.id }
+            activeExercises[index] = replacement
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -257,6 +313,31 @@ final class ActiveWorkoutViewModel: ObservableObject {
         guard let index = activeExercises.firstIndex(where: { $0.id == exerciseId }) else { return }
         guard activeExercises[index].pendingRows.indices.contains(pendingIndex) else { return }
         activeExercises[index].pendingRows.remove(at: pendingIndex)
+    }
+
+    /// Changes which gym this specific workout is logged against (e.g. the
+    /// preferred default was wrong for a one-off session elsewhere) -
+    /// doesn't touch the preference itself, just this session.
+    func setGym(_ gymId: UUID?) async {
+        do {
+            try await offlineQueue.setGym(workout: workout, gymId: gymId)
+            workout = Workout(
+                id: workout.id,
+                routineDayId: workout.routineDayId,
+                performedAt: workout.performedAt,
+                startedAt: workout.startedAt,
+                endedAt: workout.endedAt,
+                name: workout.name,
+                notes: workout.notes,
+                rating: workout.rating,
+                gymId: gymId,
+                avgHeartRate: workout.avgHeartRate,
+                activeCalories: workout.activeCalories,
+                healthkitWorkoutUUID: workout.healthkitWorkoutUUID
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func finish(rating: Int, notes: String) async {

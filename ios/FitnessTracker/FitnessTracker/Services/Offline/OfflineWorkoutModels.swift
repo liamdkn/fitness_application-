@@ -22,6 +22,7 @@ enum SyncState: Int, Codable {
 final class QueuedWorkout {
     @Attribute(.unique) var id: UUID
     var routineDayId: UUID?
+    var gymId: UUID?
     var startedAt: Date
     var performedAt: Date
     var endedAt: Date?
@@ -41,9 +42,10 @@ final class QueuedWorkout {
     @Relationship(deleteRule: .cascade, inverse: \QueuedWorkoutExercise.workout)
     var exercises: [QueuedWorkoutExercise] = []
 
-    init(id: UUID, routineDayId: UUID?, startedAt: Date, performedAt: Date, syncState: SyncState) {
+    init(id: UUID, routineDayId: UUID?, gymId: UUID?, startedAt: Date, performedAt: Date, syncState: SyncState) {
         self.id = id
         self.routineDayId = routineDayId
+        self.gymId = gymId
         self.startedAt = startedAt
         self.performedAt = performedAt
         self.endedAt = nil
@@ -123,6 +125,7 @@ extension QueuedWorkout {
             name: nil,
             notes: notes,
             rating: rating,
+            gymId: gymId,
             avgHeartRate: nil,
             activeCalories: nil,
             healthkitWorkoutUUID: nil
