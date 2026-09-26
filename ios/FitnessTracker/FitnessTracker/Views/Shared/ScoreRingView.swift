@@ -1,11 +1,9 @@
 import SwiftUI
 
 /// A single Apple Watch-style glossy ring for one 0-100 score, with the
-/// rounded value in the center. Shares the same visual language as
-/// `NutritionEntryView`'s macro rings (angular gradient fill, glassy
-/// end-cap "puck") but stands alone so any single score - the daily
-/// adherence score today, the weekly one later - can render as a ring
-/// without depending on the nutrition screen's private view.
+/// rounded value in the center (angular gradient fill, glassy end-cap
+/// "puck") - so any single score, the daily adherence score today, the
+/// weekly one later, can render as a ring on its own.
 struct ScoreRingView: View {
     let score: Double
     var color: Color = .green

@@ -24,11 +24,6 @@ struct UserPreferencesRepository {
         let enabled_cardio_types: [String]
     }
 
-    private struct UpsertNutritionSource: Encodable {
-        let user_id: UUID
-        let nutrition_source: String
-    }
-
     private struct UpsertDailyWaterMlTargetRange: Encodable {
         let user_id: UUID
         let daily_water_ml_target_min: Int
@@ -69,7 +64,6 @@ struct UserPreferencesRepository {
             cardioStepExclusionEnabled: false,
             stepSource: .merged,
             enabledCardioTypes: [CardioType.inclineTreadmill.rawValue, CardioType.stairmaster.rawValue],
-            nutritionSource: .healthkitManual,
             preferredGymId: nil,
             dailyWaterMlTargetMin: 2500,
             dailyWaterMlTargetMax: 3000
@@ -160,21 +154,6 @@ struct UserPreferencesRepository {
         let saved: [UserPreferences] = try await client
             .from("user_preferences")
             .upsert(UpsertEnabledCardioTypes(user_id: userId, enabled_cardio_types: types.map(\.rawValue)), onConflict: "user_id")
-            .select()
-            .execute()
-            .value
-        guard let preferences = saved.first else {
-            throw RepositoryError.insertFailed
-        }
-        return preferences
-    }
-
-    @discardableResult
-    func setNutritionSource(_ source: NutritionSource) async throws -> UserPreferences {
-        let userId = try await client.auth.session.user.id
-        let saved: [UserPreferences] = try await client
-            .from("user_preferences")
-            .upsert(UpsertNutritionSource(user_id: userId, nutrition_source: source.rawValue), onConflict: "user_id")
             .select()
             .execute()
             .value

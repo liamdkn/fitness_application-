@@ -83,6 +83,7 @@ struct MyGoalsView: View {
                     if let nutritionInsight {
                         NutritionInsightCard(
                             insight: nutritionInsight,
+                            goalWeeklyChangeKg: currentGoal?.weeklyWeightChangeKg ?? 0,
                             isApplying: isApplyingNutritionInsight,
                             onAccept: { Task { await acceptNutritionInsight() } },
                             onDismiss: { Task { await dismissNutritionInsight() } }
@@ -496,6 +497,12 @@ struct MyGoalsView: View {
 
 private struct NutritionInsightCard: View {
     let insight: TDEEEstimate
+    /// `UserGoal.weeklyWeightChangeKg` for the phase this estimate belongs
+    /// to - not stored on `TDEEEstimate` itself, so it's threaded in from
+    /// `currentGoal` at the call site. Needed to explain *why* the
+    /// recommended target moves the way it does (see `paceClause`), not
+    /// just what it is.
+    let goalWeeklyChangeKg: Double
     let isApplying: Bool
     let onAccept: () -> Void
     let onDismiss: () -> Void
@@ -510,14 +517,46 @@ private struct NutritionInsightCard: View {
         return " (excludes \(insight.excludedBumpDays) off-plan-affected \(noun))."
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Based on the last \(insight.windowDays) days, your calorie target looks like it should move \(direction), from \(Int(insight.currentCalorieTarget)) to \(Int(insight.recommendedCalorieTarget)) kcal.")
-                .font(.subheadline)
+    /// These two numbers can look contradictory at a glance - maintenance
+    /// going up while the recommended target goes down - so this spells out
+    /// that the target isn't "maintenance plus a fixed deficit," it's
+    /// "whatever hits the goal rate against *this* maintenance," which is
+    /// why a higher maintenance can still mean eating less.
+    private var paceClause: String {
+        if abs(goalWeeklyChangeKg) < 0.01 {
+            return "keeps you at maintenance now that it's moved"
+        }
+        let verb = goalWeeklyChangeKg < 0 ? "losing" : "gaining"
+        return "keeps you \(verb) at your goal pace of \(String(format: "%.2f", abs(goalWeeklyChangeKg))) kg/week now that maintenance has moved"
+    }
 
-            Text("Estimated maintenance: ~\(Int(insight.estimatedTDEE)) kcal/day, from \(insight.loggedDaysInWindow) logged days and a trend weight change of \(String(format: "%.2f", insight.trendWeightChangeKgPerWeek)) kg/week\(excludedBumpDaysClause)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Estimated maintenance")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text("~\(Int(insight.estimatedTDEE)) kcal/day")
+                        .font(.subheadline.weight(.semibold))
+                }
+                Text("What you're actually burning - back-calculated from \(insight.loggedDaysInWindow) logged days vs. a trend weight change of \(String(format: "%.2f", insight.trendWeightChangeKgPerWeek)) kg/week over the last \(insight.windowDays) days\(excludedBumpDaysClause)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Recommended target")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text("\(Int(insight.recommendedCalorieTarget)) kcal/day")
+                        .font(.subheadline.weight(.semibold))
+                }
+                Text("What \(paceClause) - moves \(direction) from your current \(Int(insight.currentCalorieTarget)) kcal.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             HStack {
                 Button(action: onDismiss) {

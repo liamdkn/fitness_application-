@@ -63,7 +63,7 @@ struct FoodPickerView: View {
                     }
                 }
             }
-            .searchable(text: $searchText, prompt: "Search foods")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search foods")
             // `.task(id:)` cancels the previous search when `searchText`
             // changes again before it resolves - without that, an
             // in-flight request for an earlier, shorter keystroke (e.g.
