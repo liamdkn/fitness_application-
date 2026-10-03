@@ -447,7 +447,7 @@ struct MyGoalsView: View {
                 nutritionInsight = nil
                 return
             }
-            let windowNutrition = try await nutritionRepository.fetchRange(from: windowStart, to: Date())
+            let windowNutrition = try await nutritionRepository.fetchDailyTotals(from: windowStart, to: Date())
             let windowCheckins = (try? await dailyCheckinRepository.fetchRecent(days: tdeeWindowDays)) ?? []
 
             guard let recommendation = AdaptiveTDEEEngine.evaluate(

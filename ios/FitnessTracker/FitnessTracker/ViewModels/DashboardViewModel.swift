@@ -57,7 +57,7 @@ final class DashboardViewModel: ObservableObject {
         defer { isLoading = false }
 
         async let pastGoalsResult = try? goalsRepository.fetchPastGoals(limit: 100)
-        async let nutritionResult = try? nutritionRepository.fetchLog(date: date)
+        async let nutritionResult = try? nutritionRepository.fetchDailyTotal(date: date)
         async let stepsResult = try? healthRepository.fetchStepLog(date: date)
         async let sleepResult = try? healthRepository.fetchSleepLog(date: date)
         async let volumeResult = try? workoutRepository.fetchWeeklyVolumeKg()

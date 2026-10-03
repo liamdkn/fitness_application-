@@ -21,8 +21,31 @@ struct CardioSessionRepository {
         let ended_at: Date
         let avg_heart_rate: Int?
         let active_calories: Double?
+        let distance_meters: Double?
+        let elevation_gain_m: Double?
+        let avg_power_w: Int?
+        let avg_cadence_spm: Int?
+        let total_calories: Double?
+        let has_route: Bool
         let source: String
         let healthkit_uuid: String
+    }
+
+    private struct NewRunRoute: Encodable {
+        let session_id: UUID
+        let user_id: UUID
+        let points: [RoutePoint]
+    }
+
+    /// Only the fields being filled in - nil ones are skipped, so a backfill
+    /// never overwrites something already stored.
+    private struct RunMetricsUpdate: Encodable {
+        let distance_meters: Double?
+        let elevation_gain_m: Double?
+        let avg_power_w: Int?
+        let avg_cadence_spm: Int?
+        let total_calories: Double?
+        let has_route: Bool?
     }
 
     private struct PauseUpdate: Encodable {
@@ -115,6 +138,12 @@ struct CardioSessionRepository {
         endedAt: Date,
         avgHeartRate: Int?,
         activeCalories: Double?,
+        distanceMeters: Double? = nil,
+        elevationGainM: Double? = nil,
+        avgPowerW: Int? = nil,
+        avgCadenceSPM: Int? = nil,
+        totalCalories: Double? = nil,
+        route: [RoutePoint] = [],
         healthkitUUID: String
     ) async throws -> CardioTrackingSession {
         let userId = try await client.auth.session.user.id
@@ -127,6 +156,12 @@ struct CardioSessionRepository {
                 ended_at: endedAt,
                 avg_heart_rate: avgHeartRate,
                 active_calories: activeCalories,
+                distance_meters: distanceMeters,
+                elevation_gain_m: elevationGainM,
+                avg_power_w: avgPowerW,
+                avg_cadence_spm: avgCadenceSPM,
+                total_calories: totalCalories,
+                has_route: !route.isEmpty,
                 source: "healthkit",
                 healthkit_uuid: healthkitUUID
             ))
@@ -136,7 +171,58 @@ struct CardioSessionRepository {
         guard let session = inserted.first else {
             throw RepositoryError.insertFailed
         }
+        if !route.isEmpty {
+            try await saveRoute(sessionId: session.id, userId: userId, points: route)
+        }
         return session
+    }
+
+    private func saveRoute(sessionId: UUID, userId: UUID, points: [RoutePoint]) async throws {
+        try await client
+            .from("run_routes")
+            .upsert(NewRunRoute(session_id: sessionId, user_id: userId, points: points), onConflict: "session_id")
+            .execute()
+    }
+
+    func fetchRoute(sessionId: UUID) async throws -> [RoutePoint] {
+        struct Row: Decodable { let points: [RoutePoint] }
+        let rows: [Row] = try await client
+            .from("run_routes")
+            .select("points")
+            .eq("session_id", value: sessionId)
+            .limit(1)
+            .execute()
+            .value
+        return rows.first?.points ?? []
+    }
+
+    /// Fills the run extras (and route) onto a run imported before they were
+    /// being read.
+    func enrichRun(
+        sessionId: UUID,
+        distanceMeters: Double?,
+        elevationGainM: Double?,
+        avgPowerW: Int?,
+        avgCadenceSPM: Int?,
+        totalCalories: Double?,
+        route: [RoutePoint]
+    ) async throws {
+        let userId = try await client.auth.session.user.id
+        try await client
+            .from("cardio_tracking_sessions")
+            .update(RunMetricsUpdate(
+                distance_meters: distanceMeters,
+                elevation_gain_m: elevationGainM,
+                avg_power_w: avgPowerW,
+                avg_cadence_spm: avgCadenceSPM,
+                total_calories: totalCalories,
+                has_route: route.isEmpty ? nil : true
+            ))
+            .eq("id", value: sessionId)
+            .execute()
+        if !route.isEmpty {
+            try await saveRoute(sessionId: sessionId, userId: userId, points: route)
+        }
     }
 
     func pauseSession(sessionId: UUID) async throws -> CardioTrackingSession {

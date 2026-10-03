@@ -11,7 +11,6 @@ struct MealSlotDetailView: View {
     let date: Date
 
     @State private var addingFood = false
-    @State private var addingRecipe = false
     @State private var addingMealPrep = false
     @State private var addingSavedMeal = false
     @State private var isSavingMeal = false
@@ -26,105 +25,35 @@ struct MealSlotDetailView: View {
     }
 
     var body: some View {
-        List {
-            if let group, !entries.isEmpty {
-                Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("\(Int(group.totalCalories)) cal")
-                            .font(.title2.bold())
-                        HStack(spacing: 16) {
-                            macroText("C", group.totalCarbsG)
-                            macroText("F", group.totalFatG)
-                            macroText("P", group.totalProteinG)
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
+        ScrollView {
+            VStack(spacing: 16) {
+                headerCard
+                optionsRow
 
-            Section {
-                ForEach(entries) { slotEntry in
-                    Button {
-                        editingEntry = slotEntry
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(slotEntry.name)
-                                    .foregroundStyle(.primary)
-                                Text("\(quantityLabel(slotEntry.entry.quantity)) \u{00d7} \(slotEntry.servingLabel)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text("\(Int(slotEntry.calories)) kcal")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .onDelete { offsets in
-                    let toDelete = offsets.map { entries[$0].entry }
-                    Task {
-                        for entry in toDelete {
-                            await viewModel.deleteEntry(entry)
-                        }
-                    }
-                }
-            } footer: {
                 if entries.isEmpty {
-                    Text("Nothing logged for \(slot.name) yet.")
+                    emptyState
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(entries) { slotEntry in
+                            foodCard(slotEntry)
+                        }
+                    }
+                }
+
+                if let errorMessage = viewModel.errorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-
-            if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
-            }
+            .padding()
         }
         .navigationTitle(slot.name)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        addingFood = true
-                    } label: {
-                        Label("Add Food", systemImage: "plus")
-                    }
-                    Button {
-                        addingRecipe = true
-                    } label: {
-                        Label("Log Recipe", systemImage: "book")
-                    }
-                    Button {
-                        addingMealPrep = true
-                    } label: {
-                        Label("Log Meal Prep", systemImage: "takeoutbag.and.cup.and.straw")
-                    }
-                    Button {
-                        addingSavedMeal = true
-                    } label: {
-                        Label("Log Saved Meal", systemImage: "list.bullet.rectangle")
-                    }
-                    if !entries.isEmpty {
-                        Button {
-                            isSavingMeal = true
-                        } label: {
-                            Label("Save This Meal", systemImage: "bookmark")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                }
-            }
-        }
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $addingFood) {
             FoodPickerView(mealSlotName: slot.name) { food, quantity in
                 Task { await viewModel.logFood(food, quantity: quantity, mealSlotId: slot.id, date: date) }
-            }
-        }
-        .sheet(isPresented: $addingRecipe) {
-            RecipePickerView(mealSlotName: slot.name) { recipe, quantity in
-                Task { await viewModel.logRecipe(recipe, quantity: quantity, mealSlotId: slot.id, date: date) }
             }
         }
         .sheet(isPresented: $addingMealPrep) {
@@ -147,14 +76,214 @@ struct MealSlotDetailView: View {
         }
     }
 
-    private func quantityLabel(_ quantity: Double) -> String {
-        quantity == quantity.rounded() ? "\(Int(quantity))" : String(format: "%.1f", quantity)
+
+    // MARK: - Header
+
+    /// The meal's totals up top - calories and the carbs/fat/protein split -
+    /// so the whole meal reads at a glance before the individual foods.
+    private var headerCard: some View {
+        let calories = group?.totalCalories ?? 0
+        let carbs = group?.totalCarbsG ?? 0
+        let fat = group?.totalFatG ?? 0
+        let protein = group?.totalProteinG ?? 0
+        return VStack(spacing: 14) {
+            HStack(spacing: 18) {
+                MacroRing(calories: calories, carbsG: carbs, fatG: fat, proteinG: protein)
+                    .frame(width: 96, height: 96)
+                VStack(alignment: .leading, spacing: 8) {
+                    macroLine("Protein", protein, color: .blue)
+                    macroLine("Carbs", carbs, color: .green)
+                    macroLine("Fat", fat, color: .yellow)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
     }
 
-    private func macroText(_ label: String, _ grams: Double) -> some View {
-        HStack(spacing: 3) {
-            Text(label).fontWeight(.bold)
-            Text("\(Int(grams))g")
+    private func macroLine(_ label: String, _ grams: Double, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 9, height: 9)
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Text("\(Int(grams.rounded()))g")
+                .font(.subheadline.bold())
+                .monospacedDigit()
+        }
+    }
+
+    // MARK: - Options
+
+    /// What you can do with this meal, as buttons in reach rather than
+    /// tucked behind a top-corner menu.
+    private var optionsRow: some View {
+        HStack(spacing: 10) {
+            optionButton("Add Food", icon: "plus") { addingFood = true }
+            optionButton("Recipes", icon: "takeoutbag.and.cup.and.straw") { addingMealPrep = true }
+            optionButton("Saved", icon: "list.bullet.rectangle") { addingSavedMeal = true }
+            if !entries.isEmpty {
+                optionButton("Save Meal", icon: "bookmark") { isSavingMeal = true }
+            }
+        }
+    }
+
+    private func optionButton(_ label: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .frame(height: 24)
+                Text(label)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity, minHeight: 64)
+            .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.blue)
+    }
+
+    // MARK: - Foods
+
+    private var emptyState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "fork.knife")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text("Nothing logged for \(slot.name) yet")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// One food: name (with its brand underneath), the amount eaten and its
+    /// calories, then protein/carbs/fat for just that item.
+    private func foodCard(_ slotEntry: MealSlotEntry) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(slotEntry.title)
+                        .font(.body.weight(.semibold))
+                    if slotEntry.isVerified {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+                }
+                if let brand = slotEntry.brand {
+                    Text(brand)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(slotEntry.amountLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    macroPill("P", slotEntry.proteinG, .blue)
+                    macroPill("C", slotEntry.carbsG, .green)
+                    macroPill("F", slotEntry.fatG, .yellow)
+                }
+                .padding(.top, 2)
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 8) {
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text("\(Int(slotEntry.calories.rounded()))")
+                        .font(.title3.bold())
+                        .monospacedDigit()
+                    Text("kcal")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Menu {
+                    Button {
+                        editingEntry = slotEntry
+                    } label: {
+                        Label("Edit Amount", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        Task { await viewModel.deleteEntry(slotEntry.entry) }
+                    } label: {
+                        Label("Remove", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 28)
+                        .contentShape(Rectangle())
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .onTapGesture { editingEntry = slotEntry }
+    }
+
+    private func macroPill(_ label: String, _ grams: Double, _ color: Color) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text("\(label) \(Int(grams.rounded()))g")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+    }
+}
+
+/// Calories at the centre, ringed by carbs/fat/protein's share of them
+/// (4/9/4 kcal per gram) - the same idea as `MacroBreakdownRing`, sized for
+/// the meal header and without its legend, since the header lists the
+/// macros beside it.
+private struct MacroRing: View {
+    let calories: Double
+    let carbsG: Double
+    let fatG: Double
+    let proteinG: Double
+
+    private var segments: [(Color, Double)] {
+        let carbs = carbsG * 4, fat = fatG * 9, protein = proteinG * 4
+        let total = carbs + fat + protein
+        guard total > 0 else { return [] }
+        return [(.green, carbs / total), (.yellow, fat / total), (.blue, protein / total)]
+    }
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.secondary.opacity(0.18), lineWidth: 11)
+            ForEach(Array(arcs.enumerated()), id: \.offset) { _, arc in
+                Circle()
+                    .trim(from: arc.start, to: arc.end)
+                    .stroke(arc.color, style: StrokeStyle(lineWidth: 11, lineCap: .butt))
+                    .rotationEffect(.degrees(-90))
+            }
+            VStack(spacing: 0) {
+                Text("\(Int(calories.rounded()))")
+                    .font(.title2.bold())
+                    .monospacedDigit()
+                Text("kcal")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var arcs: [(color: Color, start: Double, end: Double)] {
+        var start = 0.0
+        return segments.map { color, share in
+            defer { start += share }
+            return (color, start, start + share)
         }
     }
 }

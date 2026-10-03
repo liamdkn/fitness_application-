@@ -63,7 +63,7 @@ struct MealPrepBuilderView: View {
             Form {
                 Section("Batch") {
                     TextField("Name (e.g. Overnight oats)", text: $name)
-                    DatePicker("Prepped", selection: $preppedOn, displayedComponents: .date)
+                    DatePicker("Made on", selection: $preppedOn, displayedComponents: .date)
                     Stepper("Makes \(portions) portion\(portions == 1 ? "" : "s")", value: $portions, in: 1...30)
                     Stepper("Eat within \(eatWithinDays) day\(eatWithinDays == 1 ? "" : "s")", value: $eatWithinDays, in: 1...14)
                     HStack {
@@ -119,7 +119,7 @@ struct MealPrepBuilderView: View {
                     Text(errorMessage).foregroundStyle(.red)
                 }
             }
-            .navigationTitle("New Meal Prep")
+            .navigationTitle("New Recipe")
             .navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
@@ -143,7 +143,7 @@ struct MealPrepBuilderView: View {
                 await loadPreviousBatch()
             }
             .sheet(isPresented: $showingAddIngredient) {
-                FoodPickerView(mealSlotName: "Meal Prep") { food, quantity in
+                FoodPickerView(mealSlotName: "Recipe") { food, quantity in
                     ingredients.append(PrepIngredient(food: food, quantity: quantity))
                 }
             }
@@ -467,7 +467,7 @@ private struct BrandSwapSheet: View {
                 }
             }
             .sheet(isPresented: $showingSearch) {
-                FoodPickerView(mealSlotName: "Meal Prep") { food, quantity in
+                FoodPickerView(mealSlotName: "Recipe") { food, quantity in
                     onSwap(food, quantity)
                     dismiss()
                 }

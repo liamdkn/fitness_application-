@@ -3,6 +3,9 @@ import Foundation
 struct SavedMeal: Codable, Identifiable, Hashable {
     let id: UUID
     let name: String
+    /// Optional grouping ("Overnight oats") - the Saved Meals picker lists
+    /// meals under it. `nil` when uncategorised.
+    let category: String?
 }
 
 struct SavedMealItem: Codable, Identifiable, Hashable {

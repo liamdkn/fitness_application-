@@ -17,9 +17,8 @@ struct RoutineEditorView: View {
 
     /// From the current phase, if it sets a strength-training target -
     /// used to show whether the split has caught up to it yet.
-    private var sessionsTarget: (total: Int, optional: Int)? {
-        guard let total = goal?.strengthSessionsPerWeek else { return nil }
-        return (total, goal?.strengthOptionalSessions ?? 0)
+    private var sessionsTarget: Int? {
+        goal?.strengthSessionsPerWeek
     }
 
     var body: some View {
@@ -30,7 +29,24 @@ struct RoutineEditorView: View {
 
             if let sessionsTarget {
                 Section {
-                    sessionsBanner(target: sessionsTarget.total, optional: sessionsTarget.optional)
+                    sessionsBanner(target: sessionsTarget)
+                }
+            }
+
+            if let routine {
+                Section {
+                    NavigationLink {
+                        RoutineNotesView(routine: routine) {
+                            Task { await load() }
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label("Training Notes", systemImage: "cross.case")
+                            Text(routine.notes.map { _ in "Pain rules, stop rules, retests" } ?? "Nothing added yet")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
 
@@ -127,17 +143,14 @@ struct RoutineEditorView: View {
     }
 
     @ViewBuilder
-    private func sessionsBanner(target: Int, optional: Int) -> some View {
-        let required = target - optional
-        let onTrack = days.count >= required
+    private func sessionsBanner(target: Int) -> some View {
+        let onTrack = days.count >= target
         VStack(alignment: .leading, spacing: 4) {
             Text("\(days.count) of \(target) planned sessions set up")
                 .font(.subheadline)
                 .fontWeight(.semibold)
                 .foregroundStyle(onTrack ? Color.primary : Color.orange)
-            Text(optional > 0
-                ? "\(required) required + \(optional) optional, from your current phase."
-                : "From your current phase - tap a day's badge to mark it optional.")
+            Text("From your current phase.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -151,18 +164,6 @@ struct RoutineEditorView: View {
             } label: {
                 Text(day.label)
             }
-            Spacer()
-            Button {
-                Task { await toggleOptional(day) }
-            } label: {
-                Text(day.isOptional ? "Optional" : "Required")
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(day.isOptional ? Color.orange.opacity(0.15) : Color.secondary.opacity(0.12), in: Capsule())
-                    .foregroundStyle(day.isOptional ? .orange : .secondary)
-            }
-            .buttonStyle(.plain)
         }
         .contextMenu {
             Button("Rename") {
@@ -214,16 +215,6 @@ struct RoutineEditorView: View {
         }
     }
 
-    private func toggleOptional(_ day: RoutineDay) async {
-        do {
-            let updated = try await repository.setDayOptional(dayId: day.id, isOptional: !day.isOptional)
-            if let index = days.firstIndex(where: { $0.id == updated.id }) {
-                days[index] = updated
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
 
     private func removeDays(at offsets: IndexSet) {
         let toRemove = offsets.map { days[$0] }

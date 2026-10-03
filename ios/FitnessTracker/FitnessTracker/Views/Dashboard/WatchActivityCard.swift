@@ -55,7 +55,11 @@ private struct WatchActivityRow: View {
     private var subtitle: String {
         let workout = candidate.detectedWorkout
         let minutes = max(0, Int(workout.endedAt.timeIntervalSince(workout.startedAt) / 60))
-        var parts = ["\(minutes) min"]
+        var parts: [String] = []
+        if let meters = workout.distanceMeters, meters > 0 {
+            parts.append(String(format: "%.2f km", meters / 1000))
+        }
+        parts.append("\(minutes) min")
         if let calories = workout.activeCalories { parts.append("\(Int(calories)) cal") }
         if let avgHeartRate = workout.avgHeartRate { parts.append("\(avgHeartRate) avg bpm") }
         return parts.joined(separator: " \u{00b7} ")

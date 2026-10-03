@@ -11,7 +11,17 @@ struct MealSlotEntry: Identifiable {
     var id: UUID { entry.id }
 
     var name: String { food?.displayName ?? recipe?.name ?? "" }
+    /// Name without the brand, for a card that shows the brand on its own line.
+    var title: String { food?.name ?? recipe?.name ?? "" }
+    var brand: String? { food?.brand.flatMap { $0.isEmpty ? nil : $0 } }
+    var isVerified: Bool { food?.isVerified ?? false }
+    var isMealPrep: Bool { recipe != nil }
     var servingLabel: String { food?.servingLabel ?? recipe?.servingUnit ?? "" }
+    /// What was actually eaten ("80g", "250ml", "2 egg") rather than the raw
+    /// servings multiplier ("0.8 x 100g") - see `AmountLabel`.
+    var amountLabel: String {
+        food?.amountLabel(at: entry.quantity) ?? recipe?.amountLabel(at: entry.quantity) ?? ""
+    }
     var calories: Double { food?.calories(at: entry.quantity) ?? recipe?.calories(at: entry.quantity) ?? 0 }
     var proteinG: Double { food?.proteinG(at: entry.quantity) ?? recipe?.proteinG(at: entry.quantity) ?? 0 }
     var carbsG: Double { food?.carbsG(at: entry.quantity) ?? recipe?.carbsG(at: entry.quantity) ?? 0 }

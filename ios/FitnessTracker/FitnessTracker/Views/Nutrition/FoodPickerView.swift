@@ -13,6 +13,10 @@ struct FoodPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var results: [Food] = []
+    /// Open Food Facts text-search hits for the current query, shown under
+    /// the local results - nothing is stored until one is picked.
+    @State private var onlineResults: [OpenFoodFactsService.SearchHit] = []
+    @State private var isSearchingOnline = false
     @State private var recentFoods: [Food] = []
     @State private var errorMessage: String?
     @State private var pendingFood: Food?
@@ -25,6 +29,12 @@ struct FoodPickerView: View {
     /// standalone "Scan Label" quick action.
     @State private var labelScanBarcode: String?
     @State private var scannedLabelDraft: ScannedLabelDraft?
+    /// An unverified food on its way to the full-screen check before the
+    /// quantity step - see `select` and `AddCustomFoodView.reviewing`.
+    @State private var reviewFood: Food?
+    /// A scanned barcode nothing matched, being typed in by hand - the
+    /// resulting food is saved against it (see `AddCustomFoodView.barcode`).
+    @State private var manualEntry: ManualBarcodeEntry?
     private let repository = FoodRepository()
     private let mealEntryRepository = MealEntryRepository()
 
@@ -54,12 +64,26 @@ struct FoodPickerView: View {
                             }
                         }
                     }
-                } else if results.isEmpty {
-                    Text("No matches - try a different search, or add a new food.")
-                        .foregroundStyle(.secondary)
                 } else {
-                    ForEach(results) { food in
-                        foodRow(food)
+                    if !results.isEmpty {
+                        ForEach(results) { food in
+                            foodRow(food)
+                        }
+                    }
+                    if !onlineResults.isEmpty {
+                        Section("More results - Open Food Facts") {
+                            ForEach(onlineResults) { hit in
+                                onlineRow(hit)
+                            }
+                        }
+                    } else if isSearchingOnline {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Searching online...").foregroundStyle(.secondary)
+                        }
+                    } else if results.isEmpty {
+                        Text("No matches - try a different search, scan the barcode, or add a new food.")
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -71,6 +95,7 @@ struct FoodPickerView: View {
             // "chicken") and clobber it with a broader, wrong-looking
             // result list.
             .task(id: searchText) {
+                if searchText.isEmpty { onlineResults = [] }
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 guard !Task.isCancelled else { return }
                 await search(searchText)
@@ -88,8 +113,8 @@ struct FoodPickerView: View {
                 }
             }
             .sheet(item: $pendingFood) { food in
-                LogFoodQuantityView(food: food, mealSlotName: mealSlotName) { quantity in
-                    onLog(food, quantity)
+                LogFoodQuantityView(food: food, mealSlotName: mealSlotName) { confirmedFood, quantity in
+                    onLog(confirmedFood, quantity)
                     dismiss()
                 }
             }
@@ -100,13 +125,26 @@ struct FoodPickerView: View {
             }
             .sheet(isPresented: $showingScanner) {
                 BarcodeScannerView(
-                    onFound: { food in pendingFood = food },
+                    onFound: { food in select(food) },
                     onScanLabelInstead: { barcode in
                         labelScanBarcode = barcode
                         showingScanner = false
                         showingLabelScanner = true
+                    },
+                    onEnterManually: { barcode in
+                        showingScanner = false
+                        manualEntry = ManualBarcodeEntry(barcode: barcode)
                     }
                 )
+            }
+            .sheet(item: $manualEntry) { entry in
+                AddCustomFoodView(onCreated: { food in pendingFood = food }, barcode: entry.barcode)
+            }
+            // Full screen, not a sheet: this is the "is this food right?"
+            // check every unverified food goes through, and it needs the
+            // whole screen to compare against the pack.
+            .fullScreenCover(item: $reviewFood) { food in
+                AddCustomFoodView(onCreated: { confirmed in pendingFood = confirmed }, reviewing: food)
             }
             .sheet(isPresented: $showingLabelScanner) {
                 NutritionLabelScannerView(barcode: labelScanBarcode) { parsed, barcode in
@@ -123,6 +161,7 @@ struct FoodPickerView: View {
                     initialCarbs: draft.parsed.carbsG.map { formattedOCRValue($0) } ?? "",
                     initialFat: draft.parsed.fatG.map { formattedOCRValue($0) } ?? "",
                     initialFiber: draft.parsed.fiberG.map { formattedOCRValue($0) } ?? "",
+                    initialSodium: draft.parsed.sodiumMg.map { formattedOCRValue($0) } ?? "",
                     source: "ocr",
                     barcode: draft.barcode
                 )
@@ -155,10 +194,23 @@ struct FoodPickerView: View {
         .foregroundStyle(.blue)
     }
 
+    /// A verified food goes straight to the quantity step; anything else -
+    /// scanned, searched, a recent, an online hit - opens the full-screen
+    /// check first, every time, until it's been verified. That's what keeps
+    /// the database honest: nothing unchecked gets logged without a look
+    /// at its numbers.
+    private func select(_ food: Food) {
+        if food.isVerified {
+            pendingFood = food
+        } else {
+            reviewFood = food
+        }
+    }
+
     @ViewBuilder
     private func foodRow(_ food: Food) -> some View {
         Button {
-            pendingFood = food
+            select(food)
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(food.displayName)
@@ -167,6 +219,33 @@ struct FoodPickerView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func onlineRow(_ hit: OpenFoodFactsService.SearchHit) -> some View {
+        Button {
+            Task { await pickOnline(hit) }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(hit.lookup.brand.map { "\(hit.lookup.name) (\($0))" } ?? hit.lookup.name)
+                    .foregroundStyle(.primary)
+                Text("\(Int(hit.lookup.calories)) kcal per 100\(hit.lookup.servingUnit)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Stores the picked hit (or finds the copy already stored) and sends it
+    /// through the same confirm-then-quantity steps a barcode scan uses, so
+    /// its brand and numbers can be checked before logging.
+    private func pickOnline(_ hit: OpenFoodFactsService.SearchHit) async {
+        do {
+            select(try await repository.food(for: hit))
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -182,9 +261,27 @@ struct FoodPickerView: View {
             errorMessage = nil
         } catch is CancellationError {
             // Superseded by a newer keystroke - nothing to show.
+            return
         } catch {
             errorMessage = error.localizedDescription
         }
+        await searchOnline(query)
+    }
+
+    /// Runs after the (instant) local search so local results are never held
+    /// up by the network. A failed/offline lookup just leaves the section
+    /// empty - local results are still there - rather than raising an error.
+    private func searchOnline(_ query: String) async {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 3 else {
+            onlineResults = []
+            return
+        }
+        isSearchingOnline = true
+        defer { isSearchingOnline = false }
+        guard let hits = try? await OpenFoodFactsService.search(query: trimmed), !Task.isCancelled else { return }
+        let localBarcodes = Set(results.compactMap(\.barcode))
+        onlineResults = hits.filter { !localBarcodes.contains($0.barcode) }
     }
 
     /// Most-recently-logged foods, most recent first - `fetchByIds` doesn't
@@ -218,6 +315,11 @@ enum QuantityInputMode: Hashable {
 /// (`AddCustomFoodView`) - wrapped just to give `.sheet(item:)` an
 /// `Identifiable` to key off, since `ParsedNutritionLabel` itself has no
 /// natural identity.
+private struct ManualBarcodeEntry: Identifiable {
+    let barcode: String
+    var id: String { barcode }
+}
+
 private struct ScannedLabelDraft: Identifiable {
     let id = UUID()
     let parsed: ParsedNutritionLabel
@@ -225,17 +327,27 @@ private struct ScannedLabelDraft: Identifiable {
 }
 
 private struct LogFoodQuantityView: View {
-    let food: Food
+    /// State, not `let`: "Edit Food Details" can replace it with the
+    /// corrected copy, and what gets logged is whatever it ends up as.
+    @State private var food: Food
     /// Context only, not a picker - which slot this logs into is already
     /// fixed by which slot's card was tapped to get here, so this is a
     /// read-only label rather than a reassignment control.
     let mealSlotName: String
-    let onConfirm: (Double) -> Void
+    let onConfirm: (Food, Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var editingFood = false
     @State private var quantityText = "1"
     @State private var inputMode: QuantityInputMode = .servings
     private let mealEntryRepository = MealEntryRepository()
+
+    init(food: Food, mealSlotName: String, onConfirm: @escaping (Food, Double) -> Void) {
+        _food = State(initialValue: food)
+        self.mealSlotName = mealSlotName
+        self.onConfirm = onConfirm
+    }
+
     /// Keyed per-food so switching foods never leaks one food's preferred
     /// mode onto another - a food you always weigh in grams and a food you
     /// always log as "2 slices" can each keep their own default.
@@ -254,6 +366,13 @@ private struct LogFoodQuantityView: View {
             Form {
                 Section {
                     LabeledContent("Meal", value: mealSlotName)
+                    if let brand = food.brand, !brand.isEmpty {
+                        LabeledContent("Brand", value: brand)
+                    }
+                    if food.isVerified {
+                        Label("Verified", systemImage: "checkmark.seal.fill")
+                            .foregroundStyle(.green)
+                    }
                     Picker("Enter as", selection: $inputMode) {
                         Text("Servings").tag(QuantityInputMode.servings)
                         Text(food.servingUnit.capitalized).tag(QuantityInputMode.amount)
@@ -292,7 +411,19 @@ private struct LogFoodQuantityView: View {
                         if let fiber = food.fiberG(at: quantity) {
                             LabeledContent("Fiber", value: "\(Int(fiber))g")
                         }
+                        if let sodium = food.sodiumMg(at: quantity) {
+                            LabeledContent("Sodium", value: "\(Int(sodium.rounded())) mg")
+                        }
                     }
+                }
+                Section {
+                    Button {
+                        editingFood = true
+                    } label: {
+                        Label("Edit Food Details", systemImage: "pencil")
+                    }
+                } footer: {
+                    Text("Something not matching the pack? Correct it here - and untick verified if it needs another look.")
                 }
             }
             .navigationTitle(food.name)
@@ -303,13 +434,16 @@ private struct LogFoodQuantityView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
-                        if let quantity { onConfirm(quantity) }
+                        if let quantity { onConfirm(food, quantity) }
                     }
                     .disabled(!(quantity.map { $0 > 0 } ?? false))
                 }
             }
             .task {
                 await loadDefaults()
+            }
+            .fullScreenCover(isPresented: $editingFood) {
+                AddCustomFoodView(onCreated: { updated in food = updated }, reviewing: food)
             }
         }
     }
@@ -401,143 +535,6 @@ struct MacroBreakdownRing: View {
             Spacer(minLength: 20)
             Text("\(Int((fraction * 100).rounded()))%")
                 .font(.caption.bold())
-        }
-    }
-}
-
-/// Also the confirm/edit step for an OCR'd nutrition label
-/// (`NutritionLabelScannerView`) - same form, just pre-filled and carrying
-/// `source`/`barcode` through to the save, rather than a second near-
-/// identical form. Every field stays editable either way, which is the
-/// actual point for an OCR read: catching a mis-scanned number before it's
-/// saved, not just displaying what the camera found.
-struct AddCustomFoodView: View {
-    let onCreated: (Food) -> Void
-    private let source: String
-    private let barcode: String?
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var name: String
-    @State private var brand = ""
-    @State private var servingSize: String
-    @State private var servingUnit: String
-    @State private var calories: String
-    @State private var protein: String
-    @State private var carbs: String
-    @State private var fat: String
-    @State private var fiber: String
-    @State private var errorMessage: String?
-    @State private var isSaving = false
-    private let repository = FoodRepository()
-
-    init(
-        onCreated: @escaping (Food) -> Void,
-        initialName: String = "",
-        initialServingSize: String = "100",
-        initialServingUnit: String = "g",
-        initialCalories: String = "",
-        initialProtein: String = "",
-        initialCarbs: String = "",
-        initialFat: String = "",
-        initialFiber: String = "",
-        source: String = "user",
-        barcode: String? = nil
-    ) {
-        self.onCreated = onCreated
-        self.source = source
-        self.barcode = barcode
-        _name = State(initialValue: initialName)
-        _servingSize = State(initialValue: initialServingSize)
-        _servingUnit = State(initialValue: initialServingUnit)
-        _calories = State(initialValue: initialCalories)
-        _protein = State(initialValue: initialProtein)
-        _carbs = State(initialValue: initialCarbs)
-        _fat = State(initialValue: initialFat)
-        _fiber = State(initialValue: initialFiber)
-    }
-
-    private var isValid: Bool {
-        !name.isEmpty && Double(servingSize) != nil && !servingUnit.isEmpty
-            && Double(calories) != nil && Double(protein) != nil && Double(carbs) != nil && Double(fat) != nil
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Food") {
-                    TextField("Name", text: $name)
-                        .textInputAutocapitalization(.words)
-                    TextField("Brand (optional)", text: $brand)
-                }
-                Section("Serving") {
-                    HStack {
-                        TextField("Size", text: $servingSize)
-                            .keyboardType(.decimalPad)
-                        TextField("Unit (g, ml, slice...)", text: $servingUnit)
-                    }
-                }
-                Section("Per Serving") {
-                    numberField("Calories", text: $calories, unit: "kcal")
-                    numberField("Protein", text: $protein, unit: "g")
-                    numberField("Carbs", text: $carbs, unit: "g")
-                    numberField("Fat", text: $fat, unit: "g")
-                    numberField("Fiber (optional)", text: $fiber, unit: "g")
-                }
-                if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
-                }
-            }
-            .navigationTitle(source == "ocr" ? "Confirm Scanned Label" : "New Food")
-            .scrollDismissesKeyboard(.interactively)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") { Task { await save() } }
-                        .disabled(!isValid || isSaving)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func numberField(_ label: String, text: Binding<String>, unit: String) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            TextField("0", text: text)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 70)
-            Text(unit).foregroundStyle(.secondary)
-        }
-    }
-
-    private func save() async {
-        guard let size = Double(servingSize), let cal = Double(calories),
-              let p = Double(protein), let c = Double(carbs), let f = Double(fat)
-        else { return }
-        isSaving = true
-        defer { isSaving = false }
-        do {
-            let food = try await repository.createCustom(
-                name: name,
-                brand: brand.isEmpty ? nil : brand,
-                servingSize: size,
-                servingUnit: servingUnit,
-                calories: cal,
-                proteinG: p,
-                carbsG: c,
-                fatG: f,
-                fiberG: Double(fiber),
-                barcode: barcode,
-                source: source
-            )
-            onCreated(food)
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 }

@@ -1,0 +1,9 @@
+{
+  "name": "fitness-tracker-scripts",
+  "private": true,
+  "description": "Developer scripts for the Fitness Tracker Supabase project",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "pg": "^8.11.3"
+  }
+}

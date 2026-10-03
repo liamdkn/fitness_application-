@@ -15,7 +15,17 @@ struct Food: Codable, Identifiable, Hashable {
     let source: String
     let isCustom: Bool
     let createdBy: UUID?
+    /// Set once the user has checked this food against its pack and ticked
+    /// "verified" - until then, picking or scanning it opens the full-screen
+    /// check first (see `FoodPickerView`). A shared row (seed / Open Food
+    /// Facts) is never verified in place; verifying it makes the user's own
+    /// copy, which is.
     let isVerified: Bool
+    /// Sodium per serving, in mg. `nil` = not recorded yet (distinct from 0).
+    let sodiumMg: Double?
+    /// The shared catalog row this is a personal copy of, if any - used to
+    /// hide the original from search once a copy exists.
+    let sourceFoodId: UUID?
 
     enum CodingKeys: String, CodingKey {
         case id, name, brand
@@ -30,6 +40,8 @@ struct Food: Codable, Identifiable, Hashable {
         case isCustom = "is_custom"
         case createdBy = "created_by"
         case isVerified = "is_verified"
+        case sodiumMg = "sodium_mg"
+        case sourceFoodId = "source_food_id"
     }
 
     /// A food logged at `quantity` servings - `quantity` is a multiplier on
@@ -40,6 +52,7 @@ struct Food: Codable, Identifiable, Hashable {
     func carbsG(at quantity: Double) -> Double { carbsG * quantity }
     func fatG(at quantity: Double) -> Double { fatG * quantity }
     func fiberG(at quantity: Double) -> Double? { fiberG.map { $0 * quantity } }
+    func sodiumMg(at quantity: Double) -> Double? { sodiumMg.map { $0 * quantity } }
 
     var servingLabel: String {
         let sizeText = servingSize == servingSize.rounded() ? String(Int(servingSize)) : String(format: "%.1f", servingSize)
@@ -49,5 +62,36 @@ struct Food: Codable, Identifiable, Hashable {
     var displayName: String {
         guard let brand, !brand.isEmpty else { return name }
         return "\(name) (\(brand))"
+    }
+}
+
+/// How a logged quantity reads on a row: the real amount when the food is
+/// measured out ("80g", "250ml"), a count for single items ("2 egg"), and
+/// "1.5 x 182g medium" only for the unit-with-a-size kinds in between. The
+/// stored `quantity` is a servings multiplier, so "0.8 x 100g" is what the
+/// raw numbers say - this turns it into what was actually eaten.
+enum AmountLabel {
+    static func text(quantity: Double, servingSize: Double, servingUnit: String, servingLabel: String) -> String {
+        let unit = servingUnit.lowercased()
+        if unit == "g" || unit == "ml" {
+            return trimmed(quantity * servingSize) + servingUnit
+        }
+        if servingSize == 1 {
+            return "\(trimmed(quantity)) \(servingUnit)"
+        }
+        return "\(trimmed(quantity)) \u{00d7} \(servingLabel)"
+    }
+
+    /// One decimal at most, no trailing ".0" ("80", "37.5") - also absorbs
+    /// float noise like 0.1 x 100 = 10.000000000000002.
+    static func trimmed(_ value: Double) -> String {
+        let text = String(format: "%.1f", value)
+        return text.hasSuffix(".0") ? String(text.dropLast(2)) : text
+    }
+}
+
+extension Food {
+    func amountLabel(at quantity: Double) -> String {
+        AmountLabel.text(quantity: quantity, servingSize: servingSize, servingUnit: servingUnit, servingLabel: servingLabel)
     }
 }

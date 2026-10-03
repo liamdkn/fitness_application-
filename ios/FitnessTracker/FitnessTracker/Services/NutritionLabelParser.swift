@@ -12,6 +12,9 @@ struct ParsedNutritionLabel {
     var carbsG: Double?
     var fatG: Double?
     var fiberG: Double?
+    /// Sodium in mg - read directly from a "Sodium 120 mg" line, or worked
+    /// out from a "Salt 0.3 g" one (sodium = salt x 400 mg per g).
+    var sodiumMg: Double?
     /// The label's own serving size, in `servingUnit` - e.g. 100 for a
     /// "per 100g" EU panel, or 32 for a "Serving Size 1 Scoop (32g)" US
     /// one. Only ever set to a size that actually matches what the macro
@@ -36,6 +39,7 @@ struct ParsedNutritionLabel {
         carbsG = carbsG ?? other.carbsG
         fatG = fatG ?? other.fatG
         fiberG = fiberG ?? other.fiberG
+        sodiumMg = sodiumMg ?? other.sodiumMg
         servingSize = servingSize ?? other.servingSize
         servingUnit = servingUnit ?? other.servingUnit
     }
@@ -71,6 +75,8 @@ enum NutritionLabelParser {
         result.carbsG = firstFieldValue(keyword: #"carb"#, excluding: #"sugar"#, unitPattern: gramsPattern, in: recognizedLines)
         result.fiberG = firstFieldValue(keyword: #"fib(re|er)"#, excluding: nil, unitPattern: gramsPattern, in: recognizedLines)
         result.proteinG = firstFieldValue(keyword: #"protein"#, excluding: nil, unitPattern: gramsPattern, in: recognizedLines)
+        result.sodiumMg = firstFieldValue(keyword: #"sodium"#, excluding: nil, unitPattern: #"(\d+(?:[.,]\d+)?)\s*mg\b"#, in: recognizedLines)
+            ?? firstFieldValue(keyword: #"salt"#, excluding: nil, unitPattern: gramsPattern, in: recognizedLines).map { $0 * 400 }
 
         if let per100Unit = firstCapturedUnit(#"per\s*100\s*(g|ml)"#, in: wholeText) {
             // EU-style two-column label ("per 100g" *and* "per serving") -

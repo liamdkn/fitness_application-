@@ -21,7 +21,7 @@ struct MealPrepPickerView: View {
                     Text(errorMessage).foregroundStyle(.red)
                 }
                 if summaries.isEmpty && !isLoading {
-                    Text("Nothing prepped - make a batch from the Meals menu's Meal Prep screen.")
+                    Text("Nothing in stock - make a batch from Recipes in the Meals menu.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(summaries) { summary in
@@ -33,7 +33,7 @@ struct MealPrepPickerView: View {
                     }
                 }
             }
-            .navigationTitle("Meal Prep")
+            .navigationTitle("Recipes in stock")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

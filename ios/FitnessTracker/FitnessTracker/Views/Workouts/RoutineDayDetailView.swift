@@ -14,6 +14,7 @@ struct RoutineDayDetailView: View {
     @State private var dayExercises: [RoutineDayExercise] = []
     @State private var exerciseNames: [UUID: String] = [:]
     @State private var errorMessage: String?
+    @State private var routineNotes: String?
     private let routineRepository = RoutineRepository()
     private let exerciseRepository = ExerciseRepository()
 
@@ -21,6 +22,17 @@ struct RoutineDayDetailView: View {
         List {
             if let errorMessage {
                 Text(errorMessage).foregroundStyle(.red)
+            }
+
+            if let routineNotes, !routineNotes.isEmpty {
+                Section {
+                    DisclosureGroup("Read before training") {
+                        Text(routineNotes)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
             }
 
             if dayExercises.isEmpty {
@@ -51,6 +63,7 @@ struct RoutineDayDetailView: View {
 
     private func load() async {
         do {
+            routineNotes = try? await routineRepository.fetchRoutine(id: day.routineId).notes
             dayExercises = try await routineRepository.fetchDayExercises(routineDayId: day.id)
             let allExercises = try await exerciseRepository.fetchAll()
             exerciseNames = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.id, $0.name) })

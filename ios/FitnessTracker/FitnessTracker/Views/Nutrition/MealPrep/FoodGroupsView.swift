@@ -22,7 +22,7 @@ struct FoodGroupsView: View {
                 ContentUnavailableView {
                     Label("No linked brands yet", systemImage: "arrow.left.arrow.right")
                 } description: {
-                    Text("When you swap an ingredient's brand in a meal prep, the two are linked here so you can see which has better macros.")
+                    Text("When you swap an ingredient's brand in a recipe, the two are linked here so you can see which has better macros.")
                 }
                 .listRowBackground(Color.clear)
             }

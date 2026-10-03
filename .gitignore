@@ -17,3 +17,6 @@ supabase/.temp/
 
 # macOS
 .DS_Store
+
+# Node (scripts/)
+node_modules/

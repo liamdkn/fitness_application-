@@ -247,7 +247,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
         // source for "this week's steps" means they can never disagree
         // with each other the way separately-ranged queries could.
         async let weekStepLogsResult = try? healthRepository.fetchStepLogs(from: weekStart, to: sundayThisWeek)
-        async let nutritionLogsResult = try? nutritionRepository.fetchRange(from: weekStart, to: sundayThisWeek)
+        async let nutritionLogsResult = try? nutritionRepository.fetchDailyTotals(from: weekStart, to: sundayThisWeek)
         async let waterLogsResult = try? waterRepository.fetchLogs(from: weekStart, to: sundayThisWeek)
         async let cardioHistoryResult = try? cardioSessionRepository.fetchHistory(from: weekStart, to: sundayThisWeek)
         async let weightsResult = try? bodyWeightRepository.fetchRange(from: weekStart, to: sundayThisWeek)
@@ -582,7 +582,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
             return
         }
 
-        async let nutritionResult = try? nutritionRepository.fetchRange(from: historyStart, to: historyEnd)
+        async let nutritionResult = try? nutritionRepository.fetchDailyTotals(from: historyStart, to: historyEnd)
         async let stepLogsResult = try? healthRepository.fetchStepLogs(from: historyStart, to: historyEnd)
         async let workoutsResult = try? workoutRepository.fetchWorkouts(from: historyStart, to: historyEnd)
         async let checkinsResult = try? dailyCheckinRepository.fetchRange(from: historyStart, to: historyEnd)

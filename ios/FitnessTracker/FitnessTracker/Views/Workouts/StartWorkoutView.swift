@@ -216,6 +216,14 @@ struct StartWorkoutView: View {
                     }
 
                     NavigationLink {
+                        RunningPlanView()
+                    } label: {
+                        Label("Running Plan", systemImage: "figure.run")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    NavigationLink {
                         TrainingHistoryView()
                     } label: {
                         Label("Training History", systemImage: "clock.arrow.circlepath")

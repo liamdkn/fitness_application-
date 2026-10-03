@@ -32,6 +32,7 @@ struct MealPrepDetailView: View {
     @State private var showingLogSheet = false
     @State private var prepAgainPrefill: MealPrepBuilderView.Prefill?
     @State private var confirmingDelete = false
+    @State private var editingBatch = false
     @State private var errorMessage: String?
     private let repository = MealPrepRepository()
     private let groupRepository = FoodGroupRepository()
@@ -54,7 +55,7 @@ struct MealPrepDetailView: View {
                 .padding(.vertical, 8)
                 LabeledContent("Per portion", value: "\(Int(summary.recipe.calories)) kcal")
                 LabeledContent("Left", value: "\(MealPrepCalculator.label(summary.remainingPortions)) of \(MealPrepCalculator.label(summary.prep.portions))")
-                LabeledContent("Prepped", value: summary.prep.preppedDate.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
+                LabeledContent("Made", value: summary.prep.preppedDate.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
                 if summary.prep.isFrozen {
                     HStack {
                         Text("Stored")
@@ -121,6 +122,12 @@ struct MealPrepDetailView: View {
 
             Section {
                 Button {
+                    editingBatch = true
+                } label: {
+                    Label("Edit Batch", systemImage: "slider.horizontal.3")
+                }
+
+                Button {
                     prepAgainPrefill = MealPrepBuilderView.Prefill(
                         name: summary.prep.name,
                         portions: summary.prep.portions,
@@ -128,7 +135,7 @@ struct MealPrepDetailView: View {
                         ingredients: ingredients
                     )
                 } label: {
-                    Label("Prep Again", systemImage: "arrow.clockwise")
+                    Label("Make Again", systemImage: "arrow.clockwise")
                 }
                 .disabled(ingredients.isEmpty)
 
@@ -180,13 +187,21 @@ struct MealPrepDetailView: View {
                 Task { await logPortion(quantity: quantity, slot: slot, date: date) }
             }
         }
+        .sheet(isPresented: $editingBatch) {
+            EditBatchSheet(summary: summary) {
+                Task {
+                    await refreshSummary()
+                    onChange()
+                }
+            }
+        }
         .sheet(item: $prepAgainPrefill) { prefill in
             MealPrepBuilderView(prefill: prefill) { _ in
                 onChange()
                 dismiss()
             }
         }
-        .confirmationDialog("Delete this meal prep?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+        .confirmationDialog("Delete this batch?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await delete() } }
         }
     }
@@ -340,4 +355,90 @@ struct MealPrepDetailView: View {
 
 extension MealPrepBuilderView.Prefill: Identifiable {
     var id: String { name + String(ingredients.count) }
+}
+
+/// Change how a batch is split: portions, how long it keeps, cooked weight.
+/// Portions are locked once any have been eaten - they set what one portion
+/// is worth, which would quietly rewrite what's already been logged.
+private struct EditBatchSheet: View {
+    let summary: MealPrepSummary
+    let onSaved: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var portions: Int
+    @State private var eatWithinDays: Int
+    @State private var weightText: String
+    @State private var errorMessage: String?
+    @State private var isSaving = false
+    private let repository = MealPrepRepository()
+
+    init(summary: MealPrepSummary, onSaved: @escaping () -> Void) {
+        self.summary = summary
+        self.onSaved = onSaved
+        _portions = State(initialValue: max(1, Int(summary.prep.portions.rounded())))
+        _eatWithinDays = State(initialValue: summary.prep.eatWithinDays)
+        _weightText = State(initialValue: summary.prep.totalWeightG.map { $0 == $0.rounded() ? "\(Int($0))" : String(format: "%.1f", $0) } ?? "")
+    }
+
+    private var portionsLocked: Bool { summary.eatenPortions > 0 }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Stepper("Makes \(portions) portion\(portions == 1 ? "" : "s")", value: $portions, in: 1...50)
+                        .disabled(portionsLocked)
+                    Stepper("Eat within \(eatWithinDays) day\(eatWithinDays == 1 ? "" : "s")", value: $eatWithinDays, in: 1...14)
+                    HStack {
+                        Text("Cooked weight")
+                        Spacer()
+                        TextField("optional", text: $weightText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 90)
+                        Text("g").foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    if portionsLocked {
+                        Text("Portions are locked - you've already eaten from this batch, and changing them would change what those logged portions are worth.")
+                    } else {
+                        Text("Portions set what one serving is worth: the whole batch divided by this.")
+                    }
+                }
+                if let errorMessage {
+                    Text(errorMessage).foregroundStyle(.red)
+                }
+            }
+            .navigationTitle("Edit Batch")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") { Task { await save() } }
+                        .disabled(isSaving)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func save() async {
+        isSaving = true
+        defer { isSaving = false }
+        let weight = Double(weightText).flatMap { $0 > 0 ? $0 : nil }
+        do {
+            try await repository.update(
+                prep: summary.prep,
+                portions: portionsLocked ? summary.prep.portions : Double(portions),
+                eatWithinDays: eatWithinDays,
+                totalWeightG: weight
+            )
+            onSaved()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 }

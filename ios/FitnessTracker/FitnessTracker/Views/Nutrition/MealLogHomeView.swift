@@ -120,7 +120,7 @@ struct MealLogHomeView: View {
                                 if !viewModel.entries.isEmpty {
                                     Button("Save This Day") { showingSaveDay = true }
                                 }
-                                NavigationLink("Meal Prep...") { MealPrepListView() }
+                                NavigationLink("Recipes...") { MealPrepListView() }
                                 NavigationLink("Brand Compare...") { FoodGroupsView() }
                                 NavigationLink("Weekly Treats...") { TreatsPlannerView() }
                             } label: {
@@ -441,7 +441,7 @@ private struct MealSlotSummaryContent: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.name)
-                Text("\(quantityLabel(entry.entry.quantity)) \u{00d7} \(entry.servingLabel)")
+                Text(entry.amountLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -452,9 +452,6 @@ private struct MealSlotSummaryContent: View {
         .font(.subheadline)
     }
 
-    private func quantityLabel(_ quantity: Double) -> String {
-        quantity == quantity.rounded() ? "\(Int(quantity))" : String(format: "%.1f", quantity)
-    }
 }
 
 private struct MacroProgressCard: View {

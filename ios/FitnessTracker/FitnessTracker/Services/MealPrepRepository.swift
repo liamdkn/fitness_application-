@@ -46,6 +46,33 @@ struct MealPrepRepository {
         let total_weight_g: Double?
     }
 
+    private struct PrepRecipeUpdate: Encodable {
+        let serving_size: Double
+        let serving_unit: String
+        let calories: Double
+        let protein_g: Double
+        let carbs_g: Double
+        let fat_g: Double
+        let fiber_g: Double
+    }
+
+    /// `total_weight_g` is sent as an explicit null (not skipped) so
+    /// clearing the cooked weight actually clears it.
+    private struct PrepUpdate: Encodable {
+        let portions: Double
+        let eat_within_days: Int
+        let total_weight_g: Double?
+
+        enum CodingKeys: String, CodingKey { case portions, eat_within_days, total_weight_g }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(portions, forKey: .portions)
+            try c.encode(eat_within_days, forKey: .eat_within_days)
+            try c.encode(total_weight_g, forKey: .total_weight_g)
+        }
+    }
+
     private struct FinishedUpdate: Encodable {
         let finished_at: Date
     }
@@ -176,6 +203,36 @@ struct MealPrepRepository {
             .from("meal_preps")
             .update(ThawUpdate(thawed_on: DateFormatting.isoDate(Date())))
             .eq("id", value: id)
+            .execute()
+    }
+
+    /// Changes how a batch is split up - portions, how long it keeps, the
+    /// cooked weight - re-deriving the per-portion macros from the batch's
+    /// own ingredients, so editing never drifts from what went in.
+    /// Per-portion macros change with `portions`, which also changes what
+    /// any portions already logged add up to, so callers only offer that
+    /// while nothing has been eaten from the batch.
+    func update(prep: MealPrep, portions: Double, eatWithinDays: Int, totalWeightG: Double?) async throws {
+        let ingredients = try await fetchIngredients(of: prep)
+        let batch = RecipeRepository.totals(for: ingredients.map { ($0.food, $0.quantity) })
+        let perPortion = MealPrepCalculator.perPortion(batch, portions: portions)
+        try await client
+            .from("recipes")
+            .update(PrepRecipeUpdate(
+                serving_size: totalWeightG.map { $0 / portions } ?? 1,
+                serving_unit: totalWeightG == nil ? "portion" : "g",
+                calories: perPortion.calories,
+                protein_g: perPortion.proteinG,
+                carbs_g: perPortion.carbsG,
+                fat_g: perPortion.fatG,
+                fiber_g: perPortion.fiberG
+            ))
+            .eq("id", value: prep.recipeId)
+            .execute()
+        try await client
+            .from("meal_preps")
+            .update(PrepUpdate(portions: portions, eat_within_days: eatWithinDays, total_weight_g: totalWeightG))
+            .eq("id", value: prep.id)
             .execute()
     }
 

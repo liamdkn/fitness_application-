@@ -21,9 +21,6 @@ struct RoutineRepository {
         let label: String
     }
 
-    private struct OptionalUpdate: Encodable {
-        let is_optional: Bool
-    }
 
     private struct NewRoutineDayExercise: Encodable {
         let routine_day_id: UUID
@@ -50,6 +47,38 @@ struct RoutineRepository {
     // needs isolating.
     private nonisolated struct SupersetUpdate: Encodable {
         let superset_group_id: UUID?
+    }
+
+    /// `notes` is encoded as an explicit null (not skipped) so clearing it
+    /// actually clears it.
+    private struct NotesUpdate: Encodable {
+        let notes: String?
+
+        enum CodingKeys: String, CodingKey { case notes }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(notes, forKey: .notes)
+        }
+    }
+
+    func fetchRoutine(id: UUID) async throws -> Routine {
+        try await client
+            .from("routines")
+            .select()
+            .eq("id", value: id)
+            .single()
+            .execute()
+            .value
+    }
+
+    func updateNotes(routineId: UUID, notes: String?) async throws {
+        let trimmed = notes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        try await client
+            .from("routines")
+            .update(NotesUpdate(notes: trimmed.isEmpty ? nil : trimmed))
+            .eq("id", value: routineId)
+            .execute()
     }
 
     func fetchActiveRoutine() async throws -> Routine? {
@@ -150,19 +179,6 @@ struct RoutineRepository {
         return day
     }
 
-    func setDayOptional(dayId: UUID, isOptional: Bool) async throws -> RoutineDay {
-        let updated: [RoutineDay] = try await client
-            .from("routine_days")
-            .update(OptionalUpdate(is_optional: isOptional))
-            .eq("id", value: dayId)
-            .select()
-            .execute()
-            .value
-        guard let day = updated.first else {
-            throw RepositoryError.insertFailed
-        }
-        return day
-    }
 
     func removeDay(dayId: UUID) async throws {
         try await client

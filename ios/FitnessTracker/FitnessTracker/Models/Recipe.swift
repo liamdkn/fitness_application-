@@ -63,3 +63,10 @@ struct RecipeIngredient: Codable, Identifiable, Hashable {
         case quantity
     }
 }
+
+extension Recipe {
+    func amountLabel(at quantity: Double) -> String {
+        let sizeText = AmountLabel.trimmed(servingSize)
+        return AmountLabel.text(quantity: quantity, servingSize: servingSize, servingUnit: servingUnit, servingLabel: "\(sizeText)\(servingUnit)")
+    }
+}

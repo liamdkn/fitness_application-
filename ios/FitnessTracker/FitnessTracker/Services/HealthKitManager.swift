@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 import HealthKit
 
@@ -18,12 +19,13 @@ struct DailyNutrition {
 }
 
 /// Which of our own concepts a Watch-recorded `HKWorkout` maps to - the
-/// only three `HKWorkoutActivityType`s `fetchRecentWorkouts` looks for at
-/// all, everything else is dropped before it ever reaches app code.
+/// only `HKWorkoutActivityType`s `fetchRecentWorkouts` looks for at all,
+/// everything else is dropped before it ever reaches app code.
 enum WatchWorkoutKind {
     case walk
     case stairmaster
     case functionalStrength
+    case running
 }
 
 /// One Watch-recorded workout, already reduced to just what
@@ -42,6 +44,16 @@ struct DetectedWatchWorkout: Identifiable {
     /// versions, or a source other than the Watch's own Workout app) -
     /// callers should read that as "unknown," not "outdoor."
     let isIndoor: Bool?
+    /// Distance the Watch recorded for the workout, if it recorded one -
+    /// what a running plan compares against its target.
+    let distanceMeters: Double?
+    /// The rest are run extras - nil for anything the Watch didn't record,
+    /// and for every non-run workout.
+    let elevationGainM: Double?
+    let avgPowerW: Int?
+    let avgCadenceSPM: Int?
+    /// Active + resting energy, as Apple's own "Total Calories".
+    let totalCalories: Double?
 }
 
 final class HealthKitManager {
@@ -55,6 +67,9 @@ final class HealthKitManager {
     private var fatType: HKQuantityType { HKQuantityType(.dietaryFatTotal) }
     private var heartRateType: HKQuantityType { HKQuantityType(.heartRate) }
     private var activeEnergyType: HKQuantityType { HKQuantityType(.activeEnergyBurned) }
+    private var distanceType: HKQuantityType { HKQuantityType(.distanceWalkingRunning) }
+    private var runningPowerType: HKQuantityType { HKQuantityType(.runningPower) }
+    private var basalEnergyType: HKQuantityType { HKQuantityType(.basalEnergyBurned) }
 
     func requestAuthorization() async throws {
         guard HKHealthStore.isHealthDataAvailable() else { throw HealthKitError.notAvailable }
@@ -62,12 +77,13 @@ final class HealthKitManager {
             toShare: [],
             read: [
                 stepType, sleepType, caloriesType, proteinType, carbsType, fatType,
-                heartRateType, activeEnergyType, HKObjectType.workoutType()
+                heartRateType, activeEnergyType, distanceType, runningPowerType, basalEnergyType,
+                HKObjectType.workoutType(), HKSeriesType.workoutRoute()
             ]
         )
     }
 
-    /// Every Watch-recorded Indoor Walk, Stairmaster, or Functional
+    /// Every Watch-recorded Walk, Run, Stairmaster, or Functional
     /// Strength Training session in the last `daysBack` days - read-only,
     /// detection only. Nothing here writes anything; turning a result into
     /// an imported cardio session or an enriched workout only happens once
@@ -88,6 +104,7 @@ final class HealthKitManager {
             case .walking: kind = .walk
             case .stairClimbing: kind = .stairmaster
             case .functionalStrengthTraining: kind = .functionalStrength
+            case .running: kind = .running
             default: return nil
             }
             let avgHeartRate = workout.statistics(for: heartRateType)?
@@ -97,6 +114,29 @@ final class HealthKitManager {
                 .sumQuantity()?
                 .doubleValue(for: .kilocalorie())
             let isIndoor = workout.metadata?[HKMetadataKeyIndoorWorkout] as? Bool
+            let distanceMeters = workout.statistics(for: distanceType)?
+                .sumQuantity()?
+                .doubleValue(for: .meter())
+            var elevationGainM: Double?
+            var avgPowerW: Int?
+            var avgCadenceSPM: Int?
+            var totalCalories: Double?
+            if kind == .running {
+                elevationGainM = (workout.metadata?[HKMetadataKeyElevationAscended] as? HKQuantity)?
+                    .doubleValue(for: .meter())
+                let watts = workout.statistics(for: runningPowerType)?
+                    .averageQuantity()?
+                    .doubleValue(for: .watt())
+                avgPowerW = watts.map { Int($0.rounded()) }
+                // Apple's "Avg Cadence" is steps taken during the run per
+                // minute of it - no stored average to read, so derive it.
+                if let steps = workout.statistics(for: stepType)?.sumQuantity()?.doubleValue(for: .count()),
+                   workout.duration > 0 {
+                    avgCadenceSPM = Int((steps / (workout.duration / 60)).rounded())
+                }
+                let basal = workout.statistics(for: basalEnergyType)?.sumQuantity()?.doubleValue(for: .kilocalorie())
+                if let activeCalories { totalCalories = activeCalories + (basal ?? 0) }
+            }
             return DetectedWatchWorkout(
                 id: workout.uuid.uuidString,
                 kind: kind,
@@ -104,8 +144,45 @@ final class HealthKitManager {
                 endedAt: workout.endDate,
                 avgHeartRate: avgHeartRate.map { Int($0.rounded()) },
                 activeCalories: activeCalories,
-                isIndoor: kind == .walk ? isIndoor : nil
+                isIndoor: (kind == .walk || kind == .running) ? isIndoor : nil,
+                distanceMeters: distanceMeters,
+                elevationGainM: elevationGainM,
+                avgPowerW: avgPowerW,
+                avgCadenceSPM: avgCadenceSPM,
+                totalCalories: totalCalories
             )
+        }
+    }
+
+    /// The GPS route of one workout, thinned for storage - empty for a
+    /// workout with no route (an indoor run, GPS off) or one that can't be
+    /// read. Fetched separately from `fetchRecentWorkouts` and only when a
+    /// run is actually being imported: reading every point of every run on
+    /// each Dashboard load would be wasteful, and it's only wanted once.
+    func fetchRoute(workoutId: String) async -> [RoutePoint] {
+        guard let uuid = UUID(uuidString: workoutId) else { return [] }
+        do {
+            let workouts = try await HKSampleQueryDescriptor(
+                predicates: [.workout(HKQuery.predicateForObject(with: uuid))],
+                sortDescriptors: [],
+                limit: 1
+            ).result(for: store)
+            guard let workout = workouts.first else { return [] }
+
+            let routeSamples = try await HKSampleQueryDescriptor(
+                predicates: [.sample(type: HKSeriesType.workoutRoute(), predicate: HKQuery.predicateForObjects(from: workout))],
+                sortDescriptors: [SortDescriptor(\.startDate)]
+            ).result(for: store)
+
+            var locations: [CLLocation] = []
+            for case let route as HKWorkoutRoute in routeSamples {
+                for try await location in HKWorkoutRouteQueryDescriptor(route).results(for: store) {
+                    locations.append(location)
+                }
+            }
+            return RouteMath.downsample(locations)
+        } catch {
+            return []
         }
     }
 

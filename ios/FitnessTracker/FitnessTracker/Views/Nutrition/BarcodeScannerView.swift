@@ -82,6 +82,9 @@ struct BarcodeScannerView: View {
     /// `NutritionLabelScannerView` with it so the OCR'd food still gets
     /// attached to it (see `docs/nutrition-label-scan-brief.md` Section 3).
     var onScanLabelInstead: ((String) -> Void)?
+    /// Called with the barcode when the user chooses to type the product in
+    /// instead - the caller opens the new-food form with it attached.
+    var onEnterManually: ((String) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var isLookingUp = false
@@ -116,11 +119,20 @@ struct BarcodeScannerView: View {
                             .foregroundStyle(.white)
                             .padding()
                             .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 12))
-                        if let notFoundBarcode, let onScanLabelInstead {
-                            Button("Scan Nutrition Label Instead") {
-                                onScanLabelInstead(notFoundBarcode)
+                        if let notFoundBarcode {
+                            if let onScanLabelInstead {
+                                Button("Scan Nutrition Label") {
+                                    onScanLabelInstead(notFoundBarcode)
+                                }
+                                .buttonStyle(.borderedProminent)
                             }
-                            .buttonStyle(.borderedProminent)
+                            if let onEnterManually {
+                                Button("Enter Details Manually") {
+                                    onEnterManually(notFoundBarcode)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.white)
+                            }
                         }
                     }
                     .padding(.bottom, 40)
@@ -149,7 +161,7 @@ struct BarcodeScannerView: View {
                 return
             }
             guard let lookup = try await OpenFoodFactsService.lookup(barcode: barcode) else {
-                errorMessage = "No food found for that barcode. Try search, add it manually, or scan the label."
+                errorMessage = "No product found for that barcode. Add it by scanning the nutrition label or typing the details - it'll be saved against this barcode."
                 notFoundBarcode = barcode
                 return
             }

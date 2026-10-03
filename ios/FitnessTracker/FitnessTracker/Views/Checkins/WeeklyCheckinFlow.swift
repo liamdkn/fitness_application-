@@ -402,7 +402,7 @@ struct WeeklyCheckinFlow: View {
         let end = calendar.startOfDay(for: Date())
         let start = calendar.date(byAdding: .day, value: -6, to: end) ?? end
 
-        async let nutritionResult = try? nutritionRepository.fetchRange(from: start, to: end)
+        async let nutritionResult = try? nutritionRepository.fetchDailyTotals(from: start, to: end)
         async let stepLogsResult = try? healthRepository.fetchStepLogs(from: start, to: end)
         async let workoutsResult = try? workoutRepository.fetchWorkouts(from: start, to: end)
         async let cardioResult = try? cardioSessionRepository.fetchHistory(from: start, to: end)

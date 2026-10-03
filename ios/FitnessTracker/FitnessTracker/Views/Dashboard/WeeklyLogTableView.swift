@@ -355,7 +355,7 @@ struct WeeklyLogTableView: View {
         let calendar = Calendar.current
         let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
 
-        async let nutritionResult = try? nutritionRepository.fetchRange(from: weekStart, to: weekEnd)
+        async let nutritionResult = try? nutritionRepository.fetchDailyTotals(from: weekStart, to: weekEnd)
         async let stepLogsResult = try? healthRepository.fetchStepLogs(from: weekStart, to: weekEnd)
         async let weightsResult = try? bodyWeightRepository.fetchRange(from: weekStart, to: weekEnd)
 

@@ -48,16 +48,23 @@ final class WatchActivityViewModel: ObservableObject {
     /// to catch "forgot to check for a few days," not so long it starts
     /// digging up ancient sessions once the user's actually caught up.
     private let daysBack = 7
+    /// Runs reach back much further than the rest - a running plan is
+    /// judged over weeks, so a run from a month ago is still worth
+    /// importing (once; imported/dismissed ones are skipped below).
+    private let runDaysBack = 60
 
     func loadCandidates() async {
         do {
             try await healthKit.requestAuthorization()
             let calendar = Calendar.current
             let windowStart = calendar.date(byAdding: .day, value: -daysBack, to: Date()) ?? Date()
+            let runWindowStart = calendar.date(byAdding: .day, value: -runDaysBack, to: Date()) ?? Date()
 
-            async let detectedResult = healthKit.fetchRecentWorkouts(daysBack: daysBack)
+            async let detectedResult = healthKit.fetchRecentWorkouts(daysBack: runDaysBack)
             async let dismissedResult = dismissedRepository.fetchDismissedIds()
-            async let cardioHistoryResult = cardioSessionRepository.fetchHistory(limit: 50)
+            // Same span as the Watch lookup, so a run imported weeks ago is
+            // still recognised as imported instead of reappearing.
+            async let cardioHistoryResult = cardioSessionRepository.fetchHistory(from: runWindowStart, to: Date())
             async let appWorkoutsResult = workoutRepository.fetchWorkouts(from: windowStart, to: Date())
 
             let detected = try await detectedResult
@@ -84,7 +91,17 @@ final class WatchActivityViewModel: ObservableObject {
             var built: [WatchActivityCandidate] = []
             for workout in detected {
                 guard !dismissed.contains(workout.id) else { continue }
+                // Only runs get the long lookback; everything else keeps
+                // the original short one.
+                if workout.kind != .running, workout.startedAt < windowStart { continue }
                 switch workout.kind {
+                case .running:
+                    guard !importedCardioIds.contains(workout.id) else { continue }
+                    guard !overlapsExistingAppSession(workout, in: appCardioSessions) else { continue }
+                    // An Indoor Run on a treadmill is a treadmill session,
+                    // not an outdoor run - keeps the running plan to runs
+                    // that actually covered ground.
+                    built.append(.cardio(workout, cardioType: workout.isIndoor == true ? .treadmill : .outdoorRun))
                 case .walk:
                     guard !importedCardioIds.contains(workout.id) else { continue }
                     guard !overlapsExistingAppSession(workout, in: appCardioSessions) else { continue }
@@ -124,16 +141,56 @@ final class WatchActivityViewModel: ObservableObject {
         }
     }
 
+    /// Old Watch runs imported before the extras and route were read: fills
+    /// them in. Only touches runs with none of the extras stored yet, so a
+    /// run is enriched once, not on every open.
+    func backfillRunExtras() async {
+        do {
+            let runWindowStart = Calendar.current.date(byAdding: .day, value: -runDaysBack, to: Date()) ?? Date()
+            let history = try await cardioSessionRepository.fetchHistory(from: runWindowStart, to: Date())
+            let needing = history.filter {
+                $0.healthkitUUID != nil && !$0.hasRoute && $0.elevationGainM == nil
+                    && $0.avgPowerW == nil && $0.avgCadenceSPM == nil
+                    && ($0.cardioType == .outdoorRun || $0.cardioType == .treadmill)
+            }
+            guard !needing.isEmpty else { return }
+            try await healthKit.requestAuthorization()
+            let detected = try await healthKit.fetchRecentWorkouts(daysBack: runDaysBack).filter { $0.kind == .running }
+            for session in needing {
+                guard let workout = detected.first(where: { $0.id == session.healthkitUUID }) else { continue }
+                let route = await healthKit.fetchRoute(workoutId: workout.id)
+                try await cardioSessionRepository.enrichRun(
+                    sessionId: session.id,
+                    distanceMeters: session.distanceMeters == nil ? workout.distanceMeters : nil,
+                    elevationGainM: workout.elevationGainM,
+                    avgPowerW: workout.avgPowerW,
+                    avgCadenceSPM: workout.avgCadenceSPM,
+                    totalCalories: workout.totalCalories,
+                    route: route
+                )
+            }
+        } catch {
+            // Best-effort - the runs are already imported; extras can wait.
+        }
+    }
+
     func importCardio(_ workout: DetectedWatchWorkout, cardioType: CardioType) async {
         isProcessing = true
         defer { isProcessing = false }
         do {
+            let route = workout.kind == .running ? await healthKit.fetchRoute(workoutId: workout.id) : []
             try await cardioSessionRepository.importFromHealthKit(
                 cardioType: cardioType,
                 startedAt: workout.startedAt,
                 endedAt: workout.endedAt,
                 avgHeartRate: workout.avgHeartRate,
                 activeCalories: workout.activeCalories,
+                distanceMeters: workout.distanceMeters,
+                elevationGainM: workout.elevationGainM,
+                avgPowerW: workout.avgPowerW,
+                avgCadenceSPM: workout.avgCadenceSPM,
+                totalCalories: workout.totalCalories,
+                route: route,
                 healthkitUUID: workout.id
             )
             candidates.removeAll { $0.id == workout.id }

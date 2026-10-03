@@ -4,9 +4,12 @@ struct Routine: Codable, Identifiable, Hashable {
     let id: UUID
     let name: String
     let isActive: Bool
+    /// Reference text read before training (injury constraints, pain and
+    /// stop rules) - shown on the split and each day, never evaluated by the app.
+    let notes: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name
+        case id, name, notes
         case isActive = "is_active"
     }
 }
