@@ -29,7 +29,7 @@ struct ExerciseHistoryView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             } else if entries.isEmpty {
                 if !isLoading {
                     Text("No history logged yet for \(exercise.name).")
@@ -67,6 +67,7 @@ struct ExerciseHistoryView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle(exercise.name)
         .task { await load() }
     }

@@ -37,9 +37,10 @@ struct LiquidsLogView: View {
                 todaySection
 
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle("Liquids")
             .navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)
@@ -103,7 +104,7 @@ struct LiquidsLogView: View {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("\(Int(day.caffeineMg.rounded())) / \(caffeineLimit) mg")
                             .font(.subheadline.bold())
-                            .foregroundStyle(day.caffeineMg > Double(caffeineLimit) ? .red : .primary)
+                            .foregroundStyle(day.caffeineMg > Double(caffeineLimit) ? AppColor.danger : .primary)
                         if day.caffeineMg > 0 {
                             Text("~\(Int(CaffeineModel.level(at: Date(), doses: day.caffeineDoses, halfLifeHours: halfLife).rounded())) mg in you now")
                                 .font(.caption)
@@ -150,7 +151,7 @@ struct LiquidsLogView: View {
                         }
                         Spacer()
                         Image(systemName: "plus.circle")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(AppColor.accent)
                     }
                 }
             }
@@ -216,7 +217,7 @@ struct LiquidsLogView: View {
                 if item.caffeineMg > 0 {
                     Text("\(Int(item.caffeineMg.rounded())) mg caffeine")
                         .font(.caption)
-                        .foregroundStyle(.brown)
+                        .foregroundStyle(AppColor.caffeine)
                 }
             }
         }

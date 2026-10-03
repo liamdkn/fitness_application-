@@ -21,7 +21,7 @@ struct RoutineDayDetailView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             if let routineNotes, !routineNotes.isEmpty {
@@ -57,6 +57,7 @@ struct RoutineDayDetailView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle(day.label)
         .task { await load() }
     }

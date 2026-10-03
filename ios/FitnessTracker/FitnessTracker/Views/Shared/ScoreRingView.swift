@@ -6,7 +6,7 @@ import SwiftUI
 /// weekly one later, can render as a ring on its own.
 struct ScoreRingView: View {
     let score: Double
-    var color: Color = .green
+    var color: Color = AppColor.success
     var diameter: CGFloat = 96
     var ringWidth: CGFloat = 12
 
@@ -72,5 +72,5 @@ struct ScoreRingView: View {
 }
 
 #Preview {
-    ScoreRingView(score: 87, color: .green)
+    ScoreRingView(score: 87, color: AppColor.success)
 }

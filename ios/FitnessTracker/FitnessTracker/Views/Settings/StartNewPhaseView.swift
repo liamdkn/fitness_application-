@@ -129,7 +129,7 @@ struct StartNewPhaseView: View {
                         if proteinFatExceedsCalories {
                             Text("Protein + fat already exceed calorie target.")
                                 .font(.caption)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(AppColor.danger)
                         }
                     }
 
@@ -152,7 +152,7 @@ struct StartNewPhaseView: View {
                     }
 
                     if let errorMessage {
-                        Text(errorMessage).foregroundStyle(.red)
+                        Text(errorMessage).foregroundStyle(AppColor.error)
                     }
 
                     Section {
@@ -169,6 +169,7 @@ struct StartNewPhaseView: View {
                     }
                 }
             }
+            .appScreen()
             .navigationTitle(isQueued ? "Queue Phase" : "New Phase")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {

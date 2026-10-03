@@ -24,7 +24,7 @@ struct DashboardView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     // The Daily row always stays - completing it doesn't
@@ -143,11 +143,12 @@ struct DashboardView: View {
                     WatchActivityCard(viewModel: watchActivityViewModel)
 
                     if let errorMessage = viewModel.errorMessage {
-                        Text(errorMessage).foregroundStyle(.red)
+                        Text(errorMessage).foregroundStyle(AppColor.error)
                     }
                 }
                 .padding()
             }
+            .appScreen()
             .navigationTitle("Dashboard")
             .task {
                 await viewModel.load(date: selectedDate)
@@ -254,7 +255,7 @@ private struct CheckInsCard: View {
             Text(label)
             if completed {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(AppColor.success)
             }
             Spacer()
             Image(systemName: "chevron.right")
@@ -268,10 +269,13 @@ private struct CheckInsCard: View {
 /// Insights' own header now doubles as that list, via a tappable
 /// week-picker that expands in place (see `WeeklyInsightsView.weekNavHeader`).
 private struct WeeklyLogLinkCard: View {
+    @Namespace private var zoomNamespace
+
     var body: some View {
         DashboardCard {
             NavigationLink {
                 WeeklyInsightsView()
+                    .zoomDestination(id: "weekly-insights", in: zoomNamespace)
             } label: {
                 HStack {
                     Text("Weekly Insights")
@@ -280,6 +284,7 @@ private struct WeeklyLogLinkCard: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .zoomSource(id: "weekly-insights", in: zoomNamespace)
         }
     }
 }
@@ -317,11 +322,16 @@ private struct CalorieRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Label("Calories", systemImage: "flame.fill")
+                Label {
+                    Text("Calories")
+                } icon: {
+                    Image(systemName: "flame.fill").foregroundStyle(AppColor.calories)
+                }
                 Spacer()
                 if let nutrition {
                     Text("\(Int(nutrition.calories)) kcal")
                         .fontWeight(.semibold)
+                        .rolling(nutrition.calories)
                 } else {
                     Text("Not logged")
                         .foregroundStyle(.secondary)
@@ -347,26 +357,29 @@ private struct MacroBarsRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            macroLine(label: "Protein", value: nutrition?.proteinG, target: goal?.proteinGTarget)
-            macroLine(label: "Carbs", value: nutrition?.carbsG, target: goal?.carbsGTarget)
-            macroLine(label: "Fat", value: nutrition?.fatG, target: goal?.fatGTarget)
+            macroLine(label: "Protein", value: nutrition?.proteinG, target: goal?.proteinGTarget, color: AppColor.protein)
+            macroLine(label: "Carbs", value: nutrition?.carbsG, target: goal?.carbsGTarget, color: AppColor.carbs)
+            macroLine(label: "Fat", value: nutrition?.fatG, target: goal?.fatGTarget, color: AppColor.fat)
         }
     }
 
     @ViewBuilder
-    private func macroLine(label: String, value: Double?, target: Double?) -> some View {
+    private func macroLine(label: String, value: Double?, target: Double?, color: Color) -> some View {
         HStack {
             Text(label)
                 .font(.caption)
                 .frame(width: 50, alignment: .leading)
             if let target, target > 0 {
-                ProgressView(value: min((value ?? 0) / target, 1))
+                AppProgressBar(value: min((value ?? 0) / target, 1))
+                    .tint(color)
             } else {
-                ProgressView(value: 0)
+                AppProgressBar(value: 0)
+                    .tint(color)
             }
             Text(macroText(value: value, target: target))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .rolling(value ?? 0)
                 .frame(width: 70, alignment: .trailing)
         }
     }

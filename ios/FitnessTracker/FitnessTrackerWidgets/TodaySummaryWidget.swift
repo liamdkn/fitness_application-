@@ -94,15 +94,15 @@ struct SummaryView: View {
                 HStack(spacing: 16) {
                     CalorieRing(snapshot: s).frame(width: 110)
                     VStack(alignment: .leading, spacing: 7) {
-                        MacroBar(label: "Protein", value: s.proteinG, target: s.proteinTargetG, color: .pink)
-                        MacroBar(label: "Carbs", value: s.carbsG, target: s.carbsTargetG, color: .blue)
-                        MacroBar(label: "Fat", value: s.fatG, target: s.fatTargetG, color: .yellow)
+                        MacroBar(label: "Protein", value: s.proteinG, target: s.proteinTargetG, color: AppColor.protein)
+                        MacroBar(label: "Carbs", value: s.carbsG, target: s.carbsTargetG, color: AppColor.carbs)
+                        MacroBar(label: "Fat", value: s.fatG, target: s.fatTargetG, color: AppColor.fat)
                         HStack {
                             Label("\(grouped(s.steps ?? 0))", systemImage: "figure.walk")
                                 .foregroundStyle(stepColor(s))
                             Spacer()
                             Label("\(String(format: "%.1f", Double(s.waterMl) / 1000)) L", systemImage: "drop.fill")
-                                .foregroundStyle(.cyan)
+                                .foregroundStyle(AppColor.water)
                         }
                         .font(.caption.weight(.semibold))
                     }
@@ -114,7 +114,7 @@ struct SummaryView: View {
     }
 
     private func stepColor(_ s: WidgetSnapshot) -> Color {
-        if let target = s.stepTarget, (s.steps ?? 0) >= target { return .green }
+        if let target = s.stepTarget, (s.steps ?? 0) >= target { return AppColor.success }
         return .primary
     }
 
@@ -188,7 +188,7 @@ private struct CalorieRing: View {
             Circle().stroke(Color.secondary.opacity(0.25), lineWidth: 9)
             Circle()
                 .trim(from: 0, to: fraction(snapshot.calories, of: snapshot.calorieTarget))
-                .stroke(isOver ? Color.red : Color.orange, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                .stroke(isOver ? AppColor.danger : AppColor.calories, style: StrokeStyle(lineWidth: 9, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             VStack(spacing: 0) {
                 Text(grouped(abs(remaining ?? snapshot.calories)))

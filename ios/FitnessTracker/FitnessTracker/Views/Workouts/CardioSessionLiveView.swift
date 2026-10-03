@@ -29,11 +29,11 @@ struct CardioSessionLiveView: View {
             if viewModel.session.isPaused {
                 Text("Paused")
                     .font(.headline)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppColor.warning)
             }
 
             if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             HStack(spacing: 16) {
@@ -49,7 +49,7 @@ struct CardioSessionLiveView: View {
                     Text(viewModel.session.isPaused ? "Resume" : "Pause")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.appSecondary)
                 .disabled(viewModel.isMutating)
 
                 Button {
@@ -58,7 +58,7 @@ struct CardioSessionLiveView: View {
                     Text("End")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.appPrimary)
                 .disabled(viewModel.isMutating)
             }
             .padding(.horizontal)
@@ -66,6 +66,7 @@ struct CardioSessionLiveView: View {
             Spacer()
         }
         .padding(.top, 60)
+        .appScreen()
         .navigationTitle("Cardio Session")
         .onReceive(timer) { _ in
             elapsed = viewModel.session.elapsed()

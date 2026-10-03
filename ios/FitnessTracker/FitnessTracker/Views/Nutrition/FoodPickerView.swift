@@ -46,7 +46,7 @@ struct FoodPickerView: View {
         NavigationStack {
             List {
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
                 HStack(spacing: 12) {
                     quickActionButton(icon: "barcode.viewfinder", label: "Barcode Scan") { showingScanner = true }
@@ -107,6 +107,7 @@ struct FoodPickerView: View {
             .task {
                 await loadRecentlyUsed()
             }
+            .appScreen()
             .navigationTitle(drinksOnly ? "Add Drink" : "Add Food")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -190,10 +191,8 @@ struct FoodPickerView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.blue)
+        .buttonStyle(.appTile)
     }
 
     /// A verified food goes straight to the quantity step; anything else -
@@ -375,7 +374,7 @@ struct LogFoodQuantityView: View {
                     }
                     if food.isVerified {
                         Label("Verified", systemImage: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(AppColor.success)
                     }
                     Picker("Enter as", selection: $inputMode) {
                         Text("Servings").tag(QuantityInputMode.servings)
@@ -430,6 +429,7 @@ struct LogFoodQuantityView: View {
                     Text("Something not matching the pack? Correct it here - and untick verified if it needs another look.")
                 }
             }
+            .appScreen()
             .navigationTitle(food.name)
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
@@ -503,13 +503,13 @@ struct MacroBreakdownRing: View {
                     Circle().stroke(Color.secondary.opacity(0.15), lineWidth: 10)
                     Circle()
                         .trim(from: 0, to: carbsFraction)
-                        .stroke(Color.green, style: StrokeStyle(lineWidth: 10, lineCap: .butt))
+                        .stroke(AppColor.carbs, style: StrokeStyle(lineWidth: 10, lineCap: .butt))
                     Circle()
                         .trim(from: carbsFraction, to: carbsFraction + fatFraction)
-                        .stroke(Color.yellow, style: StrokeStyle(lineWidth: 10, lineCap: .butt))
+                        .stroke(AppColor.fat, style: StrokeStyle(lineWidth: 10, lineCap: .butt))
                     Circle()
                         .trim(from: carbsFraction + fatFraction, to: min(carbsFraction + fatFraction + proteinFraction, 1))
-                        .stroke(Color.blue, style: StrokeStyle(lineWidth: 10, lineCap: .butt))
+                        .stroke(AppColor.protein, style: StrokeStyle(lineWidth: 10, lineCap: .butt))
                 }
                 .rotationEffect(.degrees(-90))
 
@@ -524,9 +524,9 @@ struct MacroBreakdownRing: View {
             .frame(width: 92, height: 92)
 
             VStack(alignment: .leading, spacing: 8) {
-                macroPercentRow("Carbs", carbsFraction, .green)
-                macroPercentRow("Fat", fatFraction, .yellow)
-                macroPercentRow("Protein", proteinFraction, .blue)
+                macroPercentRow("Carbs", carbsFraction, AppColor.carbs)
+                macroPercentRow("Fat", fatFraction, AppColor.fat)
+                macroPercentRow("Protein", proteinFraction, AppColor.protein)
             }
         }
         .frame(maxWidth: .infinity)

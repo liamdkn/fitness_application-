@@ -24,7 +24,7 @@ struct RoutineEditorView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             if let sessionsTarget {
@@ -74,6 +74,7 @@ struct RoutineEditorView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle("My Split")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -149,7 +150,7 @@ struct RoutineEditorView: View {
             Text("\(days.count) of \(target) planned sessions set up")
                 .font(.subheadline)
                 .fontWeight(.semibold)
-                .foregroundStyle(onTrack ? Color.primary : Color.orange)
+                .foregroundStyle(onTrack ? Color.primary : AppColor.warning)
             Text("From your current phase.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -298,9 +299,10 @@ private struct ScheduleSlotEditorView: View {
                 }
 
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle(slot.weekdayName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

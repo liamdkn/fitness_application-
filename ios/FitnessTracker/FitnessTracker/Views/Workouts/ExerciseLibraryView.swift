@@ -19,6 +19,7 @@ struct ExerciseLibraryView: View {
                 ExerciseRowContent(exercise: exercise)
             }
         }
+        .appScreen()
         .navigationTitle("Exercise Library")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

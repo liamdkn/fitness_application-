@@ -18,7 +18,7 @@ struct GymsSettingsView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             if gyms.isEmpty {
@@ -62,6 +62,7 @@ struct GymsSettingsView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle("Gyms")
         .task { await load() }
         .alert("New Gym", isPresented: $showingAddGym) {

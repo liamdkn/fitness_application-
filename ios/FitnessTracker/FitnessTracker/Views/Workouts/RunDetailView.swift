@@ -48,6 +48,7 @@ struct RunDetailView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle(session.startedAt.formatted(.dateTime.weekday(.wide).day().month(.abbreviated)))
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadRoute() }
@@ -61,13 +62,13 @@ struct RunDetailView: View {
             }
             if let start = route.first {
                 Annotation("Start", coordinate: start.coordinate) {
-                    Circle().fill(.green).frame(width: 14, height: 14)
+                    Circle().fill(AppColor.routeStart).frame(width: 14, height: 14)
                         .overlay(Circle().stroke(.white, lineWidth: 2))
                 }
             }
             if let end = route.last, route.count > 1 {
                 Annotation("Finish", coordinate: end.coordinate) {
-                    Circle().fill(.red).frame(width: 14, height: 14)
+                    Circle().fill(AppColor.routeEnd).frame(width: 14, height: 14)
                         .overlay(Circle().stroke(.white, lineWidth: 2))
                 }
             }
@@ -94,15 +95,15 @@ struct RunDetailView: View {
 
     private var statsGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 16) {
-            stat("Distance", session.distanceMeters.map { RunFormat.km($0 / 1000) }, color: .cyan)
-            stat("Time", clock(duration), color: .yellow)
-            stat("Avg pace", RunFormat.pace(seconds: duration, meters: session.distanceMeters ?? 0), color: .teal)
-            stat("Avg heart rate", session.avgHeartRate.map { "\($0) bpm" }, color: .red)
-            stat("Active calories", session.activeCalories.map { "\(Int($0)) cal" }, color: .pink)
-            stat("Total calories", session.totalCalories.map { "\(Int($0)) cal" }, color: .pink)
-            stat("Elevation gain", session.elevationGainM.map { "\(Int($0.rounded())) m" }, color: .green)
-            stat("Avg power", session.avgPowerW.map { "\($0) W" }, color: .mint)
-            stat("Avg cadence", session.avgCadenceSPM.map { "\($0) spm" }, color: .teal)
+            stat("Distance", session.distanceMeters.map { RunFormat.km($0 / 1000) }, color: AppColor.runDistance)
+            stat("Time", clock(duration), color: AppColor.runTime)
+            stat("Avg pace", RunFormat.pace(seconds: duration, meters: session.distanceMeters ?? 0), color: AppColor.runPace)
+            stat("Avg heart rate", session.avgHeartRate.map { "\($0) bpm" }, color: AppColor.heartRate)
+            stat("Active calories", session.activeCalories.map { "\(Int($0)) cal" }, color: AppColor.runCalories)
+            stat("Total calories", session.totalCalories.map { "\(Int($0)) cal" }, color: AppColor.runCalories)
+            stat("Elevation gain", session.elevationGainM.map { "\(Int($0.rounded())) m" }, color: AppColor.runElevation)
+            stat("Avg power", session.avgPowerW.map { "\($0) W" }, color: AppColor.runPower)
+            stat("Avg cadence", session.avgCadenceSPM.map { "\($0) spm" }, color: AppColor.runCadence)
         }
         .padding(.vertical, 4)
     }

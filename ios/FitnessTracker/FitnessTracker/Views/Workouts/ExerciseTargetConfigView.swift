@@ -59,9 +59,10 @@ struct ExerciseTargetConfigView: View {
                 }
                 if !isValid {
                     Text("Rep range high must be at least rep range low.")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(AppColor.danger)
                 }
             }
+            .appScreen()
             .navigationTitle("Configure Exercise")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {

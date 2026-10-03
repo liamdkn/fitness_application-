@@ -118,19 +118,19 @@ struct BarcodeScannerView: View {
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.white)
                             .padding()
-                            .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 12))
+                            .background(AppColor.danger.opacity(0.85), in: RoundedRectangle(cornerRadius: 12))
                         if let notFoundBarcode {
                             if let onScanLabelInstead {
                                 Button("Scan Nutrition Label") {
                                     onScanLabelInstead(notFoundBarcode)
                                 }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.appPrimaryCompact)
                             }
                             if let onEnterManually {
                                 Button("Enter Details Manually") {
                                     onEnterManually(notFoundBarcode)
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.appSecondaryCompact)
                                 .tint(.white)
                             }
                         }
@@ -138,6 +138,7 @@ struct BarcodeScannerView: View {
                     .padding(.bottom, 40)
                 }
             }
+            .appScreen()
             .navigationTitle("Scan Barcode")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -33,7 +33,7 @@ struct SignInView: View {
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage)
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(AppColor.danger)
             }
 
             Button {
@@ -47,7 +47,7 @@ struct SignInView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.appPrimary)
             .disabled(viewModel.email.isEmpty || viewModel.password.isEmpty || viewModel.isSigningIn)
         }
         .padding(24)

@@ -145,8 +145,8 @@ struct NutritionLabelScannerView: View {
                                     .font(.headline)
                                     .frame(maxWidth: .infinity)
                                     .padding()
-                                    .foregroundStyle(.blue)
-                                    .background(.blue.opacity(0.15), in: RoundedRectangle(cornerRadius: 14))
+                                    .foregroundStyle(AppColor.accent)
+                                    .background(AppColor.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 14))
                             }
                         }
 
@@ -159,13 +159,14 @@ struct NutritionLabelScannerView: View {
                                 .frame(maxWidth: .infinity)
                                 .padding()
                                 .foregroundStyle(.white)
-                                .background(.blue, in: RoundedRectangle(cornerRadius: 14))
+                                .background(AppColor.accent, in: RoundedRectangle(cornerRadius: 14))
                         }
                     }
                     .padding(.horizontal)
                     .padding(.bottom, 24)
                 }
             }
+            .appScreen()
             .navigationTitle("Scan Nutrition Label")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -197,7 +198,7 @@ struct NutritionLabelScannerView: View {
     private var servingSizeRow: some View {
         HStack {
             Image(systemName: parsed.servingSize != nil ? "checkmark.circle.fill" : "circle.dashed")
-                .foregroundStyle(parsed.servingSize != nil ? .green : .secondary)
+                .foregroundStyle(parsed.servingSize != nil ? AppColor.success : .secondary)
             Text("Serving Size")
             Spacer()
             let size = parsed.servingSize ?? 100
@@ -211,7 +212,7 @@ struct NutritionLabelScannerView: View {
     private func fieldRow(_ label: String, value: Double?, unit: String, optional: Bool = false) -> some View {
         HStack {
             Image(systemName: value != nil ? "checkmark.circle.fill" : "circle.dashed")
-                .foregroundStyle(value != nil ? .green : .secondary)
+                .foregroundStyle(value != nil ? AppColor.success : .secondary)
             Text(label)
             Spacer()
             if let value {

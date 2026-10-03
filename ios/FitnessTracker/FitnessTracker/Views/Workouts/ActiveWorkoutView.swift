@@ -98,6 +98,10 @@ struct ActiveWorkoutView: View {
         .disabled(isLastGroup(containing: activeExercise.id))
     }
 
+    private var loggedSetCount: Int {
+        viewModel.activeExercises.reduce(0) { $0 + $1.loggedSets.count }
+    }
+
     var body: some View {
         List {
             Section {
@@ -116,7 +120,7 @@ struct ActiveWorkoutView: View {
             }
 
             if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             ForEach(Array(displayGroups.enumerated()), id: \.offset) { _, group in
@@ -142,7 +146,7 @@ struct ActiveWorkoutView: View {
                     Text("Finish Workout")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.appPrimary)
 
                 Button {
                     showingCancelDialog = true
@@ -150,8 +154,7 @@ struct ActiveWorkoutView: View {
                     Text("Cancel Workout")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
-                .tint(.red)
+                .buttonStyle(.appDestructive)
             }
             .listRowBackground(Color.clear)
         }
@@ -171,6 +174,8 @@ struct ActiveWorkoutView: View {
                 )
             }
         }
+        .modifier(SetLoggedHaptic(count: loggedSetCount))
+        .appScreen()
         .navigationTitle("Workout")
         .navigationBarBackButtonHidden()
         .task {
@@ -240,7 +245,7 @@ struct ActiveWorkoutView: View {
            viewModel.activeInjuryMuscleGroups.contains(muscleGroup) {
             Label("You've logged an active \(MuscleGroup(rawValue: muscleGroup)?.displayName ?? muscleGroup.capitalized) injury - go easy here.", systemImage: "exclamationmark.triangle.fill")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(AppColor.warning)
         }
         if let lastNote = activeExercise.lastNote {
             Label(lastNote.note, systemImage: "note.text")
@@ -263,7 +268,7 @@ struct ActiveWorkoutView: View {
         if let incompleteSetsNote = activeExercise.incompleteSetsNote {
             Text(incompleteSetsNote)
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(AppColor.warning)
         }
     }
 
@@ -273,8 +278,8 @@ struct ActiveWorkoutView: View {
             .font(.caption2.bold())
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(.blue.opacity(0.15), in: Capsule())
-            .foregroundStyle(.blue)
+            .background(AppColor.accent.opacity(0.15), in: Capsule())
+            .foregroundStyle(AppColor.accent)
     }
 
     @ViewBuilder
@@ -457,7 +462,7 @@ private struct RestTimerBanner: View {
             Label(text, systemImage: "timer")
                 .font(.headline)
                 .monospacedDigit()
-                .foregroundStyle(.blue)
+                .foregroundStyle(AppColor.accent)
             Spacer()
             Button("Skip", action: onSkip)
                 .foregroundStyle(.secondary)
@@ -490,7 +495,7 @@ private struct GymPickerSheet: View {
                             .foregroundStyle(.primary)
                         Spacer()
                         if selectedGymId == nil {
-                            Image(systemName: "checkmark").foregroundStyle(.blue)
+                            Image(systemName: "checkmark").foregroundStyle(AppColor.accent)
                         }
                     }
                 }
@@ -504,7 +509,7 @@ private struct GymPickerSheet: View {
                                 .foregroundStyle(.primary)
                             Spacer()
                             if selectedGymId == gym.id {
-                                Image(systemName: "checkmark").foregroundStyle(.blue)
+                                Image(systemName: "checkmark").foregroundStyle(AppColor.accent)
                             }
                         }
                     }
@@ -514,6 +519,7 @@ private struct GymPickerSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .appScreen()
             .navigationTitle("Gym")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -522,5 +528,15 @@ private struct GymPickerSheet: View {
                 }
             }
         }
+    }
+}
+
+/// One firm tap each time a set is logged - not when a resumed workout's sets
+/// load in all at once.
+private struct SetLoggedHaptic: ViewModifier {
+    let count: Int
+
+    func body(content: Content) -> some View {
+        content.sensoryFeedback(.success, trigger: count) { old, new in new == old + 1 }
     }
 }

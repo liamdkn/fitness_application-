@@ -80,9 +80,10 @@ struct TreatsPlannerView: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
         }
+        .appScreen()
         .navigationTitle("Weekly Treats")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -126,7 +127,7 @@ struct TreatsPlannerView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("\(Int(bankedCalories)) kcal banked for treats")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(AppColor.warning)
             if let newDailyCalories, let dailyTarget = goal?.dailyCalorieTarget {
                 Text("New \(Int(newDailyCalories)) / Old \(Int(dailyTarget)) kcal per day")
                     .font(.caption)
@@ -152,7 +153,7 @@ struct TreatsPlannerView: View {
                 if !adjustment.treatsToday.isEmpty {
                     Image(systemName: "gift.fill")
                         .font(.caption2)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppColor.warning)
                 }
                 Spacer()
                 if let goal {
@@ -180,7 +181,7 @@ struct TreatsPlannerView: View {
     }
 
     private func colorForDelta(_ delta: Double) -> Color {
-        if delta > 0 { return .orange }
+        if delta > 0 { return AppColor.warning }
         if delta < 0 { return .secondary }
         return .primary
     }

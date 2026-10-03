@@ -53,7 +53,7 @@ struct TrainingHistoryView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
             if !workouts.isEmpty {
                 TotalWorkoutsHeadline(count: workouts.count)
@@ -74,6 +74,7 @@ struct TrainingHistoryView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle("Training History")
         .task { await load() }
         .sheet(item: $completingCardioSession) { session in
@@ -188,7 +189,7 @@ struct TrainingHistoryView: View {
             if isMissingDetails(session) {
                 Text("Tap to add \(session.cardioType.involvesSteps ? "steps & " : "")heart rate")
                     .font(.caption)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(AppColor.accent)
             }
         }
 

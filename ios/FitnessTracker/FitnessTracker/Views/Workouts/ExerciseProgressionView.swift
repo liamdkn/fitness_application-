@@ -18,7 +18,7 @@ struct ExerciseProgressionView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             if isLoading && points.isEmpty {
@@ -66,6 +66,7 @@ struct ExerciseProgressionView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle(exerciseName)
         .task { await load() }
     }

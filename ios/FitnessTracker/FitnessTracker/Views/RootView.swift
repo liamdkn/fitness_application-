@@ -24,6 +24,7 @@ struct RootView: View {
                 SignInView()
             }
         }
+        .tint(AppColor.accent)
     }
 }
 

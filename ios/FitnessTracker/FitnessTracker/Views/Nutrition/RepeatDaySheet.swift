@@ -32,6 +32,7 @@ struct RepeatDaySheet: View {
                     Text("Copies every food/recipe logged on that day onto \(targetDate, style: .date). Doesn't touch what's already logged there.")
                 }
             }
+            .appScreen()
             .navigationTitle("Repeat a Day")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

@@ -16,7 +16,7 @@ struct SavedDaysPickerView: View {
         NavigationStack {
             List {
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
                 if savedDays.isEmpty {
                     Text("No saved days yet. Use \"Save This Day\" once you've logged a day worth keeping.")
@@ -38,6 +38,7 @@ struct SavedDaysPickerView: View {
                     .onDelete { offsets in Task { await delete(at: offsets) } }
                 }
             }
+            .appScreen()
             .navigationTitle("Saved Days")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -99,9 +100,10 @@ struct SaveDaySheet: View {
                     Text("\(Int(totals.calories)) kcal \u{00b7} P\(Int(totals.proteinG))g \u{00b7} C\(Int(totals.carbsG))g \u{00b7} F\(Int(totals.fatG))g will be saved as this day's totals.")
                 }
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle("Save This Day")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

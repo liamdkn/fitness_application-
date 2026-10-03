@@ -33,7 +33,7 @@ struct WorkoutDetailView: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             ForEach(setsByExercise, id: \.exerciseId) { entry in
@@ -49,6 +49,7 @@ struct WorkoutDetailView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle(dayLabel ?? workout.name ?? (workout.routineDayId == nil ? "Open Workout" : "Workout"))
         .task { await load() }
     }

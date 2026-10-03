@@ -21,7 +21,7 @@ struct WaterContainersEditView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
             if containers.isEmpty {
                 Text("Add the containers you actually drink from - a hydroflask, a pint glass, whatever - each with its own volume.")
@@ -48,6 +48,7 @@ struct WaterContainersEditView: View {
                 Label("Add Container", systemImage: "plus")
             }
         }
+        .appScreen()
         .navigationTitle("Containers")
         .task { await load() }
         .sheet(item: $editingContainer) { editing in
@@ -135,6 +136,7 @@ private struct ContainerEditorSheet: View {
                     Text("ml").foregroundStyle(.secondary)
                 }
             }
+            .appScreen()
             .navigationTitle(editing.id == nil ? "New Container" : "Edit Container")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

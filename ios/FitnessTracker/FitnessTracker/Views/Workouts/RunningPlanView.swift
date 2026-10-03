@@ -180,7 +180,7 @@ struct RunningPlanView: View {
     var body: some View {
         List {
             if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             if viewModel.isSyncing || viewModel.importedCount > 0 {
@@ -218,7 +218,7 @@ struct RunningPlanView: View {
                         Text("Create a plan, add the runs you're aiming for, and your Watch runs fill in beside them.")
                     } actions: {
                         Button("New Plan") { creatingPlan = true }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.appPrimaryCompact)
                     }
                     .listRowBackground(Color.clear)
                 }
@@ -232,6 +232,7 @@ struct RunningPlanView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle("Running Plan")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -279,7 +280,7 @@ struct RunningPlanView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(plan.name).font(.headline)
             if viewModel.dueCount > 0 {
-                ProgressView(value: Double(viewModel.doneCount), total: Double(viewModel.dueCount))
+                AppProgressBar(value: Double(viewModel.doneCount), total: Double(viewModel.dueCount))
                 Text("\(viewModel.doneCount) of \(viewModel.dueCount) planned runs done so far")
                     .font(.subheadline)
                 if viewModel.kmPlanned > 0 {
@@ -316,7 +317,7 @@ struct RunningPlanView: View {
                         .background(Color.secondary.opacity(0.15), in: Capsule())
                         .foregroundStyle(.secondary)
                     if isToday {
-                        Text("Today").font(.caption2.bold()).foregroundStyle(.blue)
+                        Text("Today").font(.caption2.bold()).foregroundStyle(AppColor.accent)
                     }
                     Spacer()
                     Text(run.targetLabel).foregroundStyle(.secondary)
@@ -324,7 +325,7 @@ struct RunningPlanView: View {
                 if let actual {
                     Label(actual.summary, systemImage: "checkmark.circle.fill")
                         .font(.caption)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(AppColor.success)
                 } else if isPast && run.runType != .rest {
                     Text("No run recorded")
                         .font(.caption)
@@ -341,7 +342,7 @@ struct RunningPlanView: View {
                     detailSession = session
                 } label: {
                     Image(systemName: session.hasRoute ? "map" : "chart.bar")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(AppColor.accent)
                 }
                 .buttonStyle(.borderless)
             }
@@ -453,9 +454,10 @@ private struct PlannedRunEditSheet: View {
                     TextField("e.g. 6 x 1 km, easy effort", text: $notes, axis: .vertical)
                 }
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle(existing == nil ? "New Run" : "Edit Run")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -524,9 +526,10 @@ private struct NewRunningPlanSheet: View {
                     Stepper("First week is week \(firstWeek)", value: $firstWeek, in: 1...52)
                 }
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle("New Plan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

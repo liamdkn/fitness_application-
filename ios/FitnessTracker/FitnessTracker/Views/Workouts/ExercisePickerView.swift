@@ -17,6 +17,7 @@ struct ExercisePickerView: View {
                     ExerciseRowContent(exercise: exercise)
                 }
             }
+            .appScreen()
             .navigationTitle("Add Exercise")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
@@ -71,9 +72,10 @@ struct AddCustomExerciseView: View {
                     TextField("Equipment (optional)", text: $equipment)
                 }
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle("New Exercise")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {

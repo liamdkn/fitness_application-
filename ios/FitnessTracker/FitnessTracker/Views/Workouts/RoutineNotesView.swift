@@ -29,9 +29,10 @@ struct RoutineNotesView: View {
                 Text("Reference only - the app doesn't track pain or act on any of this.")
             }
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
         }
+        .appScreen()
         .navigationTitle("Training Notes")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

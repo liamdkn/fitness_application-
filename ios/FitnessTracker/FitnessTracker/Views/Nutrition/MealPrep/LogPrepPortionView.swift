@@ -18,7 +18,7 @@ struct MealPrepPickerView: View {
         NavigationStack {
             List {
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
                 if summaries.isEmpty && !isLoading {
                     Text("Nothing in stock - make a batch from Recipes in the Meals menu.")
@@ -33,6 +33,7 @@ struct MealPrepPickerView: View {
                     }
                 }
             }
+            .appScreen()
             .navigationTitle("Recipes in stock")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -154,6 +155,7 @@ struct LogPrepPortionView: View {
                     }
                 }
             }
+            .appScreen()
             .navigationTitle(summary.prep.name)
             .navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)

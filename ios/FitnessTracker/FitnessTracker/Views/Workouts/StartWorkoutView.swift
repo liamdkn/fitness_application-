@@ -4,7 +4,14 @@ struct StartWorkoutView: View {
     @State private var routine: Routine?
     @State private var days: [RoutineDay] = []
     @State private var weeklySchedule: [WeeklyScheduleDay] = []
-    @State private var hasCenteredOnToday = false
+    /// Which day's card is showing; nil means today.
+    @State private var selectedWeekday: Int?
+    /// Which way the last day change moved along the strip - the card slides
+    /// in from that side.
+    @State private var slideForward = true
+    @Namespace private var zoomNamespace
+    /// Weekdays (1 = Sunday) with a finished workout this week.
+    @State private var completedWeekdays: Set<Int> = []
     @State private var errorMessage: String?
     @State private var startedWorkout: Workout?
     @State private var activeWorkout: Workout?
@@ -14,7 +21,13 @@ struct StartWorkoutView: View {
     @State private var deloadSignal: DeloadSignal?
     @State private var volumeFlags: [MuscleGroupVolumeFlag] = []
     @State private var weeklyCardioMinutes = 0
-    @State private var weeklyCardioSessionCount = 0
+    /// The Running card: km run this week (Watch runs), what the plan wanted
+    /// this week, and which week of the plan it is. Plan values are nil
+    /// without a plan.
+    @State private var weeklyRunKm = 0.0
+    @State private var weeklyPlannedKm: Double?
+    @State private var runningPlanWeek: Int?
+    private let runningPlanRepository = RunningPlanRepository()
     @State private var preferredGymId: UUID?
     /// Each workout day's exercise names, in position order - what a
     /// carousel card previews. Keyed by `RoutineDay.id`.
@@ -32,17 +45,32 @@ struct StartWorkoutView: View {
 
     private var todaysWeekday: Int { Calendar.current.component(.weekday, from: Date()) }
 
+    /// Monday first, matching how the week is read, rather than the
+    /// Sunday-first order the weekday numbers fall in.
+    private var orderedSchedule: [WeeklyScheduleDay] {
+        let order = [2, 3, 4, 5, 6, 7, 1]
+        return weeklySchedule.sorted { (order.firstIndex(of: $0.weekday) ?? 0) < (order.firstIndex(of: $1.weekday) ?? 0) }
+    }
+
+    /// An active-rest day's own card already has a Start Cardio Session
+    /// button (with that day's cardio type chosen), so the Cardio card skips
+    /// its own rather than showing two.
+    private var selectedDayOffersCardio: Bool {
+        let weekday = selectedWeekday ?? todaysWeekday
+        return activeWorkout == nil && weeklySchedule.contains { $0.weekday == weekday && $0.dayType == .activeRest }
+    }
+
     private func routineDay(for slot: WeeklyScheduleDay) -> RoutineDay? {
         guard let id = slot.routineDayId else { return nil }
         return days.first { $0.id == id }
     }
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
                     if let errorMessage {
-                        Text(errorMessage).foregroundStyle(.red)
+                        Text(errorMessage).foregroundStyle(AppColor.error)
                     }
 
                     if let activeWorkout {
@@ -79,97 +107,45 @@ struct StartWorkoutView: View {
                         NavigationLink("Set Up My Split") {
                             RoutineEditorView()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.appPrimary)
                     } else {
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("This Week")
-                                    .font(.headline)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                NavigationLink("Edit") {
-                                    RoutineEditorView()
-                                }
-                                .font(.footnote)
-                            }
-
                             if !weeklySchedule.isEmpty {
-                                ScrollViewReader { proxy in
-                                    ScrollView(.horizontal) {
-                                        // A plain HStack, not `LazyHStack` -
-                                        // only 7 cards ever exist here, so
-                                        // there's no real laziness to gain,
-                                        // and `LazyHStack` was the actual
-                                        // cause of "Start Workout" getting
-                                        // clipped off a taller card: inside
-                                        // `ScrollView(.horizontal)`, a lazy
-                                        // stack can lock in its height from
-                                        // whichever card measures first
-                                        // (often a shorter rest day) and
-                                        // never grow for a later-scrolled-to
-                                        // card with more exercises. A plain
-                                        // `HStack` measures every child up
-                                        // front, so the container is always
-                                        // sized to the tallest card.
-                                        HStack(spacing: 16) {
-                                            ForEach(weeklySchedule) { slot in
-                                                WeekDayCard(
-                                                    slot: slot,
-                                                    routineDay: routineDay(for: slot),
-                                                    exerciseNames: routineDay(for: slot).flatMap { dayExerciseNames[$0.id] } ?? [],
-                                                    isToday: slot.weekday == todaysWeekday,
-                                                    hasActiveWorkout: activeWorkout != nil,
-                                                    isCompletedToday: todayCompletedWorkout != nil,
-                                                    isStarting: isStarting,
-                                                    onStartWorkout: { day in Task { await startWorkout(routineDayId: day.id) } }
-                                                )
-                                                .id(slot.weekday)
-                                                .containerRelativeFrame(.horizontal, count: 1, spacing: 16)
-                                            }
-                                        }
-                                        .scrollTargetLayout()
+                                WeekStrip(
+                                    slots: orderedSchedule,
+                                    selectedWeekday: selectedWeekday ?? todaysWeekday,
+                                    todaysWeekday: todaysWeekday,
+                                    completedWeekdays: completedWeekdays,
+                                    onSelect: { weekday in
+                                        let order = orderedSchedule.map(\.weekday)
+                                        let old = order.firstIndex(of: selectedWeekday ?? todaysWeekday) ?? 0
+                                        slideForward = (order.firstIndex(of: weekday) ?? 0) >= old
+                                        withAnimation(.snappy(duration: 0.32)) { selectedWeekday = weekday }
                                     }
-                                    .scrollTargetBehavior(.viewAligned)
-                                    .scrollIndicators(.hidden)
-                                    // A default starting position only, not a
-                                    // reset every reappearance - `scrollTo`'s
-                                    // target frame isn't resolved yet on the
-                                    // very first layout pass if called
-                                    // straight from `onAppear`, so this
-                                    // defers one runloop turn; `hasCentered`
-                                    // then keeps it from re-firing and
-                                    // yanking the carousel back to today if
-                                    // the user had manually scrolled away.
-                                    .onAppear {
-                                        guard !hasCenteredOnToday else { return }
-                                        hasCenteredOnToday = true
-                                        DispatchQueue.main.async {
-                                            proxy.scrollTo(todaysWeekday, anchor: .center)
-                                        }
-                                    }
+                                )
+                                if let slot = orderedSchedule.first(where: { $0.weekday == (selectedWeekday ?? todaysWeekday) }) {
+                                    WeekDayCard(
+                                        slot: slot,
+                                        routineDay: routineDay(for: slot),
+                                        exerciseNames: routineDay(for: slot).flatMap { dayExerciseNames[$0.id] } ?? [],
+                                        isToday: slot.weekday == todaysWeekday,
+                                        hasActiveWorkout: activeWorkout != nil,
+                                        isCompletedToday: todayCompletedWorkout != nil,
+                                        isCompleted: completedWeekdays.contains(slot.weekday),
+                                        isStarting: isStarting,
+                                        isStartingOpen: isStartingOpen,
+                                        onStartWorkout: { day in Task { await startWorkout(routineDayId: day.id) } },
+                                        onStartOpenWorkout: { Task { await startOpenWorkout() } }
+                                    )
+                                    .id(slot.weekday)
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: slideForward ? .trailing : .leading).combined(with: .opacity),
+                                        removal: .opacity
+                                    ))
                                 }
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    // Always available (even on a rest day, or with no split
-                    // set up) so an unplanned gym session isn't blocked on
-                    // today's scheduled day - hidden only while another
-                    // workout is already active, same rule as a day card's
-                    // own Start button.
-                    if activeWorkout == nil {
-                        Button {
-                            Task { await startOpenWorkout() }
-                        } label: {
-                            if isStartingOpen {
-                                ProgressView()
-                            } else {
-                                Label("Start Open Workout", systemImage: "bolt.fill")
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isStartingOpen)
                     }
 
                     DashboardCard(title: "Cardio") {
@@ -177,6 +153,7 @@ struct StartWorkoutView: View {
                             VStack(spacing: 2) {
                                 Text("\(weeklyCardioMinutes)")
                                     .font(.system(size: 44, weight: .bold, design: .rounded))
+                                    .rolling(Double(weeklyCardioMinutes))
                                 Text("minutes this week")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -198,30 +175,48 @@ struct StartWorkoutView: View {
                                         Spacer()
                                     }
                                 }
-                            } else {
-                                NavigationLink("Start Cardio Session") {
+                            } else if !selectedDayOffersCardio {
+                                NavigationLink {
                                     StartCardioSessionView()
+                                } label: {
+                                    Text("Start Cardio Session")
                                 }
+                                .buttonStyle(.appPrimary)
                             }
-
-                            HStack {
-                                Text("Sessions this week")
-                                Spacer()
-                                Text("\(weeklyCardioSessionCount)")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
 
-                    NavigationLink {
-                        RunningPlanView()
-                    } label: {
-                        Label("Running Plan", systemImage: "figure.run")
+                    DashboardCard(title: "Running") {
+                        VStack(spacing: 12) {
+                            VStack(spacing: 2) {
+                                Text(Self.kmText(weeklyRunKm))
+                                    .font(.system(size: 44, weight: .bold, design: .rounded))
+                                    .rolling(weeklyRunKm)
+                                Text("km this week")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let planned = weeklyPlannedKm, planned > 0 {
+                                    Text("of \(Self.kmText(planned)) km planned\(runningPlanWeek.map { " \u{00b7} Week \($0)" } ?? "")")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                } else if let week = runningPlanWeek {
+                                    Text("Week \(week) of your plan")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             .frame(maxWidth: .infinity)
+
+                            NavigationLink {
+                                RunningPlanView()
+                                    .zoomDestination(id: "running-plan", in: zoomNamespace)
+                            } label: {
+                                Text("Running Plan")
+                            }
+                            .buttonStyle(.appPrimary)
+                            .zoomSource(id: "running-plan", in: zoomNamespace)
+                        }
                     }
-                    .buttonStyle(.bordered)
 
                     NavigationLink {
                         TrainingHistoryView()
@@ -229,7 +224,7 @@ struct StartWorkoutView: View {
                         Label("Training History", systemImage: "clock.arrow.circlepath")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.appSecondary)
 
                     NavigationLink {
                         ExerciseLibraryView()
@@ -237,11 +232,21 @@ struct StartWorkoutView: View {
                         Label("Exercise Library", systemImage: "dumbbell")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.appSecondary)
                 }
                 .padding()
             }
+            .appScreen()
             .navigationTitle("Training")
+            .toolbar {
+                if routine != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink("Edit") {
+                            RoutineEditorView()
+                        }
+                    }
+                }
+            }
             // `.onAppear`, not `.task` - this view stays mounted as the Train
             // tab's root, so `.task` would only ever fire once. `.onAppear`
             // re-fires whenever a pushed screen (a routine day, an active
@@ -278,11 +283,18 @@ struct StartWorkoutView: View {
                 && workout.endedAt != nil
                 && Calendar.current.isDateInToday(workout.performedAt)
         }
+        let weekStart = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
+        completedWeekdays = Set(
+            recentWorkouts
+                .filter { $0.endedAt != nil && $0.performedAt >= weekStart }
+                .map { Calendar.current.component(.weekday, from: $0.performedAt) }
+        )
         preferredGymId = try? await preferencesRepository.fetch().preferredGymId
         await CardioSessionMonitor.shared.refresh()
         await loadDeloadSignal(recentWorkouts: recentWorkouts)
         await loadVolumeFlags()
         await loadWeeklyCardioSummary()
+        await loadRunningSummary()
         await loadDayExercisePreviews()
     }
 
@@ -303,6 +315,19 @@ struct StartWorkoutView: View {
         dayExerciseNames = result
     }
 
+    /// An unplanned session with no routine day behind it - offered on rest
+    /// days, where there's no planned workout to start.
+    private func startOpenWorkout() async {
+        guard activeWorkout == nil else { return }
+        isStartingOpen = true
+        defer { isStartingOpen = false }
+        do {
+            startedWorkout = try await offlineQueue.startWorkout(routineDayId: nil, gymId: preferredGymId)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func loadDeloadSignal(recentWorkouts: [Workout]) async {
         do {
             let recentCheckins = try await checkinRepository.fetchRecent(days: 10)
@@ -319,10 +344,40 @@ struct StartWorkoutView: View {
             let sessions = try await cardioSessionRepository.fetchHistory(limit: 50)
             let thisWeek = sessions.filter { $0.endedAt != nil && $0.startedAt >= weekStart }
             weeklyCardioMinutes = Int(thisWeek.reduce(0.0) { $0 + $1.elapsed() } / 60)
-            weeklyCardioSessionCount = thisWeek.count
         } catch {
             // Advisory only - don't block the Train tab on this failing.
         }
+    }
+
+    /// Km run this week from imported Watch runs, against this week's planned
+    /// distance. Advisory - the card just shows what it has if this fails.
+    private func loadRunningSummary() async {
+        let calendar = Calendar.current
+        let weekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
+        let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) ?? Date()
+        if let runs = try? await runningPlanRepository.fetchRuns(from: weekStart) {
+            weeklyRunKm = runs.compactMap(\.distanceMeters).reduce(0, +) / 1000
+        }
+        guard let plan = try? await runningPlanRepository.fetchActivePlan() else {
+            weeklyPlannedKm = nil
+            runningPlanWeek = nil
+            return
+        }
+        let planStartWeek = calendar.dateInterval(of: .weekOfYear, for: plan.start)?.start ?? plan.start
+        let weeksIn = calendar.dateComponents([.weekOfYear], from: planStartWeek, to: weekStart).weekOfYear ?? 0
+        runningPlanWeek = weeksIn >= 0 ? plan.firstWeekNumber + weeksIn : nil
+        if let planned = try? await runningPlanRepository.fetchPlannedRuns(planId: plan.id) {
+            weeklyPlannedKm = planned
+                .filter { $0.day >= weekStart && $0.day < weekEnd }
+                .compactMap(\.targetDistanceKm)
+                .reduce(0, +)
+        }
+    }
+
+    /// "12.4", or "12" when it's a whole number.
+    private static func kmText(_ km: Double) -> String {
+        let text = String(format: "%.1f", km)
+        return text.hasSuffix(".0") ? String(text.dropLast(2)) : text
     }
 
     private func loadVolumeFlags() async {
@@ -347,27 +402,14 @@ struct StartWorkoutView: View {
             errorMessage = error.localizedDescription
         }
     }
-
-    private func startOpenWorkout() async {
-        guard activeWorkout == nil else { return }
-        isStartingOpen = true
-        defer { isStartingOpen = false }
-        do {
-            startedWorkout = try await offlineQueue.startWorkout(routineDayId: nil, gymId: preferredGymId)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
 }
 
-/// One weekday's card in the "This Week" carousel - a workout day previews
-/// its exercises and offers to start it (today's card additionally shows
-/// "Session Completed" once it's done); an active rest day names its
+/// The card under the week strip for the selected day - a workout day
+/// previews its exercises and offers to start it (today's card additionally
+/// shows "Session Completed" once it's done); an active rest day names its
 /// cardio type and offers to start that; a rest day is just a plain
 /// placeholder. None of the start actions are limited to today - the split
-/// is a plan, not a lock (see `actionRow`). Enlarged to near-full-width so
-/// the carousel reads as one day at a time, snapping to whichever is
-/// centered.
+/// is a plan, not a lock (see `actionRow`).
 private struct WeekDayCard: View {
     let slot: WeeklyScheduleDay
     let routineDay: RoutineDay?
@@ -375,38 +417,38 @@ private struct WeekDayCard: View {
     let isToday: Bool
     let hasActiveWorkout: Bool
     let isCompletedToday: Bool
+    /// This particular day has a finished workout this week.
+    let isCompleted: Bool
     let isStarting: Bool
+    let isStartingOpen: Bool
     let onStartWorkout: (RoutineDay) -> Void
+    let onStartOpenWorkout: () -> Void
 
     private var previewLimit: Int { 6 }
 
+    /// The card's own corner radius - its start buttons use the same one so
+    /// they read as part of the card's shape rather than a pill inside it.
+    static let cornerRadius = AppButtonStyle.largeCornerRadius
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(slot.weekdayName)
-                    .font(.title3.bold())
-                if isToday {
-                    Text("Today")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.blue.opacity(0.15), in: Capsule())
-                        .foregroundStyle(.blue)
-                }
-                Spacer()
-            }
-
+            // The week strip above already says which day this is, so the
+            // card leads with what the day holds instead.
             switch slot.dayType {
             case .workout:
                 if let routineDay {
-                    VStack(alignment: .leading, spacing: 6) {
+                    titleRow {
                         Text(routineDay.label)
-                            .font(.headline)
-                        if exerciseNames.isEmpty {
-                            Text("No exercises added yet")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
+                            .font(.title3.bold())
+                    } trailing: {
+                        menuButton(routineDay: routineDay)
+                    }
+                    if exerciseNames.isEmpty {
+                        Text("No exercises added yet")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 6) {
                             ForEach(exerciseNames.prefix(previewLimit), id: \.self) { name in
                                 Text(name)
                                     .font(.subheadline)
@@ -419,23 +461,31 @@ private struct WeekDayCard: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     actionRow(routineDay: routineDay)
                 } else {
-                    Text("No day linked - edit this in your split.")
+                    titleRow {
+                        Text("No day linked")
+                            .font(.title3.bold())
+                    } trailing: {
+                        EmptyView()
+                    }
+                    Text("Edit this in your split.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             case .activeRest:
-                VStack(alignment: .leading, spacing: 6) {
+                titleRow {
                     Label(slot.cardioType?.displayName ?? "Active Rest", systemImage: "figure.run")
-                        .font(.headline)
-                    Text("Active rest day")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.title3.bold())
+                } trailing: {
+                    EmptyView()
                 }
+                Text("Active rest day")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 // Not gated to today - a scheduled run/walk is just as
                 // startable a day early or a day late as a workout is (see
                 // `actionRow`'s own reasoning below), only actually blocked
@@ -445,28 +495,63 @@ private struct WeekDayCard: View {
                         StartCardioSessionView(initialCardioType: slot.cardioType ?? .inclineTreadmill)
                     } label: {
                         Text("Start Cardio Session")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.appPrimary)
                 }
             case .rest:
-                Text("Rest Day")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                titleRow {
+                    Label("Rest day", systemImage: "moon.zzz.fill")
+                        .font(.title3.bold())
+                        .foregroundStyle(.secondary)
+                } trailing: {
+                    EmptyView()
+                }
+                // Takes the place of the planned workout's Start button.
+                if !hasActiveWorkout {
+                    Button {
+                        onStartOpenWorkout()
+                    } label: {
+                        Group {
+                            if isStartingOpen {
+                                ProgressView()
+                            } else {
+                                Text("Start Open Workout")
+                            }
+                        }
+                    }
+                    .buttonStyle(.appPrimary)
+                    .disabled(isStartingOpen)
+                }
             }
-
-            Spacer(minLength: 0)
         }
         .padding()
-        .frame(minHeight: 220, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 18))
+        .appCard(cornerRadius: Self.cornerRadius)
         .foregroundStyle(.primary)
-        .overlay(alignment: .bottomTrailing) {
-            if slot.dayType == .workout, let routineDay {
-                menuButton(routineDay: routineDay)
+    }
+
+    /// The card's heading: the day's own title, then Today / Done badges, and
+    /// whatever trailing control the day has (the exercise menu).
+    private func titleRow<Title: View, Trailing: View>(
+        @ViewBuilder title: () -> Title, @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(spacing: 8) {
+            title()
+            if isToday {
+                Text("Today")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(AppColor.accent.opacity(0.15), in: Capsule())
+                    .foregroundStyle(AppColor.accent)
             }
+            Spacer()
+            if isCompleted {
+                Label("Done", systemImage: "checkmark.circle.fill")
+                    .font(.caption.bold())
+                    .foregroundStyle(AppColor.success)
+            }
+            trailing()
         }
     }
 
@@ -485,7 +570,6 @@ private struct WeekDayCard: View {
                 .background(.fill.tertiary, in: Circle())
         }
         .buttonStyle(.plain)
-        .padding(12)
     }
 
     /// Available on every workout-type card, not just today's - the split
@@ -503,23 +587,98 @@ private struct WeekDayCard: View {
             EmptyView()
         } else if isToday && isCompletedToday {
             Label("Session Completed", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(AppColor.success)
                 .font(.subheadline.bold())
         } else {
             Button {
                 onStartWorkout(routineDay)
             } label: {
-                if isStarting {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                } else {
-                    Text("Start Workout")
-                        .frame(maxWidth: .infinity)
+                // Padding inside the label, so the button itself is tall
+                // enough for the card's corner radius to read as a rounded
+                // rectangle rather than saturating into a pill.
+                Group {
+                    if isStarting {
+                        ProgressView()
+                    } else {
+                        Text("Start Workout")
+                    }
                 }
             }
-            .padding(.vertical, 10)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.appPrimary)
             .disabled(isStarting)
+        }
+    }
+}
+
+/// The week at a glance: a pill per day with what it holds (workout,
+/// active rest, rest), today marked, and a tick on days already trained.
+/// Tapping one shows that day's card below.
+private struct WeekStrip: View {
+    let slots: [WeeklyScheduleDay]
+    let selectedWeekday: Int
+    let todaysWeekday: Int
+    let completedWeekdays: Set<Int>
+    let onSelect: (Int) -> Void
+
+    @Namespace private var selection
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(slots) { slot in
+                let isSelected = slot.weekday == selectedWeekday
+                let isToday = slot.weekday == todaysWeekday
+                Button {
+                    onSelect(slot.weekday)
+                } label: {
+                    VStack(spacing: 5) {
+                        Text(String(slot.weekdayName.prefix(3)))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(isSelected ? .white : (isToday ? AppColor.accent : .secondary))
+                        Image(systemName: icon(for: slot.dayType))
+                            .font(.subheadline)
+                            .foregroundStyle(isSelected ? .white : .primary.opacity(slot.dayType == .rest ? 0.35 : 0.9))
+                        Image(systemName: completedWeekdays.contains(slot.weekday) ? "checkmark.circle.fill" : "circle.fill")
+                            .font(.system(size: completedWeekdays.contains(slot.weekday) ? 11 : 4))
+                            .foregroundStyle(
+                                completedWeekdays.contains(slot.weekday)
+                                    ? (isSelected ? Color.white : AppColor.success)
+                                    : (isToday ? AppColor.accent : Color.clear)
+                            )
+                            .frame(height: 11)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background {
+                        // One highlight shared by all days, so changing day
+                        // slides it along the strip rather than swapping.
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(AppColor.accent)
+                                .matchedGeometryEffect(id: "selectedDay", in: selection)
+                        }
+                    }
+                    .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(slot.weekdayName), \(label(for: slot.dayType))\(completedWeekdays.contains(slot.weekday) ? ", done" : "")")
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+    }
+
+    private func icon(for type: ScheduledDayType) -> String {
+        switch type {
+        case .workout: return "dumbbell.fill"
+        case .activeRest: return "figure.run"
+        case .rest: return "moon.zzz.fill"
+        }
+    }
+
+    private func label(for type: ScheduledDayType) -> String {
+        switch type {
+        case .workout: return "workout"
+        case .activeRest: return "active rest"
+        case .rest: return "rest"
         }
     }
 }
@@ -560,7 +719,7 @@ private struct DeloadBanner: View {
             VStack(alignment: .leading, spacing: 6) {
                 Label(title, systemImage: "exclamationmark.triangle.fill")
                     .font(.subheadline.bold())
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppColor.warning)
                 ForEach(signal.reasons, id: \.self) { reason in
                     Text("\u{2022} \(reason)")
                         .font(.caption)

@@ -46,22 +46,16 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9ECF7F3A51FC8DBCD7EFE1FB /* FitnessTrackerWidgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = FitnessTrackerWidgets;
 			sourceTree = "<group>";
 		};
 		A1DE74EB302BA2E90083D4F2 /* FitnessTracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = FitnessTracker;
 			sourceTree = "<group>";
 		};
 		A2E17DB840C6E2D084A09632 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = Shared;
 			sourceTree = "<group>";
 		};

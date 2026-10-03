@@ -15,7 +15,7 @@ struct FoodGroupsView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             if summaries.isEmpty && !isLoading {
@@ -37,6 +37,7 @@ struct FoodGroupsView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle("Brand Compare")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -67,7 +68,7 @@ struct FoodGroupsView: View {
             if let best = ranked.first, ranked.count > 1 {
                 Text("Best: \(best.food.displayName) \u{00b7} \(FoodComparator.Metric.proteinPerKcal.formatted(best.proteinPer100Kcal)) protein/100 kcal")
                     .font(.caption)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(AppColor.success)
             } else {
                 Text("\(summary.foods.count) brand\(summary.foods.count == 1 ? "" : "s")")
                     .font(.caption)
@@ -180,9 +181,10 @@ struct FoodGroupDetailView: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
         }
+        .appScreen()
         .navigationTitle(summary.group.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingAddBrand) {
@@ -212,8 +214,8 @@ struct FoodGroupDetailView: View {
                             .font(.caption2.bold())
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.green.opacity(0.2), in: Capsule())
-                            .foregroundStyle(.green)
+                            .background(AppColor.success.opacity(0.2), in: Capsule())
+                            .foregroundStyle(AppColor.success)
                     }
                 }
                 Text(String(format: "per 100g: %d kcal \u{00b7} P %.1f \u{00b7} C %.1f \u{00b7} F %.1f", Int(item.calories.rounded()), item.proteinG, item.carbsG, item.fatG))

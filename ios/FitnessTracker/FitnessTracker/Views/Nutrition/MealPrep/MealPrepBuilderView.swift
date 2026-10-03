@@ -116,9 +116,10 @@ struct MealPrepBuilderView: View {
                 }
 
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle("New Recipe")
             .navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)
@@ -175,7 +176,7 @@ struct MealPrepBuilderView: View {
                 if let hint = betterBrandHint(for: ingredient.food) {
                     Label(hint, systemImage: "arrow.up.right.circle.fill")
                         .font(.caption)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(AppColor.success)
                 }
             }
             .contentShape(Rectangle())
@@ -372,6 +373,7 @@ private struct IngredientAmountSheet: View {
                     }
                 }
             }
+            .appScreen()
             .navigationTitle(ingredient.food.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -441,7 +443,7 @@ private struct BrandSwapSheet: View {
                                     if let current {
                                         Text(deltaLabel(item, versus: current))
                                             .font(.caption.bold())
-                                            .foregroundStyle(item.proteinPer100Kcal >= current.proteinPer100Kcal ? .green : .orange)
+                                            .foregroundStyle(item.proteinPer100Kcal >= current.proteinPer100Kcal ? AppColor.success : AppColor.warning)
                                     }
                                 }
                             }
@@ -459,6 +461,7 @@ private struct BrandSwapSheet: View {
                     Text("Swapping links the two as the same product, so Brand Compare can rank them.")
                 }
             }
+            .appScreen()
             .navigationTitle("Swap Brand")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

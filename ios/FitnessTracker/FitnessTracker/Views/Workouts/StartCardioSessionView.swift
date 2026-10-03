@@ -54,7 +54,7 @@ struct StartCardioSessionView: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             Section {
@@ -70,6 +70,7 @@ struct StartCardioSessionView: View {
                 .disabled(!isValid || isStarting)
             }
         }
+        .appScreen()
         .navigationTitle("Start Cardio")
         .scrollDismissesKeyboard(.interactively)
         .navigationDestination(item: $startedSession) { session in

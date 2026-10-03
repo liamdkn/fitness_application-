@@ -39,6 +39,7 @@ struct LiquidsCard: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(formattedAmount(totalMl))
                         .font(.title2.bold())
+                        .rolling(Double(totalMl))
                     Text("/ \(targetRangeText)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -46,15 +47,15 @@ struct LiquidsCard: View {
                     Button("Log") {
                         showingLog = true
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.appPrimaryCompact)
                     .controlSize(.small)
                 }
-                ProgressView(value: progress)
-                    .tint(isOnTarget ? .green : .blue)
+                AppProgressBar(value: progress)
+                    .tint(isOnTarget ? AppColor.success : AppColor.water)
                 if caffeineMg > 0 {
                     Label("Caffeine \(caffeineMg) / \(caffeineLimitMg) mg", systemImage: "cup.and.saucer.fill")
                         .font(.caption)
-                        .foregroundStyle(caffeineMg > caffeineLimitMg ? .red : .secondary)
+                        .foregroundStyle(caffeineMg > caffeineLimitMg ? AppColor.danger : .secondary)
                 }
             }
         }

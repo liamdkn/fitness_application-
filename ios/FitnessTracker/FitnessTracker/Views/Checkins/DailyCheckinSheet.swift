@@ -103,9 +103,10 @@ struct DailyCheckinSheet: View {
                 }
 
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle("Daily Check-In")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {

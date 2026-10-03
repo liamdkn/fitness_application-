@@ -21,7 +21,7 @@ struct WorkoutLiveActivity: Widget {
                             .monospacedDigit()
                             .frame(width: 56, alignment: .leading)
                     } icon: {
-                        Image(systemName: "dumbbell.fill").foregroundStyle(.orange)
+                        Image(systemName: "dumbbell.fill").foregroundStyle(AppColor.accent)
                     }
                     .font(.subheadline)
                 }
@@ -37,19 +37,19 @@ struct WorkoutLiveActivity: Widget {
                     SetSummary(state: context.state)
                 }
             } compactLeading: {
-                Image(systemName: "dumbbell.fill").foregroundStyle(.orange)
+                Image(systemName: "dumbbell.fill").foregroundStyle(AppColor.accent)
             } compactTrailing: {
                 if let rest = activeRest(context.state, isStale: context.isStale) {
                     Text(timerInterval: Date.now...rest, countsDown: true)
                         .monospacedDigit()
                         .frame(width: 44)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppColor.accent)
                 } else {
                     Text("\(context.state.setsLogged)")
                         .monospacedDigit()
                 }
             } minimal: {
-                Image(systemName: "dumbbell.fill").foregroundStyle(.orange)
+                Image(systemName: "dumbbell.fill").foregroundStyle(AppColor.accent)
             }
         }
     }
@@ -70,7 +70,7 @@ private struct LockScreenView: View {
             HStack(alignment: .firstTextBaseline) {
                 Label(context.attributes.workoutName, systemImage: "dumbbell.fill")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppColor.accent)
                     .lineLimit(1)
                 Spacer()
                 Text(timerInterval: context.attributes.startedAt...Date.distantFuture, countsDown: false)
@@ -127,7 +127,7 @@ private struct RestBadge: View {
             VStack(spacing: 0) {
                 Text("REST")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppColor.accent)
                 Text(timerInterval: Date.now...rest, countsDown: true)
                     .font(.title2.monospacedDigit().weight(.semibold))
                     .multilineTextAlignment(.center)
@@ -136,10 +136,10 @@ private struct RestBadge: View {
         } else if state.restEndsAt != nil {
             VStack(spacing: 0) {
                 Image(systemName: "figure.strengthtraining.traditional")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(AppColor.success)
                 Text("Go")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(AppColor.success)
             }
         }
     }

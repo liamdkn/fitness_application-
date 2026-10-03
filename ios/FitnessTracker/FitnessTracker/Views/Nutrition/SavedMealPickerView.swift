@@ -32,7 +32,7 @@ struct SavedMealPickerView: View {
         NavigationStack {
             List {
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
                 if savedMeals.isEmpty {
                     Text("No saved meals yet. Log a meal to \(mealSlotName), then use \"Save This Meal\" to keep it for next time.")
@@ -60,6 +60,7 @@ struct SavedMealPickerView: View {
                     }
                 }
             }
+            .appScreen()
             .navigationTitle("Saved Meals")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -189,9 +190,10 @@ struct SaveMealSheet: View {
                 }
                 SavedMealCategoryField(category: $category, existingCategories: existingCategories)
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle("Save This Meal")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -245,9 +247,10 @@ private struct ChangeCategorySheet: View {
             Form {
                 SavedMealCategoryField(category: $category, existingCategories: existingCategories)
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle(savedMeal.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

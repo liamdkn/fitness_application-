@@ -19,7 +19,7 @@ struct WatchActivityCard: View {
                     if let errorMessage = viewModel.errorMessage {
                         Text(errorMessage)
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppColor.danger)
                     }
                 }
             }
@@ -78,10 +78,9 @@ private struct WatchActivityRow: View {
             Text(subtitle).font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button(actionLabel) { Task { await confirm() } }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .buttonStyle(.appPrimaryCompact)
                 Button("Dismiss") { Task { await viewModel.dismiss(candidate.detectedWorkout) } }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.appSecondaryCompact)
                     .controlSize(.small)
                 Spacer()
                 if viewModel.isProcessing {

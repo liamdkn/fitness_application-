@@ -63,7 +63,7 @@ struct MealPrepDetailView: View {
                         Image(systemName: "snowflake")
                         Text("Freezer")
                     }
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(AppColor.frozen)
                     if let frozenDate = summary.prep.frozenDate {
                         LabeledContent("Frozen", value: frozenDate.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
                     }
@@ -176,9 +176,10 @@ struct MealPrepDetailView: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
         }
+        .appScreen()
         .navigationTitle(summary.prep.name)
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadIngredients() }
@@ -236,7 +237,7 @@ struct MealPrepDetailView: View {
             Label {
                 Text("\(old.displayName) \u{2192} \(new.displayName)")
             } icon: {
-                Image(systemName: "arrow.left.arrow.right").foregroundStyle(.blue)
+                Image(systemName: "arrow.left.arrow.right").foregroundStyle(AppColor.accent)
             }
             .font(.subheadline)
         case let .added(food):
@@ -406,9 +407,10 @@ private struct EditBatchSheet: View {
                     }
                 }
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle("Edit Batch")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

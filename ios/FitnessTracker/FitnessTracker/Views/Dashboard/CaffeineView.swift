@@ -63,9 +63,10 @@ struct CaffeineView: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
         }
+        .appScreen()
         .navigationTitle("Caffeine")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -86,14 +87,14 @@ struct CaffeineView: View {
                     Text("of \(Int(limitMg)) mg")
                         .foregroundStyle(.secondary)
                 }
-                ProgressView(value: min(total / max(limitMg, 1), 1))
-                    .tint(total > limitMg ? .red : .brown)
+                AppProgressBar(value: min(total / max(limitMg, 1), 1))
+                    .tint(total > limitMg ? AppColor.danger : AppColor.caffeine)
             }
             .padding(.vertical, 4)
             LabeledContent("In your system now", value: "~\(Int(nowLevel.rounded())) mg")
             LabeledContent("At bedtime (\(bedtime.formatted(date: .omitted, time: .shortened)))") {
                 Text("~\(Int(bedLevel.rounded())) mg")
-                    .foregroundStyle(bedLevel > targetMg ? .orange : .green)
+                    .foregroundStyle(bedLevel > targetMg ? AppColor.warning : AppColor.success)
             }
             if let resolvedBedtime, resolvedBedtime.fromHealth {
                 Label("Bedtime from your last \(resolvedBedtime.nights) nights of sleep in Health", systemImage: "bed.double.fill")
@@ -112,10 +113,10 @@ struct CaffeineView: View {
             Chart {
                 ForEach(curve, id: \.time) { point in
                     AreaMark(x: .value("Time", point.time), yStart: .value("mg", 0), yEnd: .value("mg", point.mg))
-                        .foregroundStyle(.brown.opacity(0.25))
+                        .foregroundStyle(AppColor.caffeine.opacity(0.25))
                         .interpolationMethod(.linear)
                     LineMark(x: .value("Time", point.time), y: .value("mg", point.mg))
-                        .foregroundStyle(.brown)
+                        .foregroundStyle(AppColor.caffeine)
                         .interpolationMethod(.linear)
                 }
                 ForEach(Array(doses.enumerated()), id: \.offset) { _, dose in
@@ -123,17 +124,17 @@ struct CaffeineView: View {
                         x: .value("Time", dose.time),
                         y: .value("mg", CaffeineModel.level(at: dose.time, doses: doses, halfLifeHours: halfLife))
                     )
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppColor.accent)
                     .symbolSize(60)
                 }
                 RuleMark(y: .value("Bedtime target", targetMg))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(AppColor.success)
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 RuleMark(x: .value("Bedtime", bedtime))
-                    .foregroundStyle(.indigo)
+                    .foregroundStyle(AppColor.bedtime)
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                     .annotation(position: .top, alignment: .trailing) {
-                        Text("Bed").font(.caption2).foregroundStyle(.indigo)
+                        Text("Bed").font(.caption2).foregroundStyle(AppColor.bedtime)
                     }
                 RuleMark(x: .value("Now", now))
                     .foregroundStyle(.secondary)
@@ -165,7 +166,7 @@ struct CaffeineView: View {
                     .font(.subheadline)
             } icon: {
                 Image(systemName: "clock.badge.checkmark")
-                    .foregroundStyle(.brown)
+                    .foregroundStyle(AppColor.caffeine)
             }
         } header: {
             Text("When to stop")
@@ -212,10 +213,10 @@ struct CaffeineView: View {
             Chart {
                 ForEach(points, id: \.date) { point in
                     BarMark(x: .value("Day", point.date, unit: .day), y: .value("mg", point.mg))
-                        .foregroundStyle(point.mg > limitMg ? Color.red : Color.brown)
+                        .foregroundStyle(point.mg > limitMg ? AppColor.danger : AppColor.caffeine)
                 }
                 RuleMark(y: .value("Limit", limitMg))
-                    .foregroundStyle(.red.opacity(0.6))
+                    .foregroundStyle(AppColor.danger.opacity(0.6))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
             }
             .chartYScale(domain: 0...max(limitMg * 1.25, (points.map(\.mg).max() ?? 0) * 1.1))
@@ -324,6 +325,7 @@ struct CaffeineSettingsView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle("Caffeine & Sodium")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }

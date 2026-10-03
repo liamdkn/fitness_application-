@@ -142,7 +142,7 @@ struct PlanTreatSheet: View {
                     .foregroundStyle(.secondary)
 
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
             .sheet(isPresented: $showingFoodPicker) {
@@ -150,6 +150,7 @@ struct PlanTreatSheet: View {
                     items.append((food, quantity))
                 }
             }
+            .appScreen()
             .navigationTitle("Plan a Treat")
             .navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)
@@ -173,12 +174,12 @@ struct PlanTreatSheet: View {
         if check.isConsistent {
             Label("Macros add up to the calories", systemImage: "checkmark.circle.fill")
                 .font(.footnote)
-                .foregroundStyle(.green)
+                .foregroundStyle(AppColor.success)
         } else if check.unassignedKcal > 0 {
             VStack(alignment: .leading, spacing: 8) {
                 Label("\(Int(check.unassignedKcal.rounded())) of \(Int(check.calories.rounded())) kcal isn't covered by the macros", systemImage: "exclamationmark.triangle.fill")
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppColor.warning)
                 Button("Fill the rest as carbs and fat") {
                     let rest = MacroEnergy.fillRemainder(kcal: check.unassignedKcal)
                     extraCarbs = format((Double(extraCarbs) ?? 0) + rest.carbsG)
@@ -190,7 +191,7 @@ struct PlanTreatSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("The macros add up to \(Int(check.macroKcal.rounded())) kcal, more than the \(Int(check.calories.rounded())) entered", systemImage: "exclamationmark.triangle.fill")
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppColor.warning)
                 Button("Set calories to \(Int(check.macroKcal.rounded()))") {
                     extraCalories = format(check.macroKcal.rounded())
                 }

@@ -23,9 +23,10 @@ struct AddExerciseNoteSheet: View {
                         .lineLimit(4...10)
                 }
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle("Add Note")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

@@ -12,7 +12,7 @@ struct InjuriesView: View {
     var body: some View {
         Form {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             if !activeInjuries.isEmpty {
@@ -36,6 +36,7 @@ struct InjuriesView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .appScreen()
         .navigationTitle("Injuries")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -153,6 +154,7 @@ private struct AddInjurySheet: View {
                         .lineLimit(2...4)
                 }
             }
+            .appScreen()
             .navigationTitle("Log Injury")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

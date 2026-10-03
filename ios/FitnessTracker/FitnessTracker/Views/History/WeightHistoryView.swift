@@ -19,7 +19,7 @@ struct WeightHistoryView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             } else if logs.isEmpty {
                 Text("No weigh-ins logged yet.")
                     .foregroundStyle(.secondary)
@@ -41,6 +41,7 @@ struct WeightHistoryView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle("Weigh-Ins")
         .task { await load() }
         .confirmationDialog(

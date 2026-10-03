@@ -31,7 +31,7 @@ struct ManageCardioTypesView: View {
                                 Spacer()
                                 if selected.contains(type) {
                                     Image(systemName: "checkmark")
-                                        .foregroundStyle(.blue)
+                                        .foregroundStyle(AppColor.accent)
                                 }
                             }
                         }
@@ -40,6 +40,7 @@ struct ManageCardioTypesView: View {
                     Text("Choose which cardio types show up in your quick-pick list.")
                 }
             }
+            .appScreen()
             .navigationTitle("Cardio Types")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

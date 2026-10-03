@@ -21,7 +21,7 @@ struct RoutineDayEditorView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
             ForEach(dayExercises) { dayExercise in
                 row(for: dayExercise)
@@ -29,6 +29,7 @@ struct RoutineDayEditorView: View {
             .onDelete(perform: isLinking ? nil : { offsets in removeExercises(at: offsets) })
             .onMove(perform: isLinking ? nil : { source, destination in moveExercises(from: source, to: destination) })
         }
+        .appScreen()
         .navigationTitle(day.label)
         .toolbar { toolbarContent }
         .task { await load() }
@@ -110,14 +111,14 @@ struct RoutineDayEditorView: View {
                             .font(.caption2.bold())
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
-                            .background(.blue.opacity(0.15), in: Capsule())
-                            .foregroundStyle(.blue)
+                            .background(AppColor.accent.opacity(0.15), in: Capsule())
+                            .foregroundStyle(AppColor.accent)
                     }
                 }
                 Spacer()
                 if isLinking {
                     Image(systemName: selectedForLink.contains(dayExercise.id) ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(selectedForLink.contains(dayExercise.id) ? .blue : .secondary)
+                        .foregroundStyle(selectedForLink.contains(dayExercise.id) ? AppColor.accent : .secondary)
                 }
             }
         }

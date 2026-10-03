@@ -172,9 +172,10 @@ struct AddCustomFoodView: View {
                 }
                 verifySection
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)
@@ -278,7 +279,7 @@ struct AddCustomFoodView: View {
                     .font(.footnote)
             } icon: {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppColor.warning)
             }
         }
     }

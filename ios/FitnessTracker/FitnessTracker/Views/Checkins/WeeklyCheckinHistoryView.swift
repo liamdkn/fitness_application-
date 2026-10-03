@@ -14,7 +14,7 @@ struct WeeklyCheckinHistoryView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
             ForEach(checkins) { checkin in
                 NavigationLink {
@@ -31,6 +31,7 @@ struct WeeklyCheckinHistoryView: View {
                 ContentUnavailableView("No Check-Ins Yet", systemImage: "calendar.badge.clock", description: Text("Your weekly check-ins will show up here once you complete one."))
             }
         }
+        .appScreen()
         .navigationTitle("Check-In History")
         .task { await load() }
     }
@@ -138,9 +139,10 @@ struct WeeklyCheckinDetailView: View {
             }
 
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
         }
+        .appScreen()
         .navigationTitle(formattedDate(checkin.checkinDate))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }

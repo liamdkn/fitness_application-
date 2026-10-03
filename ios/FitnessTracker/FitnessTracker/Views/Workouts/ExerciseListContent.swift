@@ -53,7 +53,7 @@ struct ExerciseListContent<Row: View>: View {
     var body: some View {
         List {
             if let errorMessage = listViewModel.errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
             if listViewModel.searchText.isEmpty {
                 ForEach(listViewModel.groupedByMuscle, id: \.group) { section in

@@ -56,6 +56,7 @@ struct WorkoutRatingSheet: View {
                         .lineLimit(2...6)
                 }
             }
+            .appScreen()
             .navigationTitle("Workout Finished")
             // Swipeable, deliberately - realizing you forgot to log a set
             // should be a swipe back to the workout, not a dead end. The

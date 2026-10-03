@@ -20,6 +20,6 @@ struct DashboardCard<Content: View>: View {
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
+        .appCard(cornerRadius: 16)
     }
 }

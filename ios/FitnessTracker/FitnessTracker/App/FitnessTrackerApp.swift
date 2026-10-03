@@ -8,6 +8,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // Also runs when iOS launches the app in the background for new
         // Health data - that's what keeps the step reminders current.
         Task { @MainActor in StepReminderService.shared.startObserving() }
+        // UIKit-hosted pieces (alerts, share sheets, the camera scanner) don't
+        // see SwiftUI's `.tint`, so give them the accent too.
+        UIView.appearance().tintColor = UIColor(AppColor.accent)
         return true
     }
 

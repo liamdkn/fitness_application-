@@ -33,7 +33,7 @@ struct MyGoalsView: View {
         List {
             Section("Current Phase") {
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 } else if let currentGoal {
                     currentPhaseCard(currentGoal)
                     Button("Adjust Phase") { showingAdjustPhase = true }
@@ -66,7 +66,7 @@ struct MyGoalsView: View {
                     Task { await saveWaterTargetRange(min: dailyWaterMlTargetMin, max: newValue) }
                 }
                 if let waterTargetError {
-                    Text(waterTargetError).foregroundStyle(.red)
+                    Text(waterTargetError).foregroundStyle(AppColor.error)
                 }
             }
 
@@ -128,6 +128,7 @@ struct MyGoalsView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle("My Goals")
         .task { await load() }
         .sheet(isPresented: $showingNewPhase) {
@@ -562,7 +563,7 @@ private struct NutritionInsightCard: View {
                 Button(action: onDismiss) {
                     Text("Dismiss")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.appSecondaryCompact)
                 .disabled(isApplying)
 
                 Button(action: onAccept) {
@@ -572,7 +573,7 @@ private struct NutritionInsightCard: View {
                         Text("Apply New Target")
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.appPrimaryCompact)
                 .disabled(isApplying)
             }
         }

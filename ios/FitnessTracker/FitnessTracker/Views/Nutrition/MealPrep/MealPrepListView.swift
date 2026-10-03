@@ -56,7 +56,7 @@ struct MealPrepListView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
 
             if summaries.isEmpty && !isLoading {
@@ -66,7 +66,7 @@ struct MealPrepListView: View {
                     Text("Cook a batch - overnight oats, a curry, protein balls - and log a portion at a time. Next time, make it again in one tap.")
                 } actions: {
                     Button("New Recipe") { showingBuilder = true }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.appPrimaryCompact)
                 }
                 .listRowBackground(Color.clear)
             }
@@ -99,6 +99,7 @@ struct MealPrepListView: View {
                 }
             }
         }
+        .appScreen()
         .navigationTitle("Recipes")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -146,7 +147,7 @@ struct MealPrepListView: View {
             Button("Make Again") {
                 Task { await makeAgain(summary) }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.appSecondaryCompact)
             .controlSize(.small)
         }
     }
@@ -218,18 +219,18 @@ struct MealPrepRow: View {
                 }
             }
             if !summary.isFinished {
-                ProgressView(value: min(summary.eatenPortions, summary.prep.portions), total: summary.prep.portions)
-                    .tint(isOverdue ? .red : (summary.prep.isFrozen ? .cyan : .accentColor))
+                AppProgressBar(value: min(summary.eatenPortions, summary.prep.portions), total: summary.prep.portions)
+                    .tint(isOverdue ? AppColor.danger : (summary.prep.isFrozen ? AppColor.frozen : AppColor.accent))
             }
             HStack(spacing: 6) {
                 Text("\(Int(summary.recipe.calories)) kcal \u{00b7} P \(Int(summary.recipe.proteinG))g")
                 Spacer()
                 if isOverdue {
                     Label("Past eat-by", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(AppColor.danger)
                 } else if summary.prep.isFrozen && !summary.isFinished {
                     Label("Frozen \((summary.prep.frozenDate ?? summary.prep.preppedDate).formatted(.dateTime.day().month(.abbreviated)))", systemImage: "snowflake")
-                        .foregroundStyle(.cyan)
+                        .foregroundStyle(AppColor.frozen)
                 } else if !summary.isFinished {
                     Text("Eat by \(summary.prep.eatBy.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))")
                 } else {

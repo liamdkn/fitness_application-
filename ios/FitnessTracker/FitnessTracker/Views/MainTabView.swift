@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainTabView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @State private var leftAt: Date?
 
     var body: some View {
         TabView {
@@ -15,6 +16,7 @@ struct MainTabView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }
         .task {
+            AppIntro.shared.play()
             await HealthSyncService.shared.requestAuthorizationAndSync()
             await DailyCheckinReminderService.shared.requestAuthorization()
             await DailyCheckinReminderService.shared.refresh()
@@ -30,6 +32,11 @@ struct MainTabView: View {
             // needing a force-quit; for the check-in reminder it's what
             // re-schedules tomorrow's 9am notification once a new day has
             // actually started.
+            if newPhase == .background { leftAt = Date() }
+            if newPhase == .active, let leftAt, Date().timeIntervalSince(leftAt) > AppIntro.awayThreshold {
+                AppIntro.shared.play()
+                self.leftAt = nil
+            }
             guard newPhase == .active else { return }
             Task {
                 await HealthSyncService.shared.requestAuthorizationAndSync()

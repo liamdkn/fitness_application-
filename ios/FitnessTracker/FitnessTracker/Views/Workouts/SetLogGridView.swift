@@ -43,7 +43,7 @@ struct SetLogGridView: View {
                                 } label: {
                                     Label("Add Drop", systemImage: "arrow.turn.down.right")
                                 }
-                                .tint(.blue)
+                                .tint(AppColor.accent)
                             }
                         }
                 } else {
@@ -196,13 +196,13 @@ struct EditableSetRow: View {
             // screen has had before).
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(weightLooksOff ? Color.orange : Color.clear, lineWidth: 1.5)
+                    .stroke(weightLooksOff ? AppColor.warning : Color.clear, lineWidth: 1.5)
             )
             .overlay(alignment: .topTrailing) {
                 if weightLooksOff {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 8))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppColor.warning)
                         .offset(x: 4, y: -4)
                 }
             }
@@ -217,13 +217,13 @@ struct EditableSetRow: View {
             .frame(width: 44)
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(repsLooksOff ? Color.orange : Color.clear, lineWidth: 1.5)
+                    .stroke(repsLooksOff ? AppColor.warning : Color.clear, lineWidth: 1.5)
             )
             .overlay(alignment: .topTrailing) {
                 if repsLooksOff {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 8))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppColor.warning)
                         .offset(x: 4, y: -4)
                 }
             }
@@ -274,6 +274,9 @@ struct ConfirmedSetRow: View {
     let onAddDrop: () -> Void
     let onUnlogSet: (WorkoutSet) -> Void
 
+    /// Flips on appearance, which makes the tick bounce when a set is logged.
+    @State private var appeared = false
+
     var body: some View {
         HStack {
             Text(label)
@@ -310,17 +313,19 @@ struct ConfirmedSetRow: View {
                     onUnlogSet(set)
                 } label: {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(AppColor.success)
+                        .symbolEffect(.bounce, options: .speed(1.3), value: appeared)
                 }
                 .buttonStyle(.plain)
                 .frame(width: 24)
             } else {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(AppColor.success)
                     .frame(width: 24)
             }
         }
         .padding(.vertical, 4)
+        .onAppear { appeared = true }
     }
 }
 

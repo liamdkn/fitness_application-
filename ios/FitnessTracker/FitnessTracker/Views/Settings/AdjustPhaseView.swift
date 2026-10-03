@@ -94,7 +94,7 @@ struct AdjustPhaseView: View {
                     if proteinFatExceedsCalories {
                         Text("Protein + fat already exceed calorie target.")
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppColor.danger)
                     }
                 }
 
@@ -123,7 +123,7 @@ struct AdjustPhaseView: View {
                 }
 
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
 
                 Section {
@@ -139,6 +139,7 @@ struct AdjustPhaseView: View {
                     .disabled(!isValid || isSaving)
                 }
             }
+            .appScreen()
             .navigationTitle("Adjust Phase")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {

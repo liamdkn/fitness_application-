@@ -53,9 +53,10 @@ struct WeeklyCheckinFlow: View {
                 }
 
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppColor.error)
                 }
             }
+            .appScreen()
             .navigationTitle("Weekly Check-In (\(page + 1)/3)")
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
@@ -236,7 +237,7 @@ struct WeeklyCheckinFlow: View {
                 Section {
                     Text("Only \(recap.daysLogged) day\(recap.daysLogged == 1 ? "" : "s") logged this week - these averages are thin.")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppColor.warning)
                 }
             }
         } else {

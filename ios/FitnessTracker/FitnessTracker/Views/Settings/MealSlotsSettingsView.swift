@@ -11,7 +11,7 @@ struct MealSlotsSettingsView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
             ForEach(slots) { slot in
                 Text(slot.name)
@@ -24,6 +24,7 @@ struct MealSlotsSettingsView: View {
             .onDelete { offsets in Task { await delete(at: offsets) } }
             .onMove { source, destination in Task { await move(from: source, to: destination) } }
         }
+        .appScreen()
         .navigationTitle("Meal Slots")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {

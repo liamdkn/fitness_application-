@@ -314,7 +314,7 @@ struct WeeklyInsightsView: View {
             }
 
             if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppColor.error)
             }
     }
 }
@@ -447,9 +447,9 @@ private struct WeeklyAdherenceCard: View {
 
     private func bandColor(_ score: Double) -> Color {
         switch score {
-        case 85...: return .green
-        case 65..<85: return .orange
-        default: return .red
+        case 85...: return AppColor.success
+        case 65..<85: return AppColor.warning
+        default: return AppColor.danger
         }
     }
 
@@ -549,9 +549,9 @@ private struct DayAdherenceInlineDetail: View {
 
     private func bandColor(_ score: Double) -> Color {
         switch score {
-        case 85...: return .green
-        case 65..<85: return .orange
-        default: return .red
+        case 85...: return AppColor.success
+        case 65..<85: return AppColor.warning
+        default: return AppColor.danger
         }
     }
 
@@ -644,8 +644,8 @@ private struct DailyStepsBreakdown: View {
     }
 
     private func barColor(_ steps: Int) -> Color {
-        guard let stepTarget, stepTarget > 0 else { return .blue }
-        return steps >= stepTarget ? .green : .blue
+        guard let stepTarget, stepTarget > 0 else { return AppColor.steps }
+        return steps >= stepTarget ? AppColor.success : AppColor.steps
     }
 
     private func weekdayLabel(_ date: Date) -> String {
@@ -700,7 +700,7 @@ private struct DailyMacroBreakdown: View {
                     Capsule().fill(Color.secondary.opacity(0.15))
                     if let value = day.value {
                         Capsule()
-                            .fill(Color.blue)
+                            .fill(AppColor.steps)
                             .frame(width: geometry.size.width * min(value / maxValue, 1))
                     }
                 }
@@ -766,7 +766,7 @@ private struct StepsDebtRow: View {
                 Label("Steps debt", systemImage: "figure.walk.motion")
                 Spacer()
                 Text(paceText)
-                    .foregroundStyle(debt.stepsBehindPace < 0 ? .red : .secondary)
+                    .foregroundStyle(debt.stepsBehindPace < 0 ? AppColor.danger : .secondary)
             }
             Text(subtitleText)
                 .font(.caption)
@@ -888,12 +888,12 @@ private struct InteractiveWeeklyWeightChart: View {
                     y: .value("Weight (kg)", log.weightKg),
                     series: .value("Series", "Actual")
                 )
-                .foregroundStyle(.blue)
+                .foregroundStyle(AppColor.weight)
                 PointMark(
                     x: .value("Date", log.loggedAt),
                     y: .value("Weight (kg)", log.weightKg)
                 )
-                .foregroundStyle(.blue)
+                .foregroundStyle(AppColor.weight)
                 .symbolSize(log.id == selectedLog?.id ? 60 : 30)
             }
             ForEach(goalLinePoints) { point in
@@ -902,7 +902,7 @@ private struct InteractiveWeeklyWeightChart: View {
                     y: .value("Weight (kg)", point.weightKg),
                     series: .value("Series", "Goal")
                 )
-                .foregroundStyle(.red.opacity(0.6))
+                .foregroundStyle(AppColor.danger.opacity(0.6))
                 .lineStyle(StrokeStyle(dash: [5, 3]))
             }
             if let selectedLog {
@@ -981,9 +981,9 @@ private struct AdherenceTrendChart: View {
 
     private func bandColor(_ score: Double) -> Color {
         switch score {
-        case 85...: return .green
-        case 65..<85: return .orange
-        default: return .red
+        case 85...: return AppColor.success
+        case 65..<85: return AppColor.warning
+        default: return AppColor.danger
         }
     }
 

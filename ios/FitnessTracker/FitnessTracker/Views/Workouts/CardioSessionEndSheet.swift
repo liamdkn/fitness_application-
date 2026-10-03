@@ -83,13 +83,13 @@ struct CardioSessionEndSheet: View {
                                 .frame(width: 80)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 6)
-                                        .stroke(stepsAfterLooksOff ? Color.orange : Color.clear, lineWidth: 1.5)
+                                        .stroke(stepsAfterLooksOff ? AppColor.warning : Color.clear, lineWidth: 1.5)
                                 )
                         }
                         if stepsAfterLooksOff {
                             Text("That's a fast pace for this session's length - double check this number.")
                                 .font(.caption)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(AppColor.warning)
                         }
                     }
                     HStack {
@@ -103,6 +103,7 @@ struct CardioSessionEndSheet: View {
                     }
                 }
             }
+            .appScreen()
             .navigationTitle("End Session")
             .scrollDismissesKeyboard(.interactively)
             .interactiveDismissDisabled()

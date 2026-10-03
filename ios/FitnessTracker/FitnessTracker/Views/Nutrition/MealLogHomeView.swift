@@ -19,6 +19,7 @@ struct MealLogHomeView: View {
     /// `viewModel.entries` directly (see `isLogged`), so its checkmark is
     /// never a fetch behind the entries actually on screen.
     @State private var loggedDateStrings: Set<String> = []
+    @Namespace private var zoomNamespace
     /// Every planned treat in `weekDates` - fetched a week at a time since
     /// that's the unit `CalorieBankCalculator` redistributes across (a
     /// treat funds itself from the *other* days in its own week, not from
@@ -74,7 +75,7 @@ struct MealLogHomeView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
                     dateHeader
@@ -82,9 +83,9 @@ struct MealLogHomeView: View {
                     CalorieProgressBar(logged: totals.calories, target: adjustedCalorieTarget)
 
                     HStack(spacing: 12) {
-                        MacroProgressCard(label: "Protein", value: totals.proteinG, target: adjustedProteinTarget, color: .blue)
-                        MacroProgressCard(label: "Carbs", value: totals.carbsG, target: adjustedCarbsTarget, color: .green)
-                        MacroProgressCard(label: "Fat", value: totals.fatG, target: adjustedFatTarget, color: .yellow)
+                        MacroProgressCard(label: "Protein", value: totals.proteinG, target: adjustedProteinTarget, color: AppColor.protein)
+                        MacroProgressCard(label: "Carbs", value: totals.carbsG, target: adjustedCarbsTarget, color: AppColor.carbs)
+                        MacroProgressCard(label: "Fat", value: totals.fatG, target: adjustedFatTarget, color: AppColor.fat)
                     }
 
                     SodiumCaffeineRow(
@@ -124,6 +125,7 @@ struct MealLogHomeView: View {
                         }
                         ForEach(viewModel.slotGroups) { group in
                             MealSlotCard(
+                                zoom: zoomNamespace,
                                 group: group,
                                 date: selectedDate,
                                 viewModel: viewModel,
@@ -134,7 +136,7 @@ struct MealLogHomeView: View {
                     }
 
                     if let errorMessage = viewModel.errorMessage {
-                        Text(errorMessage).foregroundStyle(.red)
+                        Text(errorMessage).foregroundStyle(AppColor.error)
                     }
                 }
                 .padding()
@@ -192,6 +194,7 @@ struct MealLogHomeView: View {
                     .datePickerStyle(.graphical)
                     .labelsHidden()
                     .padding()
+                    .appScreen()
                     .navigationTitle("Jump to Date")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -281,13 +284,15 @@ private struct CalorieProgressBar: View {
                 if let target {
                     Text("\(Int(logged)) / \(Int(target)) kcal")
                         .foregroundStyle(.secondary)
+                        .rolling(Double(logged))
                 } else {
                     Text("\(Int(logged)) kcal")
                         .foregroundStyle(.secondary)
+                        .rolling(Double(logged))
                 }
             }
-            ProgressView(value: progress)
-                .tint(.orange)
+            AppProgressBar(value: progress)
+                .tint(AppColor.treat)
         }
     }
 }
@@ -310,7 +315,7 @@ private struct CalorieBankBanner: View {
             }
         }
         .font(.caption)
-        .foregroundStyle(.orange)
+        .foregroundStyle(AppColor.treat)
     }
 
     private func weekdayName(_ isoDate: String) -> String {
@@ -332,6 +337,7 @@ private struct CalorieBankBanner: View {
 /// another control's row/label); two plainly-separate, non-overlapping
 /// controls in a VStack don't have that problem.
 private struct MealSlotCard: View {
+    let zoom: Namespace.ID
     let group: MealSlotGroup
     let date: Date
     @ObservedObject var viewModel: MealLogViewModel
@@ -343,33 +349,30 @@ private struct MealSlotCard: View {
         VStack(alignment: .leading, spacing: 10) {
             NavigationLink {
                 MealSlotDetailView(viewModel: viewModel, slot: group.slot, date: date)
+                    .zoomDestination(id: group.slot.id, in: zoom)
             } label: {
                 MealSlotSummaryContent(group: group)
             }
             .buttonStyle(.plain)
+            .zoomSource(id: group.slot.id, in: zoom)
 
             ForEach(plannedTreats) { treat in
                 Label("\(treat.label) - +\(Int(treat.extraCalories)) kcal banked", systemImage: "gift.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppColor.treat)
             }
 
             HStack {
                 Spacer()
                 Button(action: onLogTapped) {
                     Text(group.entries.isEmpty ? "Log" : "Log more")
-                        .font(.subheadline.bold())
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .background(.blue.opacity(0.15), in: Capsule())
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.blue)
+                .buttonStyle(.appSecondaryCompact)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .appCard(cornerRadius: 12)
     }
 }
 
@@ -385,6 +388,7 @@ private struct MealSlotSummaryContent: View {
                 if group.totalCalories > 0 {
                     Text("\(Int(group.totalCalories)) cal")
                         .font(.headline)
+                        .rolling(group.totalCalories)
                 }
             }
 
@@ -452,8 +456,8 @@ private struct SodiumCaffeineRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
-                metric("Sodium", value: sodiumMg, limit: Double(sodiumLimitMg), color: .orange)
-                metric("Caffeine", value: caffeineMg, limit: Double(caffeineLimitMg), color: .brown)
+                metric("Sodium", value: sodiumMg, limit: Double(sodiumLimitMg), color: AppColor.sodium)
+                metric("Caffeine", value: caffeineMg, limit: Double(caffeineLimitMg), color: AppColor.caffeine)
             }
             if foodsMissingSodium > 0 {
                 Text("\(foodsMissingSodium) food\(foodsMissingSodium == 1 ? "" : "s") logged today with no sodium recorded - the total is a minimum.")
@@ -471,12 +475,13 @@ private struct SodiumCaffeineRow: View {
             Text("\(Int(value.rounded()).formatted()) / \(Int(limit).formatted()) mg")
                 .font(.subheadline.bold())
                 .monospacedDigit()
-            ProgressView(value: min(value / max(limit, 1), 1))
-                .tint(value > limit ? .red : color)
+                .rolling(value)
+            AppProgressBar(value: min(value / max(limit, 1), 1))
+                .tint(value > limit ? AppColor.danger : color)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .appCard(cornerRadius: 12)
     }
 }
 
@@ -498,12 +503,13 @@ private struct MacroProgressCard: View {
                 .foregroundStyle(.secondary)
             Text(target.map { "\(Int(value))/\(Int($0))g" } ?? "\(Int(value))g")
                 .font(.subheadline.bold())
-            ProgressView(value: progress)
+                .rolling(value)
+            AppProgressBar(value: progress)
                 .tint(color)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .appCard(cornerRadius: 12)
     }
 }
 
@@ -551,12 +557,12 @@ private struct WeekDayStrip: View {
             } label: {
                 ZStack {
                     Circle()
-                        .strokeBorder(isSelected ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: isSelected ? 2 : 1)
-                        .background(Circle().fill(logged ? Color.accentColor.opacity(0.15) : .clear))
+                        .strokeBorder(isSelected ? AppColor.accent : Color.secondary.opacity(0.3), lineWidth: isSelected ? 2 : 1)
+                        .background(Circle().fill(logged ? AppColor.accent.opacity(0.15) : .clear))
                     if logged {
                         Image(systemName: "checkmark")
                             .font(.caption2.weight(.bold))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(AppColor.accent)
                     }
                 }
                 .frame(width: 32, height: 32)

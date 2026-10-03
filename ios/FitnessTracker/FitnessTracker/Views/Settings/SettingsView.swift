@@ -17,7 +17,7 @@ struct SettingsView: View {
     private let preferencesRepository = UserPreferencesRepository()
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section("Goals") {
                     NavigationLink("My Goals") {
@@ -47,7 +47,7 @@ struct SettingsView: View {
                         Task { await savePreferences(newValue) }
                     }
                     if let preferencesError {
-                        Text(preferencesError).foregroundStyle(.red)
+                        Text(preferencesError).foregroundStyle(AppColor.error)
                     }
                     NavigationLink("Check-In History") {
                         WeeklyCheckinHistoryView()
@@ -111,6 +111,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            .appScreen()
             .navigationTitle("Settings")
             .task { await loadPreferences() }
         }
@@ -123,7 +124,7 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
         } else if let healthError = healthSync.errorMessage {
             Label(healthError, systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.red)
+                .foregroundStyle(AppColor.danger)
         } else if let lastSynced = healthSync.lastSyncedAt {
             Label("Synced \(lastSynced, style: .relative) ago", systemImage: "checkmark.circle")
                 .foregroundStyle(.secondary)

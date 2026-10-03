@@ -149,6 +149,7 @@ struct WeeklyLogTableView: View {
                 Text("No weeks logged yet").foregroundStyle(.secondary)
             }
         }
+        .appScreen()
         .navigationTitle("PT Summary")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(verticalSizeClass == .compact ? .hidden : .automatic, for: .tabBar)
@@ -174,9 +175,9 @@ struct WeeklyLogTableView: View {
             Chart {
                 ForEach(weightPoints) { point in
                     LineMark(x: .value("Week", point.date), y: .value("Weight (kg)", point.weightKg))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(AppColor.weight)
                     PointMark(x: .value("Week", point.date), y: .value("Weight (kg)", point.weightKg))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(AppColor.weight)
                         .symbolSize(point.id == selectedWeightPoint?.id ? 60 : 30)
                 }
                 if let selectedWeightPoint {
@@ -416,8 +417,8 @@ struct WeeklyLogTableView: View {
     private func adherenceColor(goal: Double?, avg: Double) -> Color {
         guard let goal, goal > 0 else { return .primary }
         let ratio = avg / goal
-        if abs(ratio - 1) <= 0.05 { return .green }
-        return (ratio > 1.15 || ratio < 0.85) ? .orange : .primary
+        if abs(ratio - 1) <= 0.05 { return AppColor.success }
+        return (ratio > 1.15 || ratio < 0.85) ? AppColor.warning : .primary
     }
 
     private func formatted(_ value: Double) -> String {

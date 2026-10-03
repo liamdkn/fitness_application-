@@ -43,12 +43,13 @@ struct MealSlotDetailView: View {
                 if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(AppColor.danger)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding()
         }
+        .appScreen()
         .navigationTitle(slot.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $addingFood) {
@@ -91,9 +92,9 @@ struct MealSlotDetailView: View {
                 MacroRing(calories: calories, carbsG: carbs, fatG: fat, proteinG: protein)
                     .frame(width: 96, height: 96)
                 VStack(alignment: .leading, spacing: 8) {
-                    macroLine("Protein", protein, color: .blue)
-                    macroLine("Carbs", carbs, color: .green)
-                    macroLine("Fat", fat, color: .yellow)
+                    macroLine("Protein", protein, color: AppColor.protein)
+                    macroLine("Carbs", carbs, color: AppColor.carbs)
+                    macroLine("Fat", fat, color: AppColor.fat)
                 }
                 Spacer(minLength: 0)
             }
@@ -115,7 +116,7 @@ struct MealSlotDetailView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
+        .appCard(cornerRadius: 16)
     }
 
     private func macroLine(_ label: String, _ grams: Double, color: Color) -> some View {
@@ -158,10 +159,8 @@ struct MealSlotDetailView: View {
                     .minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity, minHeight: 64)
-            .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.blue)
+        .buttonStyle(.appTile)
     }
 
     // MARK: - Foods
@@ -177,7 +176,7 @@ struct MealSlotDetailView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
+        .appCard(cornerRadius: 16)
     }
 
     /// One food: name (with its brand underneath), the amount eaten and its
@@ -191,7 +190,7 @@ struct MealSlotDetailView: View {
                     if slotEntry.isVerified {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.caption)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(AppColor.success)
                     }
                 }
                 if let brand = slotEntry.brand {
@@ -203,9 +202,9 @@ struct MealSlotDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 12) {
-                    macroPill("P", slotEntry.proteinG, .blue)
-                    macroPill("C", slotEntry.carbsG, .green)
-                    macroPill("F", slotEntry.fatG, .yellow)
+                    macroPill("P", slotEntry.proteinG, AppColor.protein)
+                    macroPill("C", slotEntry.carbsG, AppColor.carbs)
+                    macroPill("F", slotEntry.fatG, AppColor.fat)
                 }
                 .padding(.top, 2)
             }
@@ -241,7 +240,7 @@ struct MealSlotDetailView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14))
+        .appCard(cornerRadius: 14)
         .contentShape(RoundedRectangle(cornerRadius: 14))
         .onTapGesture { editingEntry = slotEntry }
     }
@@ -271,7 +270,7 @@ private struct MacroRing: View {
         let carbs = carbsG * 4, fat = fatG * 9, protein = proteinG * 4
         let total = carbs + fat + protein
         guard total > 0 else { return [] }
-        return [(.green, carbs / total), (.yellow, fat / total), (.blue, protein / total)]
+        return [(AppColor.carbs, carbs / total), (AppColor.fat, fat / total), (AppColor.protein, protein / total)]
     }
 
     var body: some View {
@@ -418,6 +417,7 @@ private struct EditMealEntryQuantityView: View {
                     }
                 }
             }
+            .appScreen()
             .navigationTitle(info?.name ?? entry.name)
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
