@@ -16,6 +16,14 @@ struct UserPreferences: Codable {
     var bedtimeMinutes: Int = 1350
     var caffeineHalfLifeHours: Double = 5
     var caffeineBedtimeTargetMg: Int = 50
+    /// Work bedtime out from real sleep in Health, falling back to
+    /// `bedtimeMinutes` when there isn't enough sleep data yet.
+    var bedtimeFromHealth: Bool = true
+    var caffeineRemindersEnabled: Bool = true
+    /// Step-goal nudges; `stepReminderMinutes` is the evening one (minutes
+    /// after midnight, 1110 = 18:30).
+    var stepRemindersEnabled: Bool = true
+    var stepReminderMinutes: Int = 1110
 
     enum CodingKeys: String, CodingKey {
         case weeklyCheckinWeekday = "weekly_checkin_weekday"
@@ -30,6 +38,10 @@ struct UserPreferences: Codable {
         case bedtimeMinutes = "bedtime_minutes"
         case caffeineHalfLifeHours = "caffeine_half_life_hours"
         case caffeineBedtimeTargetMg = "caffeine_bedtime_target_mg"
+        case bedtimeFromHealth = "bedtime_from_health"
+        case caffeineRemindersEnabled = "caffeine_reminders_enabled"
+        case stepRemindersEnabled = "step_reminders_enabled"
+        case stepReminderMinutes = "step_reminder_minutes"
     }
 
     /// Older rows (and a missing row) simply lack the new columns -
@@ -48,6 +60,10 @@ struct UserPreferences: Codable {
         bedtimeMinutes = try c.decodeIfPresent(Int.self, forKey: .bedtimeMinutes) ?? 1350
         caffeineHalfLifeHours = try c.decodeIfPresent(Double.self, forKey: .caffeineHalfLifeHours) ?? 5
         caffeineBedtimeTargetMg = try c.decodeIfPresent(Int.self, forKey: .caffeineBedtimeTargetMg) ?? 50
+        bedtimeFromHealth = try c.decodeIfPresent(Bool.self, forKey: .bedtimeFromHealth) ?? true
+        caffeineRemindersEnabled = try c.decodeIfPresent(Bool.self, forKey: .caffeineRemindersEnabled) ?? true
+        stepRemindersEnabled = try c.decodeIfPresent(Bool.self, forKey: .stepRemindersEnabled) ?? true
+        stepReminderMinutes = try c.decodeIfPresent(Int.self, forKey: .stepReminderMinutes) ?? 1110
     }
 
     init(

@@ -278,6 +278,7 @@ struct LiquidsLogView: View {
             try await waterRepository.addLog(date: Date(), amountMl: amountMl, containerId: containerId)
             errorMessage = nil
             await loadDay()
+            await WidgetSnapshotService.shared.refresh(force: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -296,6 +297,8 @@ struct LiquidsLogView: View {
             errorMessage = nil
             await loadDay()
             await loadQuickDrinks()
+            await CaffeineReminderService.shared.refresh()
+            await WidgetSnapshotService.shared.refresh(force: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -316,6 +319,8 @@ struct LiquidsLogView: View {
                 }
             }
             await loadDay()
+            await CaffeineReminderService.shared.refresh()
+            await WidgetSnapshotService.shared.refresh(force: true)
         }
     }
 }

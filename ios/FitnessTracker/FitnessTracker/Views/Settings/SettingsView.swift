@@ -10,6 +10,9 @@ struct SettingsView: View {
     @State private var weeklyCheckinWeekday = 2
     @State private var cardioStepExclusionEnabled = false
     @State private var stepSource: StepSource = .merged
+    @State private var stepRemindersEnabled = true
+    @State private var stepReminderTime = Date()
+    @State private var stepRemindersLoaded = false
     @State private var preferencesError: String?
     private let preferencesRepository = UserPreferencesRepository()
 
@@ -77,13 +80,22 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section("Step Reminders") {
+                    Toggle("Remind Me To Hit My Step Goal", isOn: $stepRemindersEnabled)
+                    if stepRemindersEnabled {
+                        DatePicker("Evening Nudge", selection: $stepReminderTime, displayedComponents: .hourAndMinute)
+                    }
+                    Text("A nudge at the time above if you're still short of your step target, and an earlier one at 2pm if the day is running behind. They use the step count from the last time the app checked Health, which it does in the background through the day.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .onChange(of: stepRemindersEnabled) { saveStepReminders() }
+                .onChange(of: stepReminderTime) { saveStepReminders() }
+
                 Section("Nutrition") {
                     NavigationLink("Meal Slots") {
                         MealSlotsSettingsView()
                     }
-                    Text("Calories/macros also sync in from Apple Health (e.g. MyFitnessPal) to fill in anything not yet logged per-meal.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 Section("Apple Health") {
@@ -127,6 +139,14 @@ struct SettingsView: View {
             weeklyCheckinWeekday = preferences.weeklyCheckinWeekday
             cardioStepExclusionEnabled = preferences.cardioStepExclusionEnabled
             stepSource = preferences.stepSource
+            stepRemindersEnabled = preferences.stepRemindersEnabled
+            stepReminderTime = Calendar.current.date(
+                bySettingHour: preferences.stepReminderMinutes / 60, minute: preferences.stepReminderMinutes % 60, second: 0, of: Date()
+            ) ?? Date()
+            // Let the assignments above settle before the onChange handlers
+            // start treating changes as the user's own.
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            stepRemindersLoaded = true
         } catch {
             preferencesError = error.localizedDescription
         }
@@ -138,6 +158,22 @@ struct SettingsView: View {
             preferencesError = nil
         } catch {
             preferencesError = error.localizedDescription
+        }
+    }
+
+    private func saveStepReminders() {
+        guard stepRemindersLoaded else { return }
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: stepReminderTime)
+        let minutes = (parts.hour ?? 18) * 60 + (parts.minute ?? 30)
+        let enabled = stepRemindersEnabled
+        Task {
+            do {
+                try await preferencesRepository.setStepReminders(enabled: enabled, minutes: minutes)
+                preferencesError = nil
+            } catch {
+                preferencesError = error.localizedDescription
+            }
+            await StepReminderService.shared.refresh(force: true)
         }
     }
 

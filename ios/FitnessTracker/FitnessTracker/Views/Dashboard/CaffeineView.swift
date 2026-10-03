@@ -22,6 +22,7 @@ struct CaffeineView: View {
 
     @State private var day = LiquidsDay()
     @State private var preferences: UserPreferences?
+    @State private var resolvedBedtime: BedtimeResolver.Resolved?
     @State private var typicalDoseMg: Double = 95
     @State private var history: [String: Double] = [:]
     @State private var range: Range = .month
@@ -37,7 +38,7 @@ struct CaffeineView: View {
     private var now: Date { Date() }
 
     private var bedtime: Date {
-        CaffeineModel.bedtime(onDayOf: now, minutesAfterMidnight: settings?.bedtimeMinutes ?? 1350)
+        CaffeineModel.bedtime(onDayOf: now, minutesAfterMidnight: resolvedBedtime?.minutes ?? settings?.bedtimeMinutes ?? 1350)
     }
 
     private var doses: [CaffeineModel.Dose] { day.caffeineDoses }
@@ -93,6 +94,11 @@ struct CaffeineView: View {
             LabeledContent("At bedtime (\(bedtime.formatted(date: .omitted, time: .shortened)))") {
                 Text("~\(Int(bedLevel.rounded())) mg")
                     .foregroundStyle(bedLevel > targetMg ? .orange : .green)
+            }
+            if let resolvedBedtime, resolvedBedtime.fromHealth {
+                Label("Bedtime from your last \(resolvedBedtime.nights) nights of sleep in Health", systemImage: "bed.double.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -237,6 +243,7 @@ struct CaffeineView: View {
             errorMessage = error.localizedDescription
         }
         preferences = await prefs
+        resolvedBedtime = await BedtimeResolver.resolve(preferences)
         let doses = (await recent).sorted()
         if !doses.isEmpty { typicalDoseMg = doses[doses.count / 2] }
         await loadHistory()
@@ -262,20 +269,40 @@ struct CaffeineSettingsView: View {
     @State private var limitMg = 400
     @State private var targetMg = 50
     @State private var sodiumLimit = 2300
+    @State private var bedtimeFromHealth = true
+    @State private var remindersEnabled = true
+    @State private var detected: BedtimeResolver.Resolved?
     @State private var loaded = false
     private let repository = UserPreferencesRepository()
 
     var body: some View {
         Form {
             Section {
-                DatePicker("Bedtime", selection: $bedtime, displayedComponents: .hourAndMinute)
+                Toggle("Use my sleep from Health", isOn: $bedtimeFromHealth)
+                if bedtimeFromHealth, let detected, detected.fromHealth {
+                    LabeledContent("Your usual bedtime") {
+                        Text(Self.timeText(detected.minutes) + " \u{00b7} \(detected.nights) nights")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                DatePicker(bedtimeFromHealth ? "Fallback bedtime" : "Bedtime", selection: $bedtime, displayedComponents: .hourAndMinute)
                 Stepper(value: $targetMg, in: 0...150, step: 10) {
                     LabeledContent("Aim for under", value: "\(targetMg) mg at bedtime")
                 }
             } header: {
                 Text("Sleep")
             } footer: {
-                Text("The 'when to stop' advice works backwards from bedtime so that little caffeine is left when you go to bed.")
+                if bedtimeFromHealth && !(detected?.fromHealth ?? false) {
+                    Text("Not enough recorded sleep in Health yet (it needs about four nights), so the fallback bedtime is used. Apple doesn't share the Sleep Schedule you set, only the sleep that's recorded. The 'when to stop' advice works backwards from bedtime so that little caffeine is left when you go to bed.")
+                } else {
+                    Text("The 'when to stop' advice works backwards from bedtime so that little caffeine is left when you go to bed. With Health sleep on, it's the time you usually fall asleep over the last two weeks.")
+                }
+            }
+
+            Section {
+                Toggle("Caffeine & wind-down reminders", isOn: $remindersEnabled)
+            } footer: {
+                Text("A 'last call' about half an hour before your last good cup, and a wind-down an hour before bed that says how much caffeine will be left. They're based on the drinks you've logged.")
             }
 
             Section {
@@ -305,6 +332,13 @@ struct CaffeineSettingsView: View {
         .onChange(of: limitMg) { save() }
         .onChange(of: targetMg) { save() }
         .onChange(of: sodiumLimit) { save() }
+        .onChange(of: bedtimeFromHealth) { save() }
+        .onChange(of: remindersEnabled) { save() }
+    }
+
+    private static func timeText(_ minutes: Int) -> String {
+        let date = Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: Date()) ?? Date()
+        return date.formatted(date: .omitted, time: .shortened)
     }
 
     private func load() async {
@@ -314,6 +348,9 @@ struct CaffeineSettingsView: View {
         limitMg = prefs.caffeineLimitMg
         targetMg = prefs.caffeineBedtimeTargetMg
         sodiumLimit = prefs.sodiumLimitMg
+        bedtimeFromHealth = prefs.bedtimeFromHealth
+        remindersEnabled = prefs.caffeineRemindersEnabled
+        detected = await BedtimeResolver.resolve(prefs)
         // Let the programmatic assignments above settle before onChange
         // handlers start treating changes as the user's own.
         try? await Task.sleep(nanoseconds: 300_000_000)
@@ -327,8 +364,11 @@ struct CaffeineSettingsView: View {
         Task {
             _ = try? await repository.setLiquidsSettings(
                 sodiumLimitMg: sodiumLimit, caffeineLimitMg: limitMg, bedtimeMinutes: minutes,
-                halfLifeHours: halfLife, bedtimeTargetMg: targetMg
+                halfLifeHours: halfLife, bedtimeTargetMg: targetMg,
+                bedtimeFromHealth: bedtimeFromHealth, remindersEnabled: remindersEnabled
             )
+            BedtimeResolver.invalidate()
+            await CaffeineReminderService.shared.refresh()
             onSaved()
         }
     }

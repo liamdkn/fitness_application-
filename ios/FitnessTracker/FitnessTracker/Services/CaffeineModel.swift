@@ -79,3 +79,89 @@ nonisolated enum CaffeineModel {
         return minutesAfterMidnight < 240 ? (calendar.date(byAdding: .day, value: 1, to: base) ?? base) : base
     }
 }
+
+/// Working a bedtime out from real sleep: the time you actually fell asleep
+/// on recent nights, reduced to one typical time. Times are kept on a
+/// "night" scale so a bedtime either side of midnight averages sensibly -
+/// 23:30 and 00:30 are an hour apart (1410 and 1470), not 23 hours.
+nonisolated enum BedtimeEstimate {
+    /// Minutes on the night scale for a fall-asleep time: anything before
+    /// midday counts as the small hours of the night (+24h), so it sorts
+    /// after the evening ones.
+    static func nightMinutes(for onset: Date, calendar: Calendar = .current) -> Int {
+        let parts = calendar.dateComponents([.hour, .minute], from: onset)
+        let minutes = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        return minutes < 12 * 60 ? minutes + 1440 : minutes
+    }
+
+    /// The median of the nights, as minutes after midnight (0...1439) - the
+    /// median rather than the mean so one very late night doesn't drag it.
+    /// `nil` with fewer than `minimumNights`, when there isn't a pattern yet.
+    static func typicalBedtime(nightMinutes: [Int], minimumNights: Int = 4) -> Int? {
+        guard nightMinutes.count >= minimumNights else { return nil }
+        let sorted = nightMinutes.sorted()
+        let middle = sorted.count / 2
+        let median = sorted.count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+        return median % 1440
+    }
+}
+
+/// What to remind about, and when - kept as a plain function so the wording
+/// and timing can be checked without a notification centre.
+nonisolated enum CaffeineReminderPlan {
+    enum Kind: String {
+        case cutoff = "caffeine-cutoff"
+        case windDown = "caffeine-wind-down"
+    }
+
+    struct Reminder {
+        let kind: Kind
+        let fireDate: Date
+        let title: String
+        let body: String
+    }
+
+    /// Today's reminders given what's been logged so far:
+    /// - **cut-off**, half an hour before the latest time a typical cup still
+    ///   leaves you under the bedtime target (skipped if that's already past,
+    ///   or if no cup would be a problem anyway);
+    /// - **wind-down**, an hour before bed, saying how much caffeine is
+    ///   projected to be left.
+    static func reminders(
+        doses: [CaffeineModel.Dose],
+        typicalDoseMg: Double,
+        bedtime: Date,
+        targetMg: Double,
+        halfLifeHours: Double,
+        now: Date
+    ) -> [Reminder] {
+        var result: [Reminder] = []
+        let soon = now.addingTimeInterval(60)
+        let timeFormat = Date.FormatStyle(date: .omitted, time: .shortened)
+        let bedText = bedtime.formatted(timeFormat)
+
+        if let cutoff = CaffeineModel.latestDoseTime(
+            doseMg: typicalDoseMg, bedtime: bedtime, targetMg: targetMg, existing: doses, halfLifeHours: halfLifeHours
+        ), cutoff < bedtime.addingTimeInterval(-3600) {
+            let fire = cutoff.addingTimeInterval(-30 * 60)
+            if fire > soon {
+                result.append(Reminder(
+                    kind: .cutoff,
+                    fireDate: fire,
+                    title: "Last call for caffeine",
+                    body: "A ~\(Int(typicalDoseMg.rounded())) mg cup after \(cutoff.formatted(timeFormat)) would leave more than \(Int(targetMg)) mg in you at bedtime (\(bedText))."
+                ))
+            }
+        }
+
+        let windDownAt = bedtime.addingTimeInterval(-3600)
+        if windDownAt > soon {
+            let left = Int(CaffeineModel.level(at: bedtime, doses: doses, halfLifeHours: halfLifeHours).rounded())
+            let body = Double(left) <= targetMg
+                ? "About \(left) mg of caffeine will be left at bedtime (\(bedText)) - you're clear. Time to start winding down."
+                : "About \(left) mg of caffeine will still be in you at bedtime (\(bedText)), over your \(Int(targetMg)) mg target, so it may take longer to drop off. Start winding down."
+            result.append(Reminder(kind: .windDown, fireDate: windDownAt, title: "Wind down", body: body))
+        }
+        return result
+    }
+}

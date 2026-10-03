@@ -2,12 +2,9 @@ import SwiftUI
 
 /// The Nutrition tab's only screen now - day-level calorie/macro progress
 /// at a glance, with every meal slot's summary right below it (tapping one
-/// opens that slot's own logging, `MealSlotDetailView`). The old whole-day
-/// Apple Health entry screen (`NutritionEntryView`) is gone; while this
-/// in-house per-meal log is still the newer habit, `totals` adds Health's
-/// synced whole-day numbers (`NutritionRepository`/`HealthSyncService`) on
-/// top of whatever's been logged per-meal, so the header/macro cards don't
-/// read as "empty" on a day nothing's been logged into a meal slot yet.
+/// opens that slot's own logging, `MealSlotDetailView`). Everything shown
+/// is what's been logged here - nothing is pulled in from Apple Health or
+/// another food app any more.
 struct MealLogHomeView: View {
     @State private var selectedDate = Date()
     @State private var goal: UserGoal?
@@ -22,10 +19,6 @@ struct MealLogHomeView: View {
     /// `viewModel.entries` directly (see `isLogged`), so its checkmark is
     /// never a fetch behind the entries actually on screen.
     @State private var loggedDateStrings: Set<String> = []
-    /// Apple Health's whole-day sync for `selectedDate`, if any - see the
-    /// type's own doc comment for why this gets added into `totals` rather
-    /// than shown as a separate, competing number.
-    @State private var healthKitLog: NutritionLog?
     /// Every planned treat in `weekDates` - fetched a week at a time since
     /// that's the unit `CalorieBankCalculator` redistributes across (a
     /// treat funds itself from the *other* days in its own week, not from
@@ -37,7 +30,6 @@ struct MealLogHomeView: View {
     private let preferencesRepository = UserPreferencesRepository()
     private let goalsRepository = GoalsRepository()
     private let mealEntryRepository = MealEntryRepository()
-    private let nutritionRepository = NutritionRepository()
     private let plannedTreatRepository = PlannedTreatRepository()
 
     private var isToday: Bool {
@@ -55,19 +47,9 @@ struct MealLogHomeView: View {
         return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: weekStart) }
     }
 
-    /// Per-meal totals plus whatever Health has synced for this day -
-    /// additive, not a fallback, since the two sources never overlap
-    /// (Health's numbers come from other apps writing to Health, not from
-    /// this app's own meal log).
+    /// The day's totals - just the meal log.
     private var totals: DayMacroTotals {
-        var totals = viewModel.dayTotals
-        if let healthKitLog {
-            totals.calories += healthKitLog.calories
-            totals.proteinG += healthKitLog.proteinG
-            totals.carbsG += healthKitLog.carbsG
-            totals.fatG += healthKitLog.fatG
-        }
-        return totals
+        viewModel.dayTotals
     }
 
     private var bankAdjustment: CalorieBankCalculator.DailyAdjustment {
@@ -163,7 +145,6 @@ struct MealLogHomeView: View {
                 await viewModel.loadEntries(date: selectedDate)
                 await loadGoal()
                 await loadWeekLogStatus()
-                await loadHealthKitLog()
                 await loadWeekTreats()
                 preferences = try? await preferencesRepository.fetch()
             }
@@ -224,8 +205,7 @@ struct MealLogHomeView: View {
                             await viewModel.loadEntries(date: newDate)
                             await loadGoal()
                             await loadWeekLogStatus()
-                            await loadHealthKitLog()
-                            await loadWeekTreats()
+                                        await loadWeekTreats()
                         }
                     }
                 Spacer()
@@ -255,7 +235,6 @@ struct MealLogHomeView: View {
         Task {
             await viewModel.loadEntries(date: date)
             await loadGoal()
-            await loadHealthKitLog()
         }
     }
 
@@ -267,12 +246,6 @@ struct MealLogHomeView: View {
         if let entries = try? await mealEntryRepository.fetchEntries(from: start, to: end) {
             loggedDateStrings = Set(entries.map(\.date))
         }
-    }
-
-    /// Advisory only - a day with nothing synced from Health just adds
-    /// nothing to `totals`, rather than blocking the rest of this screen.
-    private func loadHealthKitLog() async {
-        healthKitLog = try? await nutritionRepository.fetchLog(date: selectedDate)
     }
 
     private func loadWeekTreats() async {

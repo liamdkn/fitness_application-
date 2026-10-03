@@ -12,7 +12,6 @@ final class HealthSyncService: ObservableObject {
 
     private let healthKit = HealthKitManager()
     private let repository = HealthRepository()
-    private let nutritionRepository = NutritionRepository()
     private let preferencesRepository = UserPreferencesRepository()
     private let daysBack = 14
 
@@ -20,15 +19,12 @@ final class HealthSyncService: ObservableObject {
 
     /// A sync that starts the instant this app comes back to the
     /// foreground (see `MainTabView`'s `scenePhase` handler) can race
-    /// whatever just wrote to Health a moment earlier - e.g. switching
-    /// straight back from MyFitnessPal after logging a meal, where
-    /// HealthKit's own store occasionally hasn't finished indexing that
-    /// write yet when our query runs. That shows up as "MFP sometimes
-    /// doesn't sync" even though the data is there seconds later - a plain
-    /// one-shot sync has no way to recover from that until the next
-    /// foreground/launch. One short-delay retry on failure covers it
-    /// without masking a real, persistent problem (which will still fail
-    /// on the second attempt and surface `errorMessage` as before).
+    /// whatever just wrote to Health a moment earlier, where HealthKit's own
+    /// store occasionally hasn't finished indexing that write yet when our
+    /// query runs. A plain one-shot sync has no way to recover from that
+    /// until the next foreground/launch. One short-delay retry on failure
+    /// covers it without masking a real, persistent problem (which will
+    /// still fail on the second attempt and surface `errorMessage` as before).
     private let retryDelayNanoseconds: UInt64 = 2_000_000_000
 
     func requestAuthorizationAndSync() async {
@@ -60,11 +56,6 @@ final class HealthSyncService: ObservableObject {
 
         async let steps = healthKit.fetchDailySteps(daysBack: daysBack, source: stepSource)
         async let sleep = healthKit.fetchDailySleep(daysBack: daysBack)
-        // Synced unconditionally - `MealLogHomeView`'s daily totals add this
-        // on top of whatever's been logged per-meal (see its `totals`), so
-        // Health's whole-day numbers keep filling the gap for anything not
-        // yet logged meal-by-meal during the cutover to that screen.
-        async let nutrition = healthKit.fetchDailyNutrition(daysBack: daysBack)
 
         let stepLogs = try await steps.map { date, count in
             StepLog(userId: userId, date: DateFormatting.isoDate(date), stepCount: count, source: "healthkit")
@@ -78,18 +69,7 @@ final class HealthSyncService: ObservableObject {
                 source: "healthkit"
             )
         }
-        let nutritionLogs = try await nutrition.map { date, value in
-            NutritionRepository.SyncedNutritionLog(
-                date: DateFormatting.isoDate(date),
-                calories: value.calories,
-                proteinG: value.proteinG,
-                carbsG: value.carbsG,
-                fatG: value.fatG
-            )
-        }
-
         try await repository.upsertSteps(stepLogs)
         try await repository.upsertSleep(sleepLogs)
-        try await nutritionRepository.upsertLogs(nutritionLogs)
     }
 }

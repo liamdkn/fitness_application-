@@ -11,13 +11,6 @@ struct DailySleep {
     let inBedMinutes: Int
 }
 
-struct DailyNutrition {
-    let calories: Double
-    let proteinG: Double
-    let carbsG: Double
-    let fatG: Double
-}
-
 /// Which of our own concepts a Watch-recorded `HKWorkout` maps to - the
 /// only `HKWorkoutActivityType`s `fetchRecentWorkouts` looks for at all,
 /// everything else is dropped before it ever reaches app code.
@@ -58,13 +51,10 @@ struct DetectedWatchWorkout: Identifiable {
 
 final class HealthKitManager {
     private let store = HKHealthStore()
+    private var stepObserver: HKObserverQuery?
 
     private var stepType: HKQuantityType { HKQuantityType(.stepCount) }
     private var sleepType: HKCategoryType { HKCategoryType(.sleepAnalysis) }
-    private var caloriesType: HKQuantityType { HKQuantityType(.dietaryEnergyConsumed) }
-    private var proteinType: HKQuantityType { HKQuantityType(.dietaryProtein) }
-    private var carbsType: HKQuantityType { HKQuantityType(.dietaryCarbohydrates) }
-    private var fatType: HKQuantityType { HKQuantityType(.dietaryFatTotal) }
     private var heartRateType: HKQuantityType { HKQuantityType(.heartRate) }
     private var activeEnergyType: HKQuantityType { HKQuantityType(.activeEnergyBurned) }
     private var distanceType: HKQuantityType { HKQuantityType(.distanceWalkingRunning) }
@@ -76,7 +66,7 @@ final class HealthKitManager {
         try await store.requestAuthorization(
             toShare: [],
             read: [
-                stepType, sleepType, caloriesType, proteinType, carbsType, fatType,
+                stepType, sleepType,
                 heartRateType, activeEnergyType, distanceType, runningPowerType, basalEnergyType,
                 HKObjectType.workoutType(), HKSeriesType.workoutRoute()
             ]
@@ -186,6 +176,35 @@ final class HealthKitManager {
         }
     }
 
+    /// Calls `onChange` whenever new step data lands in Health - including
+    /// while the app isn't running, when iOS wakes it in the background
+    /// (hourly at most; needs the HealthKit background-delivery entitlement,
+    /// and doesn't apply to an app the user has force-quit). The query has to
+    /// be set up each launch, which is why `AppDelegate` does it at startup.
+    func observeSteps(onChange: @escaping @Sendable () async -> Void) {
+        guard HKHealthStore.isHealthDataAvailable(), stepObserver == nil else { return }
+        let query = Self.makeObserver(for: stepType, onChange: onChange)
+        stepObserver = query
+        store.execute(query)
+        store.enableBackgroundDelivery(for: stepType, frequency: .hourly) { _, _ in }
+    }
+
+    // Static and nonisolated so the handler isn't inferred as main-actor
+    // isolated - HealthKit calls it on its own queue.
+    private nonisolated static func makeObserver(
+        for type: HKQuantityType, onChange: @escaping @Sendable () async -> Void
+    ) -> HKObserverQuery {
+        HKObserverQuery(sampleType: type, predicate: nil) { _, completion, error in
+            nonisolated(unsafe) let completion = completion
+            guard error == nil else { completion(); return }
+            Task {
+                await onChange()
+                // HealthKit stops waking the app if this isn't called.
+                completion()
+            }
+        }
+    }
+
     func fetchDailySteps(daysBack: Int, source: StepSource) async throws -> [Date: Int] {
         switch source {
         case .merged:
@@ -280,6 +299,52 @@ final class HealthKitManager {
     /// to still separate a night from, say, an afternoon nap).
     private static let sleepSessionGapThreshold: TimeInterval = 4 * 60 * 60
 
+    /// When you fell asleep on each recent night, on `BedtimeEstimate`'s night
+    /// scale - the start of the first asleep stretch of each sleep session.
+    /// Sessions are split the same way as `fetchDailySleep` (a gap of more than
+    /// `sleepSessionGapThreshold` starts a new one), and anything with under
+    /// three hours asleep is treated as a nap and ignored.
+    func fetchSleepOnsets(daysBack: Int) async throws -> [Int] {
+        let calendar = Calendar.current
+        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.categorySample(type: sleepType, predicate: predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate)]
+        )
+        let samples = try await descriptor.result(for: store)
+
+        var onsets: [Int] = []
+        var sessionEnd: Date?
+        var onset: Date?
+        var asleepMinutes = 0
+
+        func commit() {
+            if let onset, asleepMinutes >= 180 {
+                onsets.append(BedtimeEstimate.nightMinutes(for: onset, calendar: calendar))
+            }
+        }
+
+        for sample in samples {
+            if let sessionEnd, sample.startDate.timeIntervalSince(sessionEnd) > Self.sleepSessionGapThreshold {
+                commit()
+                onset = nil
+                asleepMinutes = 0
+            }
+            sessionEnd = Swift.max(sessionEnd ?? sample.endDate, sample.endDate)
+            guard let value = HKCategoryValueSleepAnalysis(rawValue: sample.value) else { continue }
+            switch value {
+            case .asleepUnspecified, .asleepCore, .asleepDeep, .asleepREM:
+                if onset == nil { onset = sample.startDate }
+                asleepMinutes += Int(sample.endDate.timeIntervalSince(sample.startDate) / 60)
+            default:
+                break
+            }
+        }
+        commit()
+        return onsets
+    }
+
     func fetchDailySleep(daysBack: Int) async throws -> [Date: DailySleep] {
         let calendar = Calendar.current
         let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
@@ -333,52 +398,5 @@ final class HealthKitManager {
         commitSession()
 
         return totals.mapValues { DailySleep(totalMinutes: $0.asleep, inBedMinutes: $0.inBed) }
-    }
-
-    /// Pulls in whatever a nutrition-logging app (e.g. MyFitnessPal) has
-    /// written to Health. `.cumulativeSum` here is "add up every food/meal
-    /// logged that day" - unlike steps, there's no cross-source dedup
-    /// concern to worry about, it's just the correct daily total.
-    func fetchDailyNutrition(daysBack: Int) async throws -> [Date: DailyNutrition] {
-        async let calories = fetchDailySum(for: caloriesType, unit: .kilocalorie(), daysBack: daysBack)
-        async let protein = fetchDailySum(for: proteinType, unit: .gram(), daysBack: daysBack)
-        async let carbs = fetchDailySum(for: carbsType, unit: .gram(), daysBack: daysBack)
-        async let fat = fetchDailySum(for: fatType, unit: .gram(), daysBack: daysBack)
-
-        let (caloriesByDay, proteinByDay, carbsByDay, fatByDay) = try await (calories, protein, carbs, fat)
-
-        // A day only appears if at least one of the four had samples, so a
-        // day with no MFP entries is naturally skipped rather than synced
-        // as all-zero.
-        let allDays = Set(caloriesByDay.keys).union(proteinByDay.keys).union(carbsByDay.keys).union(fatByDay.keys)
-        return Dictionary(uniqueKeysWithValues: allDays.map { day in
-            (day, DailyNutrition(
-                calories: caloriesByDay[day] ?? 0,
-                proteinG: proteinByDay[day] ?? 0,
-                carbsG: carbsByDay[day] ?? 0,
-                fatG: fatByDay[day] ?? 0
-            ))
-        })
-    }
-
-    private func fetchDailySum(for type: HKQuantityType, unit: HKUnit, daysBack: Int) async throws -> [Date: Double] {
-        let calendar = Calendar.current
-        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
-        let anchorDate = calendar.startOfDay(for: startDate)
-        let descriptor = HKStatisticsCollectionQueryDescriptor(
-            predicate: .quantitySample(type: type, predicate: predicate),
-            options: .cumulativeSum,
-            anchorDate: anchorDate,
-            intervalComponents: DateComponents(day: 1)
-        )
-        let collection = try await descriptor.result(for: store)
-
-        var totals: [Date: Double] = [:]
-        collection.enumerateStatistics(from: startDate, to: Date()) { statistics, _ in
-            guard let sum = statistics.sumQuantity() else { return }
-            totals[statistics.startDate] = sum.doubleValue(for: unit)
-        }
-        return totals
     }
 }

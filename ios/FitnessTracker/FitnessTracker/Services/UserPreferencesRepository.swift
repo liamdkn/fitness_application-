@@ -16,6 +16,14 @@ struct UserPreferencesRepository {
         let bedtime_minutes: Int
         let caffeine_half_life_hours: Double
         let caffeine_bedtime_target_mg: Int
+        let bedtime_from_health: Bool
+        let caffeine_reminders_enabled: Bool
+    }
+
+    private struct UpsertStepReminders: Encodable {
+        let user_id: UUID
+        let step_reminders_enabled: Bool
+        let step_reminder_minutes: Int
     }
 
     private struct UpsertCardioStepExclusion: Encodable {
@@ -98,7 +106,10 @@ struct UserPreferencesRepository {
     }
 
     @discardableResult
-    func setLiquidsSettings(sodiumLimitMg: Int, caffeineLimitMg: Int, bedtimeMinutes: Int, halfLifeHours: Double, bedtimeTargetMg: Int) async throws -> UserPreferences {
+    func setLiquidsSettings(
+        sodiumLimitMg: Int, caffeineLimitMg: Int, bedtimeMinutes: Int, halfLifeHours: Double, bedtimeTargetMg: Int,
+        bedtimeFromHealth: Bool, remindersEnabled: Bool
+    ) async throws -> UserPreferences {
         let userId = try await client.auth.session.user.id
         let saved: [UserPreferences] = try await client
             .from("user_preferences")
@@ -109,7 +120,9 @@ struct UserPreferencesRepository {
                     caffeine_limit_mg: caffeineLimitMg,
                     bedtime_minutes: bedtimeMinutes,
                     caffeine_half_life_hours: halfLifeHours,
-                    caffeine_bedtime_target_mg: bedtimeTargetMg
+                    caffeine_bedtime_target_mg: bedtimeTargetMg,
+                    bedtime_from_health: bedtimeFromHealth,
+                    caffeine_reminders_enabled: remindersEnabled
                 ),
                 onConflict: "user_id"
             )
@@ -143,6 +156,24 @@ struct UserPreferencesRepository {
         let saved: [UserPreferences] = try await client
             .from("user_preferences")
             .upsert(UpsertPreferences(user_id: userId, weekly_checkin_weekday: weekday), onConflict: "user_id")
+            .select()
+            .execute()
+            .value
+        guard let preferences = saved.first else {
+            throw RepositoryError.insertFailed
+        }
+        return preferences
+    }
+
+    @discardableResult
+    func setStepReminders(enabled: Bool, minutes: Int) async throws -> UserPreferences {
+        let userId = try await client.auth.session.user.id
+        let saved: [UserPreferences] = try await client
+            .from("user_preferences")
+            .upsert(
+                UpsertStepReminders(user_id: userId, step_reminders_enabled: enabled, step_reminder_minutes: minutes),
+                onConflict: "user_id"
+            )
             .select()
             .execute()
             .value

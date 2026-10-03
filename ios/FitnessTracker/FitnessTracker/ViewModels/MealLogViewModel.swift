@@ -134,11 +134,18 @@ final class MealLogViewModel: ObservableObject {
         }
     }
 
+    /// Today's widgets show meal totals, so they're refreshed after every
+    /// change to the log (a no-op if nothing they show actually changed).
+    private func refreshWidgets() {
+        Task { await WidgetSnapshotService.shared.refresh(force: true) }
+    }
+
     func logFood(_ food: Food, quantity: Double, mealSlotId: UUID, date: Date) async {
         do {
             let entry = try offlineQueue.addFoodEntry(date: date, mealSlotId: mealSlotId, foodId: food.id, quantity: quantity)
             foodsById[food.id] = food
             entries.append(entry)
+            refreshWidgets()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -149,6 +156,7 @@ final class MealLogViewModel: ObservableObject {
             let entry = try offlineQueue.addRecipeEntry(date: date, mealSlotId: mealSlotId, recipeId: recipe.id, quantity: quantity)
             recipesById[recipe.id] = recipe
             entries.append(entry)
+            refreshWidgets()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -158,6 +166,7 @@ final class MealLogViewModel: ObservableObject {
         do {
             try await offlineQueue.deleteEntry(id: entry.id)
             entries.removeAll { $0.id == entry.id }
+            refreshWidgets()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -169,6 +178,7 @@ final class MealLogViewModel: ObservableObject {
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
                 entries[index] = updated
             }
+            refreshWidgets()
         } catch {
             errorMessage = error.localizedDescription
         }

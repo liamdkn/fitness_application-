@@ -50,11 +50,15 @@ struct ActiveExercise: Identifiable {
 @MainActor
 final class ActiveWorkoutViewModel: ObservableObject {
     @Published private(set) var workout: Workout
-    @Published var activeExercises: [ActiveExercise] = []
+    @Published var activeExercises: [ActiveExercise] = [] {
+        didSet { scheduleLiveActivityUpdate() }
+    }
     @Published var errorMessage: String?
     @Published var isFinished = false
     @Published var isCancelled = false
-    @Published var restTimerEndDate: Date?
+    @Published var restTimerEndDate: Date? {
+        didSet { scheduleLiveActivityUpdate() }
+    }
     /// Muscle groups with a currently-unresolved injury - lets the view warn
     /// on any exercise whose `primaryMuscleGroup` matches, without the view
     /// itself needing to know about injuries at all.
@@ -69,8 +73,46 @@ final class ActiveWorkoutViewModel: ObservableObject {
     private let injuryRepository = InjuryRepository()
     private let exerciseNoteRepository = ExerciseNoteRepository()
 
+    private var lastLoggedExerciseId: UUID?
+    private var liveActivityTask: Task<Void, Never>?
+    private var liveActivityEnded = false
+
     init(workout: Workout) {
         self.workout = workout
+    }
+
+    /// Pushes the current exercise / set / rest timer to the Live Activity.
+    /// `activeExercises` changes many times in a row while a workout loads, so
+    /// updates are coalesced into one shortly after the last change.
+    private func scheduleLiveActivityUpdate() {
+        guard !liveActivityEnded, !activeExercises.isEmpty else { return }
+        liveActivityTask?.cancel()
+        liveActivityTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled, let self, !self.liveActivityEnded else { return }
+            let entries = self.activeExercises.map { active in
+                WorkoutLiveActivityPlan.Entry(
+                    name: active.exercise.name,
+                    loggedSets: active.loggedSets.filter { !$0.isDropSet }.count,
+                    pendingSets: active.pendingRows.filter { $0 == .normal }.count,
+                    lastSet: active.loggedSets.last.map {
+                        WorkoutLiveActivityPlan.setText(name: active.exercise.name, weightKg: $0.weightKg, reps: $0.reps)
+                    }
+                )
+            }
+            // Resuming has no memory of what was logged last, so fall back to
+            // the last exercise in order that has any sets.
+            let lastIndex = self.activeExercises.firstIndex { $0.id == self.lastLoggedExerciseId }
+                ?? self.activeExercises.lastIndex { !$0.loggedSets.isEmpty }
+            let state = WorkoutLiveActivityPlan.state(entries: entries, lastLoggedIndex: lastIndex, restEndsAt: self.restTimerEndDate)
+            await WorkoutLiveActivityManager.shared.sync(workout: self.workout, state: state)
+        }
+    }
+
+    private func endLiveActivity() {
+        liveActivityEnded = true
+        liveActivityTask?.cancel()
+        Task { await WorkoutLiveActivityManager.shared.end() }
     }
 
     func loadTemplate() async {
@@ -258,6 +300,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
                 isDropSet: isDropSet
             )
             activeExercises[index].loggedSets.append(set)
+            lastLoggedExerciseId = exerciseId
             if !activeExercises[index].pendingRows.isEmpty {
                 activeExercises[index].pendingRows.removeFirst()
             }
@@ -344,6 +387,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
         do {
             try? await offlineQueue.updateNotes(workout: workout, notes: notes)
             try await offlineQueue.finishWorkout(workout: workout, rating: rating)
+            endLiveActivity()
             isFinished = true
         } catch {
             errorMessage = error.localizedDescription
@@ -353,6 +397,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
     func cancel() async {
         do {
             try await offlineQueue.deleteWorkout(workoutId: workout.id)
+            endLiveActivity()
             isCancelled = true
         } catch {
             errorMessage = error.localizedDescription
