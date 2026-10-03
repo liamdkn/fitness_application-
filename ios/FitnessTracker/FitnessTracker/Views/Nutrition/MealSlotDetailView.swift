@@ -12,6 +12,7 @@ struct MealSlotDetailView: View {
 
     @State private var addingFood = false
     @State private var addingRecipe = false
+    @State private var addingMealPrep = false
     @State private var addingSavedMeal = false
     @State private var isSavingMeal = false
     @State private var editingEntry: MealSlotEntry?
@@ -95,6 +96,11 @@ struct MealSlotDetailView: View {
                         Label("Log Recipe", systemImage: "book")
                     }
                     Button {
+                        addingMealPrep = true
+                    } label: {
+                        Label("Log Meal Prep", systemImage: "takeoutbag.and.cup.and.straw")
+                    }
+                    Button {
                         addingSavedMeal = true
                     } label: {
                         Label("Log Saved Meal", systemImage: "list.bullet.rectangle")
@@ -119,6 +125,11 @@ struct MealSlotDetailView: View {
         .sheet(isPresented: $addingRecipe) {
             RecipePickerView(mealSlotName: slot.name) { recipe, quantity in
                 Task { await viewModel.logRecipe(recipe, quantity: quantity, mealSlotId: slot.id, date: date) }
+            }
+        }
+        .sheet(isPresented: $addingMealPrep) {
+            MealPrepPickerView(slot: slot, date: date) { summary, quantity in
+                Task { await viewModel.logRecipe(summary.recipe, quantity: quantity, mealSlotId: slot.id, date: date) }
             }
         }
         .sheet(isPresented: $addingSavedMeal) {

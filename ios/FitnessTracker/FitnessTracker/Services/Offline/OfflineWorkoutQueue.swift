@@ -54,9 +54,12 @@ final class OfflineWorkoutQueue {
     private let periodicRetryInterval: TimeInterval = 20
     private var periodicRetryTask: Task<Void, Never>?
 
-    init(workoutRepository: WorkoutRepository = WorkoutRepository(), networkMonitor: NetworkMonitor = .shared) {
-        self.workoutRepository = workoutRepository
-        self.networkMonitor = networkMonitor
+    /// `nil` defaults - see `OfflineMealQueue.init`'s doc comment for why
+    /// an actor-isolated default *value* (`WorkoutRepository()`/`.shared`)
+    /// has to be resolved in the body instead of the parameter list.
+    init(workoutRepository: WorkoutRepository? = nil, networkMonitor: NetworkMonitor? = nil) {
+        self.workoutRepository = workoutRepository ?? WorkoutRepository()
+        self.networkMonitor = networkMonitor ?? .shared
         do {
             let configuration = ModelConfiguration(
                 "workout-queue",

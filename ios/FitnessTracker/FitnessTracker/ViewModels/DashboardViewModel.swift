@@ -7,14 +7,6 @@ enum WeightTrend {
     case up, down, stable
 }
 
-/// The three ticks on the Today Checklist - visual only for now, doesn't
-/// feed the weekly adherence score.
-struct TodayChecklist {
-    let stepsHit: Bool
-    let workoutLogged: Bool
-    let caloriesInRange: Bool
-}
-
 @MainActor
 final class DashboardViewModel: ObservableObject {
     @Published var goal: UserGoal?
@@ -32,7 +24,6 @@ final class DashboardViewModel: ObservableObject {
     /// Weight card shows a caption when this is nonzero so the trend badge
     /// doesn't read as a flat scale reading when it isn't one.
     @Published var weightGlanceExcludedBumpDays = 0
-    @Published var todayChecklist: TodayChecklist?
     @Published var cardioExclusionEnabled = false
     @Published var cardioStepsExcludedToday = 0
     @Published var offPlanRecentInsight: OffPlanWeightAdvisor.RecentFlagInsight?
@@ -127,42 +118,6 @@ final class DashboardViewModel: ObservableObject {
         weightTrend = abs(delta) < 0.2 ? .stable : (delta > 0 ? .up : .down)
     }
 
-    /// The Today Checklist's three ticks - always "today," independent of
-    /// `selectedDate`/`load(date:)` the same way `loadWeightGlance()` is.
-    /// Visual only for now (see `TodayChecklist`'s doc comment).
-    func loadTodayChecklist() async {
-        let today = Date()
-        async let pastGoalsResult = try? goalsRepository.fetchPastGoals(limit: 100)
-        async let nutritionResult = try? nutritionRepository.fetchLog(date: today)
-        async let stepsResult = try? healthRepository.fetchStepLog(date: today)
-        async let preferencesResult = try? preferencesRepository.fetch()
-        async let cardioSessionsResult = try? cardioStepSessionRepository.fetchSessions(date: today)
-        async let recentWorkoutsResult = try? workoutRepository.fetchHistory(limit: 5)
-
-        let allGoals = (await pastGoalsResult ?? []).sorted { $0.effectiveFrom < $1.effectiveFrom }
-        let isoToday = DateFormatting.isoDate(today)
-        let todayGoal = allGoals.last { $0.effectiveFrom <= isoToday }
-
-        let nutrition = await nutritionResult ?? nil
-        var steps = (await stepsResult ?? nil)?.stepCount ?? 0
-        if (await preferencesResult ?? nil)?.cardioStepExclusionEnabled ?? false {
-            let excluded = (await cardioSessionsResult ?? []).reduce(0) { $0 + $1.stepsDelta }
-            steps = max(steps - excluded, 0)
-        }
-        let workoutLoggedToday = (await recentWorkoutsResult ?? []).contains {
-            $0.endedAt != nil && Calendar.current.isDateInToday($0.performedAt)
-        }
-
-        let stepsHit = todayGoal?.stepTarget.map { steps >= $0 } ?? false
-        let caloriesInRange: Bool = {
-            guard let nutrition, let target = todayGoal?.dailyCalorieTarget else { return false }
-            let tolerance = max(target * 0.1, 100)
-            return abs(nutrition.calories - target) <= tolerance
-        }()
-
-        todayChecklist = TodayChecklist(stepsHit: stepsHit, workoutLogged: workoutLoggedToday, caloriesInRange: caloriesInRange)
-    }
-
     /// Both halves of `OffPlanWeightAdvisor`, independent of `selectedDate`
     /// and the Weight card's own chart range - advisory only, so any
     /// failure here just leaves both nil rather than surfacing an error.
@@ -191,8 +146,8 @@ final class DashboardViewModel: ObservableObject {
     }
 
     /// The Water card's glance data - always "today," independent of
-    /// `selectedDate` the same way `loadWeightGlance()`/`loadTodayChecklist()`
-    /// are (you're always logging water for right now, not a past day).
+    /// `selectedDate` the same way `loadWeightGlance()` is (you're always
+    /// logging water for right now, not a past day).
     func loadWaterGlance() async {
         async let logsResult = try? waterRepository.fetchLogs(date: Date())
         async let preferencesResult = try? preferencesRepository.fetch()

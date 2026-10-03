@@ -96,7 +96,22 @@ struct StartWorkoutView: View {
                             if !weeklySchedule.isEmpty {
                                 ScrollViewReader { proxy in
                                     ScrollView(.horizontal) {
-                                        LazyHStack(spacing: 16) {
+                                        // A plain HStack, not `LazyHStack` -
+                                        // only 7 cards ever exist here, so
+                                        // there's no real laziness to gain,
+                                        // and `LazyHStack` was the actual
+                                        // cause of "Start Workout" getting
+                                        // clipped off a taller card: inside
+                                        // `ScrollView(.horizontal)`, a lazy
+                                        // stack can lock in its height from
+                                        // whichever card measures first
+                                        // (often a shorter rest day) and
+                                        // never grow for a later-scrolled-to
+                                        // card with more exercises. A plain
+                                        // `HStack` measures every child up
+                                        // front, so the container is always
+                                        // sized to the tallest card.
+                                        HStack(spacing: 16) {
                                             ForEach(weeklySchedule) { slot in
                                                 WeekDayCard(
                                                     slot: slot,

@@ -242,7 +242,7 @@ struct DailyCheckinSheet: View {
             if let weightKg {
                 let updated = try? await bodyWeightRepository.updateTodaysWeight(kg: weightKg)
                 if updated == nil {
-                    try? await bodyWeightRepository.logWeight(kg: weightKg)
+                    _ = try? await bodyWeightRepository.logWeight(kg: weightKg)
                 }
             }
 

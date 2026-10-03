@@ -7,11 +7,6 @@ import SwiftUI
 private struct WeeklyWeightPoint: Identifiable {
     let date: Date
     let weightKg: Double
-    /// True if any day that week had a check-in flagging the day before it
-    /// as off-plan (see `DailyCheckin.yesterdayOffPlan` /
-    /// `OffPlanWeightAdvisor`) - a quick "was this week's number affected
-    /// by an off-plan day" signal alongside the raw trend line.
-    let isOffPlanWeek: Bool
     var id: Date { date }
 }
 
@@ -23,6 +18,23 @@ private struct WeeklyTableColumn {
     let unit: String
     let goal: (UserGoal) -> Double?
     let avg: (WeeklyLogEntry) -> Double?
+    /// The same metric, pulled off one expanded day instead of the week's
+    /// average - what the week's own `avg` row was actually computed from.
+    let daily: (DailyLogRow) -> Double?
+}
+
+/// One day inside an expanded week's row - the raw numbers `WeeklyLogEntry`'s
+/// average was built from, fetched only when that week is actually expanded
+/// (see `WeeklyLogTableView.loadDailyRows`), not for every week up front.
+private struct DailyLogRow: Identifiable {
+    let date: Date
+    let calories: Double?
+    let proteinG: Double?
+    let carbsG: Double?
+    let fatG: Double?
+    let steps: Double?
+    let weightKg: Double?
+    var id: Date { date }
 }
 
 /// A Goal -> Avg table across every tracked week, most recent first -
@@ -41,12 +53,24 @@ struct WeeklyLogTableView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private let columns: [WeeklyTableColumn] = [
-        WeeklyTableColumn(title: "Calories", unit: "", goal: { $0.dailyCalorieTarget }, avg: { $0.avgCalories }),
-        WeeklyTableColumn(title: "Protein", unit: "g", goal: { $0.proteinGTarget }, avg: { $0.avgProteinG }),
-        WeeklyTableColumn(title: "Carbs", unit: "g", goal: { $0.carbsGTarget }, avg: { $0.avgCarbsG }),
-        WeeklyTableColumn(title: "Fat", unit: "g", goal: { $0.fatGTarget }, avg: { $0.avgFatG }),
-        WeeklyTableColumn(title: "Steps", unit: "", goal: { $0.stepTarget.map(Double.init) }, avg: { $0.avgSteps })
+        WeeklyTableColumn(title: "Calories", unit: "", goal: { $0.dailyCalorieTarget }, avg: { $0.avgCalories }, daily: { $0.calories }),
+        WeeklyTableColumn(title: "Protein", unit: "g", goal: { $0.proteinGTarget }, avg: { $0.avgProteinG }, daily: { $0.proteinG }),
+        WeeklyTableColumn(title: "Carbs", unit: "g", goal: { $0.carbsGTarget }, avg: { $0.avgCarbsG }, daily: { $0.carbsG }),
+        WeeklyTableColumn(title: "Fat", unit: "g", goal: { $0.fatGTarget }, avg: { $0.avgFatG }, daily: { $0.fatG }),
+        WeeklyTableColumn(title: "Steps", unit: "", goal: { $0.stepTarget.map(Double.init) }, avg: { $0.avgSteps }, daily: { $0.steps })
     ]
+
+    /// Which week's row is currently dropped down to its 7 daily rows -
+    /// one at a time, matching a plain accordion (tapping a different week
+    /// collapses whichever was open and expands the new one).
+    @State private var expandedWeekStart: Date?
+    /// Cached per week so re-tapping an already-fetched week's row doesn't
+    /// refetch - cleared only by leaving/re-entering the screen.
+    @State private var dailyRowsByWeek: [Date: [DailyLogRow]] = [:]
+    @State private var loadingWeekStart: Date?
+    private let nutritionRepository = NutritionRepository()
+    private let healthRepository = HealthRepository()
+    private let bodyWeightRepository = BodyWeightRepository()
 
     /// Oldest to newest, matching the chat table this mirrors - `entries`
     /// itself comes back most-recent-first (see `WeeklyLogRepository`).
@@ -57,29 +81,42 @@ struct WeeklyLogTableView: View {
     private var weightPoints: [WeeklyWeightPoint] {
         orderedEntries.compactMap { entry in
             entry.avgWeightKg.map { avgWeightKg in
-                WeeklyWeightPoint(
-                    date: entry.weekStartDate,
-                    weightKg: avgWeightKg,
-                    isOffPlanWeek: weekContainsOffPlanDay(entry.weekStartDate)
-                )
+                WeeklyWeightPoint(date: entry.weekStartDate, weightKg: avgWeightKg)
             }
         }
     }
 
     @State private var selectedWeightPoint: WeeklyWeightPoint?
-    /// Every day flagged off-plan (start-of-day, `checkinDate - 1`) across
-    /// full history - fetched once via `DailyCheckinRepository.
-    /// fetchOffPlanDays()`, the same targeted query `OffPlanWeightAdvisor`'s
-    /// historical stat already uses, rather than pulling every check-in.
-    @State private var offPlanDays: Set<Date> = []
-    private let checkinRepository = DailyCheckinRepository()
 
-    private func weekContainsOffPlanDay(_ weekStart: Date) -> Bool {
-        let calendar = Calendar.current
-        return (0..<7).contains { offset in
-            guard let day = calendar.date(byAdding: .day, value: offset, to: weekStart) else { return false }
-            return offPlanDays.contains(calendar.startOfDay(for: day))
+    private var isLandscape: Bool { verticalSizeClass == .compact }
+
+    @ViewBuilder
+    private var tableBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            headerRow
+            Divider()
+            ForEach(orderedEntries) { entry in
+                Button {
+                    toggleExpanded(entry)
+                } label: {
+                    row(for: entry)
+                }
+                .buttonStyle(.plain)
+                if expandedWeekStart == entry.weekStartDate {
+                    if loadingWeekStart == entry.weekStartDate {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    } else {
+                        ForEach(dailyRowsByWeek[entry.weekStartDate] ?? []) { day in
+                            dailyRow(for: day, goal: viewModel.goal(for: entry))
+                        }
+                    }
+                }
+                Divider()
+            }
         }
+        .padding(.horizontal)
     }
 
     var body: some View {
@@ -88,16 +125,19 @@ struct WeeklyLogTableView: View {
                 if weightPoints.count >= 2 {
                     weightChartSection
                 }
-                ScrollView(.horizontal) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        headerRow
-                        Divider()
-                        ForEach(orderedEntries) { entry in
-                            row(for: entry)
-                            Divider()
-                        }
+                // Landscape has room for every column at once, so the table
+                // stretches to fill the screen's full width there instead
+                // of sitting in a horizontal scroller - `.frame(maxWidth:
+                // .infinity)` on a flexible column would otherwise expand
+                // to whatever unbounded width `ScrollView(.horizontal)`
+                // proposes, not the actual screen width, which is why this
+                // branches instead of just always wrapping in one.
+                if isLandscape {
+                    tableBody
+                } else {
+                    ScrollView(.horizontal) {
+                        tableBody
                     }
-                    .padding(.horizontal)
                 }
             }
             .padding(.vertical, 8)
@@ -109,21 +149,11 @@ struct WeeklyLogTableView: View {
                 Text("No weeks logged yet").foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("Weekly Log")
+        .navigationTitle("PT Summary")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(verticalSizeClass == .compact ? .hidden : .automatic, for: .tabBar)
         .task {
             if viewModel.entries.isEmpty { await viewModel.loadAll() }
-            if offPlanDays.isEmpty {
-                let calendar = Calendar.current
-                let checkins = (try? await checkinRepository.fetchOffPlanDays()) ?? []
-                offPlanDays = Set(checkins.compactMap { checkin -> Date? in
-                    guard let checkinDate = DateFormatting.date(fromISODate: checkin.checkinDate),
-                          let offPlanDay = calendar.date(byAdding: .day, value: -1, to: checkinDate)
-                    else { return nil }
-                    return calendar.startOfDay(for: offPlanDay)
-                })
-            }
         }
         .onAppear {
             OrientationLock.shared.mask = [.portrait, .landscapeLeft, .landscapeRight]
@@ -139,22 +169,14 @@ struct WeeklyLogTableView: View {
     /// already uses.
     private var weightChartSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Weight Over Time")
-                    .font(.headline)
-                Spacer()
-                if weightPoints.contains(where: \.isOffPlanWeek) {
-                    Label("Off-plan day this week", systemImage: "circle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.green)
-                }
-            }
+            Text("Weight Over Time")
+                .font(.headline)
             Chart {
                 ForEach(weightPoints) { point in
                     LineMark(x: .value("Week", point.date), y: .value("Weight (kg)", point.weightKg))
                         .foregroundStyle(.blue)
                     PointMark(x: .value("Week", point.date), y: .value("Weight (kg)", point.weightKg))
-                        .foregroundStyle(point.isOffPlanWeek ? .green : .blue)
+                        .foregroundStyle(.blue)
                         .symbolSize(point.id == selectedWeightPoint?.id ? 60 : 30)
                 }
                 if let selectedWeightPoint {
@@ -167,11 +189,6 @@ struct WeeklyLogTableView: View {
                                     .foregroundStyle(.secondary)
                                 Text(String(format: "%.1f kg", selectedWeightPoint.weightKg))
                                     .font(.caption.bold())
-                                if selectedWeightPoint.isOffPlanWeek {
-                                    Text("Off-plan day")
-                                        .font(.caption2)
-                                        .foregroundStyle(.green)
-                                }
                             }
                             .padding(6)
                             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
@@ -188,11 +205,14 @@ struct WeeklyLogTableView: View {
             // The selected-point callout anchors `position: .top` with
             // vertical overflow resolution disabled, so without this the
             // callout can render above the plot area entirely and collide
-            // with the "Off-plan day this week" legend sitting right above
-            // the chart - this reserves headroom inside the chart's own
-            // frame for it to render into instead.
+            // with the "Weight Over Time" title sitting right above the
+            // chart - this reserves headroom inside the chart's own frame
+            // for it to render into instead. The horizontal padding is
+            // separate - without it, the oldest/newest week's point sits
+            // flush against the plot area's own edge, right at (or past)
+            // the visible frame boundary.
             .chartPlotStyle { plotArea in
-                plotArea.padding(.top, 32)
+                plotArea.padding(.top, 32).padding(.horizontal, 14)
             }
             .frame(height: 180)
             .chartOverlay { proxy in
@@ -229,16 +249,26 @@ struct WeeklyLogTableView: View {
         selectedWeightPoint = weightPoints.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
     }
 
+    /// Fixed-width in portrait (the table scrolls horizontally to fit
+    /// every column); flexible/`maxWidth: .infinity` in landscape, where
+    /// `tableBody` renders without a horizontal scroller so this actually
+    /// stretches to the screen's real width instead of an unbounded one.
+    @ViewBuilder
+    private func column<Content: View>(fixedWidth: CGFloat, alignment: Alignment, @ViewBuilder content: () -> Content) -> some View {
+        if isLandscape {
+            content().frame(maxWidth: .infinity, alignment: alignment)
+        } else {
+            content().frame(width: fixedWidth, alignment: alignment)
+        }
+    }
+
     private var headerRow: some View {
         HStack(spacing: 16) {
-            Text("Week")
-                .frame(width: 84, alignment: .leading)
+            column(fixedWidth: 84, alignment: .leading) { Text("Week") }
             ForEach(columns, id: \.title) { column in
-                Text(column.title)
-                    .frame(width: 84, alignment: .center)
+                self.column(fixedWidth: 84, alignment: .center) { Text(column.title) }
             }
-            Text("Weight")
-                .frame(width: 72, alignment: .center)
+            column(fixedWidth: 72, alignment: .center) { Text("Weight") }
         }
         .font(.caption.bold())
         .foregroundStyle(.secondary)
@@ -248,20 +278,116 @@ struct WeeklyLogTableView: View {
     private func row(for entry: WeeklyLogEntry) -> some View {
         let goal = viewModel.goal(for: entry)
         return HStack(spacing: 16) {
-            Text(weekLabel(for: entry))
-                .font(.subheadline.weight(.medium))
-                .frame(width: 84, alignment: .leading)
-
-            ForEach(columns, id: \.title) { column in
-                cell(goal: goal.flatMap(column.goal), avg: column.avg(entry), unit: column.unit)
-                    .frame(width: 84)
+            column(fixedWidth: 84, alignment: .leading) {
+                Text(weekLabel(for: entry)).font(.subheadline.weight(.medium))
             }
 
-            weightCell(entry)
-                .frame(width: 72)
+            ForEach(columns, id: \.title) { column in
+                self.column(fixedWidth: 84, alignment: .center) {
+                    cell(goal: goal.flatMap(column.goal), avg: column.avg(entry), unit: column.unit)
+                }
+            }
+
+            column(fixedWidth: 72, alignment: .center) { weightCell(entry) }
         }
         .padding(.vertical, 10)
+        // Without this, only the actual rendered glyphs (not the padding/
+        // gaps between them) are tappable - this makes the whole row a
+        // single hit target instead of a handful of tiny text-shaped ones.
+        .contentShape(Rectangle())
     }
+
+    /// One expanded day's row - same columns/widths as `row(for:)`, just
+    /// pulling each metric straight off that day instead of the week's
+    /// average, and indented so it visually nests under the week it
+    /// belongs to.
+    private func dailyRow(for day: DailyLogRow, goal: UserGoal?) -> some View {
+        HStack(spacing: 16) {
+            column(fixedWidth: 84, alignment: .leading) {
+                Text(dayLabel(day.date))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(columns, id: \.title) { column in
+                self.column(fixedWidth: 84, alignment: .center) {
+                    cell(goal: goal.flatMap(column.goal), avg: column.daily(day), unit: column.unit)
+                }
+            }
+
+            column(fixedWidth: 72, alignment: .center) {
+                VStack(spacing: 2) {
+                    Text(" ").font(.caption2)
+                    Text(day.weightKg.map { String(format: "%.1f kg", $0) } ?? "-")
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.leading, 12)
+        .background(Color.secondary.opacity(0.06))
+    }
+
+    private func dayLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE d"
+        return formatter.string(from: date)
+    }
+
+    private func toggleExpanded(_ entry: WeeklyLogEntry) {
+        let weekStart = entry.weekStartDate
+        if expandedWeekStart == weekStart {
+            expandedWeekStart = nil
+            return
+        }
+        expandedWeekStart = weekStart
+        guard dailyRowsByWeek[weekStart] == nil else { return }
+        Task { await loadDailyRows(weekStart: weekStart) }
+    }
+
+    /// The 7 days (Mon-Sun) a week's average was actually computed from -
+    /// fetched only once a week's row is expanded, not for every week up
+    /// front. Same three sources `WeeklyInsightsViewModel.load()` reads for
+    /// its own daily breakdowns, just scoped to this one week.
+    private func loadDailyRows(weekStart: Date) async {
+        loadingWeekStart = weekStart
+        defer { if loadingWeekStart == weekStart { loadingWeekStart = nil } }
+        let calendar = Calendar.current
+        let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+
+        async let nutritionResult = try? nutritionRepository.fetchRange(from: weekStart, to: weekEnd)
+        async let stepLogsResult = try? healthRepository.fetchStepLogs(from: weekStart, to: weekEnd)
+        async let weightsResult = try? bodyWeightRepository.fetchRange(from: weekStart, to: weekEnd)
+
+        let nutritionByDate = Dictionary(uniqueKeysWithValues: (await nutritionResult ?? []).map { ($0.date, $0) })
+        let stepsByDate = Dictionary(uniqueKeysWithValues: (await stepLogsResult ?? []).map { ($0.date, $0.stepCount) })
+        let weights = await weightsResult ?? []
+        let weightsByDate = Dictionary(grouping: weights) { calendar.startOfDay(for: $0.loggedAt) }
+            .mapValues { average($0.map(\.weightKg)) }
+
+        var rows: [DailyLogRow] = []
+        for offset in 0..<7 {
+            guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else { continue }
+            let isoDate = DateFormatting.isoDate(date)
+            let nutrition = nutritionByDate[isoDate]
+            rows.append(DailyLogRow(
+                date: date,
+                calories: nutrition?.calories,
+                proteinG: nutrition?.proteinG,
+                carbsG: nutrition?.carbsG,
+                fatG: nutrition?.fatG,
+                steps: stepsByDate[isoDate].map(Double.init),
+                weightKg: weightsByDate[calendar.startOfDay(for: date)] ?? nil
+            ))
+        }
+        dailyRowsByWeek[weekStart] = rows
+    }
+
+    private func average(_ values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
 
     @ViewBuilder
     private func cell(goal: Double?, avg: Double?, unit: String) -> some View {

@@ -46,6 +46,18 @@ struct MealEntryRepository {
             .value
     }
 
+    /// Every entry (any date) logged against one of these recipes - how
+    /// much of a meal prep has been eaten.
+    func fetchEntries(recipeIds: [UUID]) async throws -> [MealEntry] {
+        guard !recipeIds.isEmpty else { return [] }
+        return try await client
+            .from("meal_entries")
+            .select()
+            .in("recipe_id", values: recipeIds)
+            .execute()
+            .value
+    }
+
     /// The quantity (servings multiplier) this user entered the last time
     /// they logged this exact food, if ever - what the quantity-entry
     /// screen pre-fills with instead of always defaulting back to 1

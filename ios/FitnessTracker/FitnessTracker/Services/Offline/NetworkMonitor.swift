@@ -20,7 +20,7 @@ final class NetworkMonitor: ObservableObject {
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
             let connected = path.status == .satisfied
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.handleUpdate(connected: connected)
             }
         }

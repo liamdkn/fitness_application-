@@ -26,6 +26,7 @@ struct RecipeRepository {
         try await client
             .from("recipes")
             .select()
+            .eq("is_meal_prep", value: false)
             .order("name")
             .execute()
             .value
@@ -91,7 +92,7 @@ struct RecipeRepository {
             .execute()
     }
 
-    private static func totals(for ingredients: [(food: Food, quantity: Double)]) -> DayMacroTotals {
+    static func totals(for ingredients: [(food: Food, quantity: Double)]) -> DayMacroTotals {
         var totals = DayMacroTotals()
         for (food, quantity) in ingredients {
             totals.calories += food.calories(at: quantity)

@@ -120,6 +120,8 @@ struct MealLogHomeView: View {
                                 if !viewModel.entries.isEmpty {
                                     Button("Save This Day") { showingSaveDay = true }
                                 }
+                                NavigationLink("Meal Prep...") { MealPrepListView() }
+                                NavigationLink("Brand Compare...") { FoodGroupsView() }
                                 NavigationLink("Weekly Treats...") { TreatsPlannerView() }
                             } label: {
                                 Image(systemName: "ellipsis.circle")

@@ -83,13 +83,12 @@ struct MacroDebt {
 }
 
 struct NutritionDebtSummary {
-    let calories: MacroDebt?
     let protein: MacroDebt?
     let carbs: MacroDebt?
     let fat: MacroDebt?
 
     var hasAny: Bool {
-        calories != nil || protein != nil || carbs != nil || fat != nil
+        protein != nil || carbs != nil || fat != nil
     }
 }
 
@@ -130,6 +129,11 @@ final class WeeklyInsightsViewModel: ObservableObject {
     @Published var dailyProtein: [DailyMacroEntry] = []
     @Published var dailyCarbs: [DailyMacroEntry] = []
     @Published var dailyFat: [DailyMacroEntry] = []
+    /// This week's average ml/day, over days with at least one log - same
+    /// "only counts days that were actually logged" convention as
+    /// `avgCaloriesPerDay`, not padded with zeros for days nothing was
+    /// logged.
+    @Published var avgWaterMlPerDay: Double?
     /// Only non-nil when the selected week is the live current week - same
     /// "what do I need today" reasoning as `stepsDebt`.
     @Published var nutritionDebt: NutritionDebtSummary?
@@ -160,6 +164,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
     private let tdeeEstimateRepository = TDEEEstimateRepository()
     private let dailyCheckinRepository = DailyCheckinRepository()
     private let weeklyCheckinRepository = WeeklyCheckinRepository()
+    private let waterRepository = WaterRepository()
 
     /// How many trailing weeks the trend chart covers.
     private let historyWeeksCount = 8
@@ -243,6 +248,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
         // with each other the way separately-ranged queries could.
         async let weekStepLogsResult = try? healthRepository.fetchStepLogs(from: weekStart, to: sundayThisWeek)
         async let nutritionLogsResult = try? nutritionRepository.fetchRange(from: weekStart, to: sundayThisWeek)
+        async let waterLogsResult = try? waterRepository.fetchLogs(from: weekStart, to: sundayThisWeek)
         async let cardioHistoryResult = try? cardioSessionRepository.fetchHistory(from: weekStart, to: sundayThisWeek)
         async let weightsResult = try? bodyWeightRepository.fetchRange(from: weekStart, to: sundayThisWeek)
         // For the week-over-week average comparison below - the week
@@ -285,7 +291,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
         // included cardio sessions would show a higher (raw) step average
         // here than what the Dashboard displays day to day, throwing off
         // the steps-debt pace calculation.
-        let cardioExclusionEnabled = (await preferencesResult ?? nil)?.cardioStepExclusionEnabled ?? false
+        let preferences = await preferencesResult ?? nil
+        let cardioExclusionEnabled = preferences?.cardioStepExclusionEnabled ?? false
         let cardioStepSessions = await cardioStepSessionsResult ?? []
         let excludedStepsByDate = Dictionary(grouping: cardioStepSessions, by: \.date)
             .mapValues { $0.reduce(0) { $0 + $1.stepsDelta } }
@@ -300,6 +307,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
 
         let weekStepLogs = await weekStepLogsResult ?? []
         let nutritionLogs = await nutritionLogsResult ?? []
+        let waterLogs = await waterLogsResult ?? []
         let cardioHistory = await cardioHistoryResult ?? []
         let weights = await weightsResult ?? []
         let lastWeekWeights = await lastWeekWeightsResult
@@ -394,7 +402,6 @@ final class WeeklyInsightsViewModel: ObservableObject {
                 return MacroDebt(target: target, remainingDays: remainingDays, requiredPerDayForRest: requiredPerDayForRest)
             }
             return NutritionDebtSummary(
-                calories: macroDebt(target: resolvedGoal?.dailyCalorieTarget, keyPath: \.calories),
                 protein: macroDebt(target: resolvedGoal?.proteinGTarget, keyPath: \.proteinG),
                 carbs: macroDebt(target: resolvedGoal?.carbsGTarget, keyPath: \.carbsG),
                 fat: macroDebt(target: resolvedGoal?.fatGTarget, keyPath: \.fatG)
@@ -408,6 +415,12 @@ final class WeeklyInsightsViewModel: ObservableObject {
         let avgProtein = average(nutritionLogs.map(\.proteinG))
         let avgCarbs = average(nutritionLogs.map(\.carbsG))
         let avgFat = average(nutritionLogs.map(\.fatG))
+
+        // Summed per day first, then averaged across days with at least one
+        // log - several logs on the same day (a hydroflask, a pint, a
+        // custom amount) are one day's total, not several separate readings.
+        let waterMlByDate = Dictionary(grouping: waterLogs, by: \.date).mapValues { $0.reduce(0) { $0 + $1.amountMl } }
+        let avgWaterMl = average(waterMlByDate.values.map(Double.init))
 
         // Already range-filtered server-side (`fetchHistory(from:to:)`), so
         // no client-side date filter is needed here.
@@ -468,6 +481,7 @@ final class WeeklyInsightsViewModel: ObservableObject {
         avgProteinPerDay = avgProtein
         avgCarbsPerDay = avgCarbs
         avgFatPerDay = avgFat
+        avgWaterMlPerDay = avgWaterMl
         nutritionDebt = resolvedNutritionDebt
         weekWeights = weights
         avgWeightThisWeek = resolvedAvgWeightThisWeek

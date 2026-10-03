@@ -191,7 +191,7 @@ struct CardioSessionRepository {
             throw RepositoryError.insertFailed
         }
         if let stepsBefore = session.stepsBefore, let stepsAfter {
-            try? await stepSessionRepository.logSession(date: session.startedAt, stepsBefore: stepsBefore, stepsAfter: stepsAfter)
+            _ = try? await stepSessionRepository.logSession(date: session.startedAt, stepsBefore: stepsBefore, stepsAfter: stepsAfter)
         }
         return session
     }
@@ -236,7 +236,7 @@ struct CardioSessionRepository {
             throw RepositoryError.insertFailed
         }
         if let stepsBefore = session.stepsBefore, let stepsAfter {
-            try? await stepSessionRepository.logSession(date: session.startedAt, stepsBefore: stepsBefore, stepsAfter: stepsAfter)
+            _ = try? await stepSessionRepository.logSession(date: session.startedAt, stepsBefore: stepsBefore, stepsAfter: stepsAfter)
         }
         return session
     }

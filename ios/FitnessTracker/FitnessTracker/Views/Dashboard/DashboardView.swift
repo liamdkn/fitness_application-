@@ -27,17 +27,6 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if let todayChecklist = viewModel.todayChecklist {
-                        TodayChecklistCard(checklist: todayChecklist)
-                    }
-
-                    WaterCard(
-                        totalMl: viewModel.todayWaterMl,
-                        targetMinMl: viewModel.waterTargetMinMl,
-                        targetMaxMl: viewModel.waterTargetMaxMl,
-                        onLogged: { await viewModel.loadWaterGlance() }
-                    )
-
                     // The Daily row always stays - completing it doesn't
                     // make it un-tappable, since a mistyped number (weight,
                     // most often) is only fixable by reopening the same
@@ -53,9 +42,12 @@ struct DashboardView: View {
                         onTapWeekly: { activeSheet = .weeklyCheckin }
                     )
 
-                    WatchActivityCard(viewModel: watchActivityViewModel)
-
-                    WeeklyLogLinkCard()
+                    WaterCard(
+                        totalMl: viewModel.todayWaterMl,
+                        targetMinMl: viewModel.waterTargetMinMl,
+                        targetMaxMl: viewModel.waterTargetMaxMl,
+                        onLogged: { await viewModel.loadWaterGlance() }
+                    )
 
                     DashboardCard {
                         VStack(alignment: .leading, spacing: 12) {
@@ -144,6 +136,10 @@ struct DashboardView: View {
                         }
                     }
 
+                    WeeklyLogLinkCard()
+
+                    WatchActivityCard(viewModel: watchActivityViewModel)
+
                     if let errorMessage = viewModel.errorMessage {
                         Text(errorMessage).foregroundStyle(.red)
                     }
@@ -155,7 +151,6 @@ struct DashboardView: View {
                 await viewModel.load(date: selectedDate)
                 await viewModel.loadWeightGlance()
                 await viewModel.loadOffPlanInsights()
-                await viewModel.loadTodayChecklist()
                 await viewModel.loadWaterGlance()
                 await checkinAvailability.refresh()
                 await watchActivityViewModel.loadCandidates()
@@ -164,7 +159,6 @@ struct DashboardView: View {
                 await viewModel.load(date: selectedDate)
                 await viewModel.loadWeightGlance()
                 await viewModel.loadOffPlanInsights()
-                await viewModel.loadTodayChecklist()
                 await viewModel.loadWaterGlance()
                 await checkinAvailability.refresh()
                 await watchActivityViewModel.loadCandidates()
@@ -284,36 +278,6 @@ private struct WeeklyLogLinkCard: View {
                         .foregroundStyle(.secondary)
                 }
             }
-        }
-    }
-}
-
-/// Three green ticks for steps/workout/calories - visual only for now (see
-/// `TodayChecklist`'s doc comment), so tapping doesn't do anything yet.
-private struct TodayChecklistCard: View {
-    let checklist: TodayChecklist
-
-    var body: some View {
-        DashboardCard(title: "Today") {
-            HStack {
-                checklistItem(label: "Steps", done: checklist.stepsHit)
-                Spacer()
-                checklistItem(label: "Workout", done: checklist.workoutLogged)
-                Spacer()
-                checklistItem(label: "Calories", done: checklist.caloriesInRange)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func checklistItem(label: String, done: Bool) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                .font(.title2)
-                .foregroundStyle(done ? .green : .secondary.opacity(0.4))
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 }

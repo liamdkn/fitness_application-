@@ -19,7 +19,14 @@ final class OrientationLock {
             // device out of its current orientation - most noticeably on
             // the way back to `.portrait`, where the screen would
             // otherwise stay stuck in landscape until manually rotated.
-            UIViewController.attemptRotationToDeviceOrientation()
+            // `attemptRotationToDeviceOrientation()` (the old class-method
+            // way to trigger this) is deprecated in favor of this instance
+            // method, which needs an actual view controller to call it on -
+            // the key window's root is the one every screen shares.
+            UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+                .first?.rootViewController?
+                .setNeedsUpdateOfSupportedInterfaceOrientations()
         }
     }
 }

@@ -67,6 +67,10 @@ struct WeeklyInsightsView: View {
         }
     }
 
+    private func formattedWaterAmount(_ ml: Double) -> String {
+        ml >= 1000 ? String(format: "%.1f L", ml / 1000) : "\(Int(ml)) ml"
+    }
+
     /// The phase's target weight-loss/gain rate, projected across the
     /// selected Mon-Sun week - the same projection the Dashboard's weight
     /// card used to plot before it was stripped down to a glance card, just
@@ -135,7 +139,7 @@ struct WeeklyInsightsView: View {
             }
             .refreshable { await viewModel.load() }
         }
-        .navigationTitle("Weekly Insights")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
@@ -255,6 +259,17 @@ struct WeeklyInsightsView: View {
                         if let stepsDebt = viewModel.stepsDebt, let stepTarget = viewModel.goal?.stepTarget {
                             StepsDebtRow(debt: stepsDebt, stepTarget: stepTarget)
                         }
+                    }
+                }
+
+                if let avgWaterMlPerDay = viewModel.avgWaterMlPerDay {
+                    Section("Hydration") {
+                        InsightRow(
+                            icon: "drop.fill",
+                            label: "Avg water",
+                            value: "\(formattedWaterAmount(avgWaterMlPerDay)) per day",
+                            target: nil
+                        )
                     }
                 }
 
@@ -773,9 +788,6 @@ private struct NutritionDebtSummaryView: View {
             Text("To Hit This Week's Goal")
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
-            if let calories = debt.calories {
-                MacroDebtRow(debt: calories, label: "Calories", unit: "kcal")
-            }
             if let protein = debt.protein {
                 MacroDebtRow(debt: protein, label: "Protein", unit: "g")
             }

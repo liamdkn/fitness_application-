@@ -18,7 +18,20 @@ final class SupabaseService: ObservableObject {
             fatalError("Missing SUPABASE_URL / SUPABASE_ANON_KEY - check Config.xcconfig")
         }
 
-        client = SupabaseClient(supabaseURL: url, supabaseKey: anonKey)
+        // `emitLocalSessionAsInitialSession: true` opts into the library's
+        // upcoming default now, rather than leaving it on the deprecated
+        // current behavior (see the console's own build-time notice) - the
+        // locally stored session is always emitted as the initial one, so
+        // callers checking auth state on launch need to check
+        // `session.isExpired` themselves rather than assuming "session
+        // present" already means "session valid."
+        client = SupabaseClient(
+            supabaseURL: url,
+            supabaseKey: anonKey,
+            options: SupabaseClientOptions(
+                auth: .init(emitLocalSessionAsInitialSession: true)
+            )
+        )
 
         Task { await observeAuthChanges() }
     }

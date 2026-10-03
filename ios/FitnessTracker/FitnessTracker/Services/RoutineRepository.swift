@@ -43,7 +43,12 @@ struct RoutineRepository {
         let weight_increment_kg: Double
     }
 
-    private struct SupersetUpdate: Encodable {
+    // `nonisolated` - this project defaults new types to `@MainActor`
+    // isolation, but `pairExercises` below encodes this concurrently across
+    // two `async let` child tasks, neither of which is MainActor. A plain
+    // payload struct with no actor-isolated state has nothing that actually
+    // needs isolating.
+    private nonisolated struct SupersetUpdate: Encodable {
         let superset_group_id: UUID?
     }
 

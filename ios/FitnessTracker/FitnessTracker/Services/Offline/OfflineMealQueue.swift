@@ -36,9 +36,15 @@ final class OfflineMealQueue {
     private let periodicRetryInterval: TimeInterval = 20
     private var periodicRetryTask: Task<Void, Never>?
 
-    init(mealEntryRepository: MealEntryRepository = MealEntryRepository(), networkMonitor: NetworkMonitor = .shared) {
-        self.mealEntryRepository = mealEntryRepository
-        self.networkMonitor = networkMonitor
+    /// `nil` defaults, not `= MealEntryRepository()`/`= .shared` - a default
+    /// *parameter value* expression is evaluated by a nonisolated generator
+    /// function even though this initializer itself is `@MainActor`, so an
+    /// actor-isolated default there (both of these are) doesn't type-check
+    /// under Swift 6 strict concurrency. Resolving the real default inside
+    /// the body instead runs it on this init's own `@MainActor` isolation.
+    init(mealEntryRepository: MealEntryRepository? = nil, networkMonitor: NetworkMonitor? = nil) {
+        self.mealEntryRepository = mealEntryRepository ?? MealEntryRepository()
+        self.networkMonitor = networkMonitor ?? .shared
         do {
             let configuration = ModelConfiguration(
                 "meal-queue",
@@ -114,6 +120,30 @@ final class OfflineMealQueue {
             }
         }
         return byId.values.sorted { $0.loggedAt < $1.loggedAt }
+    }
+
+    /// Total quantity logged per recipe across all dates - how much of a
+    /// meal prep has been eaten. Same local-over-remote merge as
+    /// `fetchEntries(date:)`, so a portion just logged offline (or not yet
+    /// flushed) counts immediately instead of the prep looking untouched.
+    func eatenQuantities(recipeIds: [UUID]) async -> [UUID: Double] {
+        let wanted = Set(recipeIds)
+        let remote = (try? await mealEntryRepository.fetchEntries(recipeIds: recipeIds)) ?? []
+        var byId = Dictionary(uniqueKeysWithValues: remote.map { ($0.id, $0) })
+        let localRows = (try? context.fetch(FetchDescriptor<QueuedMealEntry>())) ?? []
+        for local in localRows {
+            guard let recipeId = local.recipeId, wanted.contains(recipeId) else { continue }
+            if local.pendingDeletion {
+                byId.removeValue(forKey: local.id)
+            } else {
+                byId[local.id] = local.asMealEntry()
+            }
+        }
+        var totals: [UUID: Double] = [:]
+        for entry in byId.values {
+            if let recipeId = entry.recipeId { totals[recipeId, default: 0] += entry.quantity }
+        }
+        return totals
     }
 
     /// Correcting a mistyped amount after the fact (e.g. tapping a logged

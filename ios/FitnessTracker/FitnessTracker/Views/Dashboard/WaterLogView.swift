@@ -80,10 +80,10 @@ struct WaterLogView: View {
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") { dismiss() }
+                    Button("Edit") { showingEditContainers = true }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Edit") { showingEditContainers = true }
+                    Button("Done") { dismiss() }
                 }
             }
             .task { await load() }

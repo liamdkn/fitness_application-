@@ -83,6 +83,20 @@ struct WaterRepository {
             .value
     }
 
+    /// Every log within an inclusive calendar range - same shape as
+    /// `NutritionRepository.fetchRange`/`MealEntryRepository.fetchEntries(from:to:)`,
+    /// what Weekly Insights' avg-water-per-day figure is built from.
+    func fetchLogs(from: Date, to: Date) async throws -> [WaterLog] {
+        try await client
+            .from("water_logs")
+            .select()
+            .gte("date", value: DateFormatting.isoDate(from))
+            .lte("date", value: DateFormatting.isoDate(to))
+            .order("date")
+            .execute()
+            .value
+    }
+
     @discardableResult
     func addLog(date: Date, amountMl: Int, containerId: UUID?) async throws -> WaterLog {
         let userId = try await client.auth.session.user.id
