@@ -1,15 +1,17 @@
 import SwiftUI
 
-/// Today's water intake at a glance - a total plus a progress bar toward
-/// the daily target range, "Log" opening `WaterLogView` to add more or
-/// manage containers. Presentation-only; `totalMl`/`targetMinMl`/
-/// `targetMaxMl` come from `DashboardViewModel.loadWaterGlance()` like
-/// every other Dashboard glance figure, and `onLogged` re-fetches them
-/// after the sheet closes.
-struct WaterCard: View {
+/// Today's liquids at a glance - water and every other drink together,
+/// against the daily target range, plus the day's caffeine. "Log" opens
+/// `LiquidsLogView` to add water or a drink. Presentation-only;
+/// the figures come from `DashboardViewModel.loadLiquidsGlance()` like every
+/// other Dashboard glance figure, and `onLogged` re-fetches them after the
+/// sheet closes.
+struct LiquidsCard: View {
     let totalMl: Int
     let targetMinMl: Int
     let targetMaxMl: Int
+    let caffeineMg: Int
+    let caffeineLimitMg: Int
     let onLogged: () async -> Void
 
     @State private var showingLog = false
@@ -32,7 +34,7 @@ struct WaterCard: View {
     }
 
     var body: some View {
-        DashboardCard(title: "Water") {
+        DashboardCard(title: "Liquids") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(formattedAmount(totalMl))
@@ -49,10 +51,15 @@ struct WaterCard: View {
                 }
                 ProgressView(value: progress)
                     .tint(isOnTarget ? .green : .blue)
+                if caffeineMg > 0 {
+                    Label("Caffeine \(caffeineMg) / \(caffeineLimitMg) mg", systemImage: "cup.and.saucer.fill")
+                        .font(.caption)
+                        .foregroundStyle(caffeineMg > caffeineLimitMg ? .red : .secondary)
+                }
             }
         }
         .sheet(isPresented: $showingLog, onDismiss: { Task { await onLogged() } }) {
-            WaterLogView()
+            LiquidsLogView()
         }
     }
 

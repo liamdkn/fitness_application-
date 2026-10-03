@@ -2,7 +2,7 @@
 /*
  * Floods the TEST account (test@test.com) with months of past data and a
  * couple of months of future plans, so every screen has something to show:
- * weigh-ins, daily + weekly check-ins, meals, water, steps, sleep, workouts
+ * weigh-ins, daily + weekly check-ins, meals, drinks and caffeine, water, steps, sleep, workouts
  * with progressive overload, incline walks, GPS-routed runs, a running plan,
  * meal prep batches (fridge + freezer), planned treats, TDEE estimates.
  *
@@ -189,6 +189,22 @@ async function main() {
       'delete from recipes where user_id=$1 and is_meal_prep',
     ]) await db.query(sql, [U]);
 
+    // ---------- drinks: a "Drinks" slot, a brew pot and a pod coffee ----------
+    let drinksSlot = slots.find((x) => x.name === 'Drinks');
+    if (!drinksSlot) {
+      const order = (await db.query('select coalesce(max(sort_order), -1) + 1 as n from meal_slots where user_id=$1', [U])).rows[0].n;
+      drinksSlot = (await db.query("insert into meal_slots (user_id, name, sort_order) values ($1,'Drinks',$2) returning id, name", [U, order])).rows[0];
+    }
+    slotId.Drinks = drinksSlot.id;
+    for (const [name, size, mg] of [['Brew pot coffee', 100, 18.75], ['Pod coffee', 150, 80]]) {
+      let row = (await db.query('select * from foods where created_by=$1 and name=$2', [U, name])).rows[0];
+      if (!row) {
+        row = (await db.query(`insert into foods (name, serving_size, serving_unit, calories, protein_g, carbs_g, fat_g, caffeine_mg, source, is_custom, created_by, is_verified)
+          values ($1,$2,'ml',1,0,0,0,$3,'user',true,$4,true) returning *`, [name, size, mg, U])).rows[0];
+      }
+      food[name] = row;
+    }
+
     if (!containers.length) {
       for (const [name, ml] of [['Bottle', 750], ['Glass', 250]]) {
         containers.push((await db.query('insert into water_containers (user_id, name, volume_ml) values ($1,$2,$3) returning *', [U, name, ml])).rows[0]);
@@ -291,6 +307,14 @@ async function main() {
           day.kcal += kcal; day.protein += Number(f.protein_g) * q; day.carbs += Number(f.carbs_g) * q; day.fat += Number(f.fat_g) * q;
         }
       }
+      // drinks: a morning pot (2-3 cups), sometimes a pod after lunch, now and then a Monster or Pepsi
+      const cups = intBetween(2, 3);
+      for (let c = 0; c < cups; c++) {
+        mealRows.push([U, key, slotId.Drinks, food['Brew pot coffee'].id, null, round(between(2.2, 2.8), 2), at(d, 7 + c, intBetween(0, 50))]);
+      }
+      if (chance(0.45)) mealRows.push([U, key, slotId.Drinks, food['Pod coffee'].id, null, 1, at(d, 13 + intBetween(0, 2), intBetween(0, 50))]);
+      if (food['Monster Energy'] && chance(0.1)) mealRows.push([U, key, slotId.Drinks, food['Monster Energy'].id, null, 5, at(d, 15 + intBetween(0, 3), intBetween(0, 50))]);
+      if (food['Pepsi'] && chance(0.2)) mealRows.push([U, key, slotId.Drinks, food['Pepsi'].id, null, 3.3, at(d, 18 + intBetween(0, 2), intBetween(0, 50))]);
       dayKcal.set(key, day.kcal);
       if (HEALTH_LOGS) nutritionRows.push([U, key, round(day.kcal, 0), round(day.protein, 0), round(day.carbs, 0), round(day.fat, 0), 'healthkit']);
     }

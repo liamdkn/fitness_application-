@@ -29,7 +29,10 @@ final class DashboardViewModel: ObservableObject {
     @Published var offPlanRecentInsight: OffPlanWeightAdvisor.RecentFlagInsight?
     @Published var offPlanHistoricalStat: OffPlanWeightAdvisor.HistoricalStat?
     /// The Water card's glance data - see `loadWaterGlance()`.
+    /// Everything drunk today - plain water plus every other drink.
     @Published var todayWaterMl = 0
+    @Published var todayCaffeineMg = 0
+    @Published var caffeineLimitMg = 400
     @Published var waterTargetMinMl = 2500
     @Published var waterTargetMaxMl = 3000
     @Published var errorMessage: String?
@@ -44,6 +47,7 @@ final class DashboardViewModel: ObservableObject {
     private let cardioStepSessionRepository = CardioStepSessionRepository()
     private let dailyCheckinRepository = DailyCheckinRepository()
     private let waterRepository = WaterRepository()
+    private let liquidsRepository = LiquidsRepository()
     /// How far back `evaluateRecentFlag` gets to warm up the EWMA trend -
     /// independent of the Weight card's own W/2W/M/6M picker, so the note
     /// doesn't disappear just because someone's viewing the 1-week chart.
@@ -149,10 +153,13 @@ final class DashboardViewModel: ObservableObject {
     /// `selectedDate` the same way `loadWeightGlance()` is (you're always
     /// logging water for right now, not a past day).
     func loadWaterGlance() async {
-        async let logsResult = try? waterRepository.fetchLogs(date: Date())
+        async let dayResult = try? liquidsRepository.fetchDay(date: Date())
         async let preferencesResult = try? preferencesRepository.fetch()
-        todayWaterMl = (await logsResult ?? []).reduce(0) { $0 + $1.amountMl }
+        let day = await dayResult
+        todayWaterMl = Int((day?.hydrationMl ?? 0).rounded())
+        todayCaffeineMg = Int((day?.caffeineMg ?? 0).rounded())
         let preferences = await preferencesResult ?? nil
+        caffeineLimitMg = preferences?.caffeineLimitMg ?? 400
         waterTargetMinMl = preferences?.dailyWaterMlTargetMin ?? 2500
         waterTargetMaxMl = preferences?.dailyWaterMlTargetMax ?? 3000
     }

@@ -9,6 +9,15 @@ struct UserPreferencesRepository {
         let weekly_checkin_weekday: Int
     }
 
+    private struct UpsertLiquidsSettings: Encodable {
+        let user_id: UUID
+        let sodium_limit_mg: Int
+        let caffeine_limit_mg: Int
+        let bedtime_minutes: Int
+        let caffeine_half_life_hours: Double
+        let caffeine_bedtime_target_mg: Int
+    }
+
     private struct UpsertCardioStepExclusion: Encodable {
         let user_id: UUID
         let cardio_step_exclusion_enabled: Bool
@@ -77,6 +86,31 @@ struct UserPreferencesRepository {
             .from("user_preferences")
             .upsert(
                 UpsertDailyWaterMlTargetRange(user_id: userId, daily_water_ml_target_min: min, daily_water_ml_target_max: max),
+                onConflict: "user_id"
+            )
+            .select()
+            .execute()
+            .value
+        guard let preferences = saved.first else {
+            throw RepositoryError.insertFailed
+        }
+        return preferences
+    }
+
+    @discardableResult
+    func setLiquidsSettings(sodiumLimitMg: Int, caffeineLimitMg: Int, bedtimeMinutes: Int, halfLifeHours: Double, bedtimeTargetMg: Int) async throws -> UserPreferences {
+        let userId = try await client.auth.session.user.id
+        let saved: [UserPreferences] = try await client
+            .from("user_preferences")
+            .upsert(
+                UpsertLiquidsSettings(
+                    user_id: userId,
+                    sodium_limit_mg: sodiumLimitMg,
+                    caffeine_limit_mg: caffeineLimitMg,
+                    bedtime_minutes: bedtimeMinutes,
+                    caffeine_half_life_hours: halfLifeHours,
+                    caffeine_bedtime_target_mg: bedtimeTargetMg
+                ),
                 onConflict: "user_id"
             )
             .select()

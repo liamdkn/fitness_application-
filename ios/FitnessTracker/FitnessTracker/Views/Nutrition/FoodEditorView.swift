@@ -38,6 +38,7 @@ struct AddCustomFoodView: View {
     @State private var fat: String
     @State private var fiber: String
     @State private var sodium: String
+    @State private var caffeine: String
     @State private var isVerified: Bool
     @State private var errorMessage: String?
     @State private var isSaving = false
@@ -54,6 +55,7 @@ struct AddCustomFoodView: View {
         initialFat: String = "",
         initialFiber: String = "",
         initialSodium: String = "",
+        initialCaffeine: String = "",
         source: String = "user",
         barcode: String? = nil,
         reviewing: Food? = nil
@@ -76,6 +78,7 @@ struct AddCustomFoodView: View {
             _fat = State(initialValue: Self.formatted(food.fatG))
             _fiber = State(initialValue: food.fiberG.map { Self.formatted($0) } ?? "")
             _sodium = State(initialValue: food.sodiumMg.map { Self.formatted($0) } ?? "")
+            _caffeine = State(initialValue: food.caffeineMg.map { Self.formatted($0) } ?? "")
             _isVerified = State(initialValue: food.isVerified)
         } else {
             _name = State(initialValue: initialName)
@@ -88,6 +91,7 @@ struct AddCustomFoodView: View {
             _fat = State(initialValue: initialFat)
             _fiber = State(initialValue: initialFiber)
             _sodium = State(initialValue: initialSodium)
+            _caffeine = State(initialValue: initialCaffeine)
             _isVerified = State(initialValue: false)
         }
         let choice: UnitChoice = unit.lowercased() == "g" ? .g : (unit.lowercased() == "ml" ? .ml : .other)
@@ -130,6 +134,7 @@ struct AddCustomFoodView: View {
         perServing(calories) != nil && perServing(protein) != nil && perServing(carbs) != nil && perServing(fat) != nil
             && (fiber.isEmpty || Double(fiber) != nil)
             && (sodium.isEmpty || Double(sodium) != nil)
+            && (caffeine.isEmpty || Double(caffeine) != nil)
     }
 
     private var isValid: Bool {
@@ -258,6 +263,7 @@ struct AddCustomFoodView: View {
             numberField("Fat", text: $fat, unit: "g")
             numberField("Fiber (optional)", text: $fiber, unit: "g")
             numberField("Sodium", text: $sodium, unit: "mg")
+            numberField("Caffeine (optional)", text: $caffeine, unit: "mg")
         } header: {
             Text(basis == .per100 && unitChoice != .other ? "Per 100 \(unitText) (as on the label)" : "Per serving")
         } footer: {
@@ -331,6 +337,7 @@ struct AddCustomFoodView: View {
         else { return }
         let fiberValue = fiber.isEmpty ? nil : perServing(fiber)
         let sodiumValue = sodium.isEmpty ? nil : perServing(sodium)
+        let caffeineValue = caffeine.isEmpty ? nil : perServing(caffeine)
         let cleanName = name.trimmingCharacters(in: .whitespaces)
         let cleanBrand = brand.trimmingCharacters(in: .whitespaces)
         isSaving = true
@@ -350,6 +357,7 @@ struct AddCustomFoodView: View {
                     && abs(f - reviewing.fatG) < 0.005
                     && (fiberValue ?? -1) == (reviewing.fiberG ?? -1)
                     && (sodiumValue ?? -1) == (reviewing.sodiumMg ?? -1)
+                    && (caffeineValue ?? -1) == (reviewing.caffeineMg ?? -1)
                     && isVerified == reviewing.isVerified
                 let result = unchanged ? reviewing : try await repository.saveCorrection(
                     of: reviewing,
@@ -363,6 +371,7 @@ struct AddCustomFoodView: View {
                     fatG: f,
                     fiberG: fiberValue,
                     sodiumMg: sodiumValue,
+                    caffeineMg: caffeineValue,
                     isVerified: isVerified
                 )
                 onCreated(result)
@@ -380,6 +389,7 @@ struct AddCustomFoodView: View {
                 fatG: f,
                 fiberG: fiberValue,
                 sodiumMg: sodiumValue,
+                caffeineMg: caffeineValue,
                 isVerified: isVerified,
                 barcode: barcode,
                 source: source

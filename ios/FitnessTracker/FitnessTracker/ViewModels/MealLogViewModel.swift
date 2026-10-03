@@ -27,6 +27,15 @@ struct MealSlotEntry: Identifiable {
     var carbsG: Double { food?.carbsG(at: entry.quantity) ?? recipe?.carbsG(at: entry.quantity) ?? 0 }
     var fatG: Double { food?.fatG(at: entry.quantity) ?? recipe?.fatG(at: entry.quantity) ?? 0 }
     var fiberG: Double { food?.fiberG(at: entry.quantity) ?? recipe?.fiberG(at: entry.quantity) ?? 0 }
+    /// Only foods carry sodium/caffeine (a recipe doesn't, yet) - 0 means
+    /// "none recorded", which for sodium also covers foods nobody's entered it for.
+    var sodiumMg: Double { food?.sodiumMg(at: entry.quantity) ?? 0 }
+    var caffeineMg: Double { food?.caffeineMg(at: entry.quantity) ?? 0 }
+    /// Millilitres, for drinks only.
+    var volumeMl: Double { food?.volumeMl(at: entry.quantity) ?? 0 }
+    /// A food with no sodium figure on record - its sodium is counted as 0
+    /// in the totals, so the totals are a minimum, not a measurement.
+    var isMissingSodium: Bool { food != nil && food?.sodiumMg == nil }
 }
 
 struct MealSlotGroup: Identifiable {
@@ -39,6 +48,9 @@ struct MealSlotGroup: Identifiable {
     var totalCarbsG: Double { entries.reduce(0) { $0 + $1.carbsG } }
     var totalFatG: Double { entries.reduce(0) { $0 + $1.fatG } }
     var totalFiberG: Double { entries.reduce(0) { $0 + $1.fiberG } }
+    var totalSodiumMg: Double { entries.reduce(0) { $0 + $1.sodiumMg } }
+    var totalCaffeineMg: Double { entries.reduce(0) { $0 + $1.caffeineMg } }
+    var totalVolumeMl: Double { entries.reduce(0) { $0 + $1.volumeMl } }
 }
 
 struct DayMacroTotals {
@@ -47,6 +59,8 @@ struct DayMacroTotals {
     var carbsG: Double = 0
     var fatG: Double = 0
     var fiberG: Double = 0
+    var sodiumMg: Double = 0
+    var caffeineMg: Double = 0
 }
 
 @MainActor
@@ -87,6 +101,8 @@ final class MealLogViewModel: ObservableObject {
                 totals.carbsG += food.carbsG(at: entry.quantity)
                 totals.fatG += food.fatG(at: entry.quantity)
                 totals.fiberG += food.fiberG(at: entry.quantity) ?? 0
+                totals.sodiumMg += food.sodiumMg(at: entry.quantity) ?? 0
+                totals.caffeineMg += food.caffeineMg(at: entry.quantity) ?? 0
             } else if let recipeId = entry.recipeId, let recipe = recipesById[recipeId] {
                 totals.calories += recipe.calories(at: entry.quantity)
                 totals.proteinG += recipe.proteinG(at: entry.quantity)

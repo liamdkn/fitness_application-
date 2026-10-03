@@ -23,6 +23,8 @@ struct Food: Codable, Identifiable, Hashable {
     let isVerified: Bool
     /// Sodium per serving, in mg. `nil` = not recorded yet (distinct from 0).
     let sodiumMg: Double?
+    /// Caffeine per serving, in mg. `nil` = not recorded (distinct from 0).
+    let caffeineMg: Double?
     /// The shared catalog row this is a personal copy of, if any - used to
     /// hide the original from search once a copy exists.
     let sourceFoodId: UUID?
@@ -41,6 +43,7 @@ struct Food: Codable, Identifiable, Hashable {
         case createdBy = "created_by"
         case isVerified = "is_verified"
         case sodiumMg = "sodium_mg"
+        case caffeineMg = "caffeine_mg"
         case sourceFoodId = "source_food_id"
     }
 
@@ -53,6 +56,15 @@ struct Food: Codable, Identifiable, Hashable {
     func fatG(at quantity: Double) -> Double { fatG * quantity }
     func fiberG(at quantity: Double) -> Double? { fiberG.map { $0 * quantity } }
     func sodiumMg(at quantity: Double) -> Double? { sodiumMg.map { $0 * quantity } }
+    func caffeineMg(at quantity: Double) -> Double? { caffeineMg.map { $0 * quantity } }
+
+    /// A drink is a food measured in millilitres ("ml", or "ml cup" for a
+    /// stored cup size) - logging one is a normal meal entry, and the
+    /// Liquids screen reads hydration and caffeine from those entries.
+    var isDrink: Bool { servingUnit.lowercased().hasPrefix("ml") }
+
+    /// Millilitres in `quantity` servings; `nil` for a food that isn't a drink.
+    func volumeMl(at quantity: Double) -> Double? { isDrink ? servingSize * quantity : nil }
 
     var servingLabel: String {
         let sizeText = servingSize == servingSize.rounded() ? String(Int(servingSize)) : String(format: "%.1f", servingSize)

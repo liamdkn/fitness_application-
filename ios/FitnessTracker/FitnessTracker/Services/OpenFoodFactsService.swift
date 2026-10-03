@@ -17,6 +17,7 @@ enum OpenFoodFactsService {
         let fatG: Double
         let fiberG: Double?
         let sodiumMg: Double?
+        let caffeineMg: Double?
         let isLiquid: Bool
 
         /// What the per-100 figures are per - measured out in ml, not g.
@@ -57,6 +58,7 @@ enum OpenFoodFactsService {
             fatG: product.nutriments?.fat100g ?? 0,
             fiberG: product.nutriments?.fiber100g,
             sodiumMg: product.nutriments?.sodiumMg,
+            caffeineMg: product.nutriments?.caffeineMg,
             isLiquid: isLiquid(quantity: product.quantity, categories: product.categoriesTags)
         )
     }
@@ -106,6 +108,7 @@ enum OpenFoodFactsService {
                     fatG: hit.nutriments?.fat100g ?? 0,
                     fiberG: hit.nutriments?.fiber100g,
                     sodiumMg: hit.nutriments?.sodiumMg,
+                    caffeineMg: hit.nutriments?.caffeineMg,
                     isLiquid: isLiquid(quantity: hit.quantity, categories: hit.categoriesTags)
                 )
             )
@@ -184,6 +187,12 @@ enum OpenFoodFactsService {
         let fiber100g: Double?
         let sodium100g: Double?
         let salt100g: Double?
+        let caffeine100g: Double?
+
+        /// Caffeine in mg per 100 - OFF reports grams, like sodium.
+        var caffeineMg: Double? {
+            caffeine100g.map { ($0 * 1000 * 100).rounded() / 100 }
+        }
 
         /// Sodium in mg per 100 - OFF reports grams, and many products give
         /// only salt (sodium = salt / 2.5), so fall back to that.
@@ -204,6 +213,7 @@ enum OpenFoodFactsService {
             fiber100g = try? c.decodeIfPresent(Double.self, forKey: .fiber100g)
             sodium100g = try? c.decodeIfPresent(Double.self, forKey: .sodium100g)
             salt100g = try? c.decodeIfPresent(Double.self, forKey: .salt100g)
+            caffeine100g = try? c.decodeIfPresent(Double.self, forKey: .caffeine100g)
         }
 
         enum CodingKeys: String, CodingKey {
@@ -214,6 +224,7 @@ enum OpenFoodFactsService {
             case fiber100g = "fiber_100g"
             case sodium100g = "sodium_100g"
             case salt100g = "salt_100g"
+            case caffeine100g = "caffeine_100g"
         }
     }
 }

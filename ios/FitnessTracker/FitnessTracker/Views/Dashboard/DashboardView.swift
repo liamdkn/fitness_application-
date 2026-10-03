@@ -42,10 +42,12 @@ struct DashboardView: View {
                         onTapWeekly: { activeSheet = .weeklyCheckin }
                     )
 
-                    WaterCard(
+                    LiquidsCard(
                         totalMl: viewModel.todayWaterMl,
                         targetMinMl: viewModel.waterTargetMinMl,
                         targetMaxMl: viewModel.waterTargetMaxMl,
+                        caffeineMg: viewModel.todayCaffeineMg,
+                        caffeineLimitMg: viewModel.caffeineLimitMg,
                         onLogged: { await viewModel.loadWaterGlance() }
                     )
 

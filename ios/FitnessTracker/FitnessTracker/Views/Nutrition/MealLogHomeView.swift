@@ -32,6 +32,9 @@ struct MealLogHomeView: View {
     /// next week's budget).
     @State private var weekTreats: [PlannedTreat] = []
     @StateObject private var viewModel = MealLogViewModel()
+    /// Sodium and caffeine limits for the bars under the macro cards.
+    @State private var preferences: UserPreferences?
+    private let preferencesRepository = UserPreferencesRepository()
     private let goalsRepository = GoalsRepository()
     private let mealEntryRepository = MealEntryRepository()
     private let nutritionRepository = NutritionRepository()
@@ -102,6 +105,14 @@ struct MealLogHomeView: View {
                         MacroProgressCard(label: "Fat", value: totals.fatG, target: adjustedFatTarget, color: .yellow)
                     }
 
+                    SodiumCaffeineRow(
+                        sodiumMg: totals.sodiumMg,
+                        sodiumLimitMg: preferences?.sodiumLimitMg ?? 2300,
+                        caffeineMg: totals.caffeineMg,
+                        caffeineLimitMg: preferences?.caffeineLimitMg ?? 400,
+                        foodsMissingSodium: viewModel.slotGroups.flatMap(\.entries).filter(\.isMissingSodium).count
+                    )
+
                     if !bankAdjustment.treatsToday.isEmpty || !bankAdjustment.fundedTreats.isEmpty {
                         CalorieBankBanner(adjustment: bankAdjustment)
                     }
@@ -154,6 +165,7 @@ struct MealLogHomeView: View {
                 await loadWeekLogStatus()
                 await loadHealthKitLog()
                 await loadWeekTreats()
+                preferences = try? await preferencesRepository.fetch()
             }
             .sheet(isPresented: $showingRepeatDay) {
                 RepeatDaySheet(targetDate: selectedDate) { sourceDate in
@@ -452,6 +464,47 @@ private struct MealSlotSummaryContent: View {
         .font(.subheadline)
     }
 
+}
+
+/// Sodium against its daily limit, and today's caffeine. Sodium only counts
+/// foods that have a figure on record, so when some don't it says so rather
+/// than quietly presenting a minimum as the total.
+private struct SodiumCaffeineRow: View {
+    let sodiumMg: Double
+    let sodiumLimitMg: Int
+    let caffeineMg: Double
+    let caffeineLimitMg: Int
+    let foodsMissingSodium: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                metric("Sodium", value: sodiumMg, limit: Double(sodiumLimitMg), color: .orange)
+                metric("Caffeine", value: caffeineMg, limit: Double(caffeineLimitMg), color: .brown)
+            }
+            if foodsMissingSodium > 0 {
+                Text("\(foodsMissingSodium) food\(foodsMissingSodium == 1 ? "" : "s") logged today with no sodium recorded - the total is a minimum.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func metric(_ label: String, value: Double, limit: Double, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("\(Int(value.rounded()).formatted()) / \(Int(limit).formatted()) mg")
+                .font(.subheadline.bold())
+                .monospacedDigit()
+            ProgressView(value: min(value / max(limit, 1), 1))
+                .tint(value > limit ? .red : color)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+    }
 }
 
 private struct MacroProgressCard: View {

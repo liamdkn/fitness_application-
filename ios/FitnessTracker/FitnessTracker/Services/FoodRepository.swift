@@ -15,6 +15,7 @@ struct FoodRepository {
         let fat_g: Double
         let fiber_g: Double?
         let sodium_mg: Double?
+        let caffeine_mg: Double?
         let barcode: String?
         let source: String
         let is_custom: Bool
@@ -36,6 +37,7 @@ struct FoodRepository {
         let fat_g: Double
         let fiber_g: Double?
         let sodium_mg: Double?
+        let caffeine_mg: Double?
         let barcode: String
         let source: String
         let is_custom: Bool
@@ -137,10 +139,11 @@ struct FoodRepository {
         let fat_g: Double
         let fiber_g: Double?
         let sodium_mg: Double?
+        let caffeine_mg: Double?
         let is_verified: Bool
 
         enum CodingKeys: String, CodingKey {
-            case name, brand, serving_size, serving_unit, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg, is_verified
+            case name, brand, serving_size, serving_unit, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg, caffeine_mg, is_verified
         }
 
         func encode(to encoder: Encoder) throws {
@@ -155,6 +158,7 @@ struct FoodRepository {
             try c.encode(fat_g, forKey: .fat_g)
             try c.encode(fiber_g, forKey: .fiber_g)
             try c.encode(sodium_mg, forKey: .sodium_mg)
+            try c.encode(caffeine_mg, forKey: .caffeine_mg)
             try c.encode(is_verified, forKey: .is_verified)
         }
     }
@@ -176,6 +180,7 @@ struct FoodRepository {
         fatG: Double,
         fiberG: Double?,
         sodiumMg: Double?,
+        caffeineMg: Double? = nil,
         isVerified: Bool
     ) async throws -> Food {
         let userId = try await client.auth.session.user.id
@@ -191,6 +196,7 @@ struct FoodRepository {
                 fatG: fatG,
                 fiberG: fiberG,
                 sodiumMg: sodiumMg,
+                caffeineMg: caffeineMg,
                 isVerified: isVerified,
                 sourceFoodId: food.isCustom ? food.sourceFoodId : food.id,
                 barcode: food.barcode
@@ -209,6 +215,7 @@ struct FoodRepository {
                 fat_g: fatG,
                 fiber_g: fiberG,
                 sodium_mg: sodiumMg,
+                caffeine_mg: caffeineMg,
                 is_verified: isVerified
             ))
             .eq("id", value: food.id)
@@ -234,6 +241,7 @@ struct FoodRepository {
                 fat_g: lookup.fatG,
                 fiber_g: lookup.fiberG,
                 sodium_mg: lookup.sodiumMg,
+                caffeine_mg: lookup.caffeineMg,
                 barcode: barcode,
                 source: "off",
                 is_custom: false
@@ -245,6 +253,19 @@ struct FoodRepository {
             throw RepositoryError.insertFailed
         }
         return food
+    }
+
+    /// The user's own drinks (custom foods measured in ml) - a brew pot, a
+    /// pod coffee - offered for quick logging even before they've been logged.
+    func fetchCustomDrinks() async throws -> [Food] {
+        try await client
+            .from("foods")
+            .select()
+            .eq("is_custom", value: true)
+            .ilike("serving_unit", pattern: "ml%")
+            .order("name")
+            .execute()
+            .value
     }
 
     func fetchByIds(_ ids: [UUID]) async throws -> [Food] {
@@ -277,6 +298,7 @@ struct FoodRepository {
         fatG: Double,
         fiberG: Double?,
         sodiumMg: Double? = nil,
+        caffeineMg: Double? = nil,
         isVerified: Bool = false,
         sourceFoodId: UUID? = nil,
         barcode: String? = nil,
@@ -296,6 +318,7 @@ struct FoodRepository {
                 fat_g: fatG,
                 fiber_g: fiberG,
                 sodium_mg: sodiumMg,
+                caffeine_mg: caffeineMg,
                 barcode: barcode,
                 source: source,
                 is_custom: true,

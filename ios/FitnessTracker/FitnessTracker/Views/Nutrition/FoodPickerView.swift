@@ -9,6 +9,10 @@ import SwiftUI
 struct FoodPickerView: View {
     let mealSlotName: String
     let onLog: (Food, Double) -> Void
+    /// Opened from the Liquids screen: only drinks (foods measured in ml) are
+    /// offered - recents, search results and online hits - and a new food
+    /// starts out in ml.
+    var drinksOnly = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
@@ -55,7 +59,7 @@ struct FoodPickerView: View {
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 if searchText.isEmpty {
                     if recentFoods.isEmpty {
-                        Text("Search for a food to log to \(mealSlotName), or scan a barcode.")
+                        Text(drinksOnly ? "Search for a drink, or scan its barcode." : "Search for a food to log to \(mealSlotName), or scan a barcode.")
                             .foregroundStyle(.secondary)
                     } else {
                         Section("Recently Used") {
@@ -87,7 +91,7 @@ struct FoodPickerView: View {
                     }
                 }
             }
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search foods")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: drinksOnly ? "Search drinks" : "Search foods")
             // `.task(id:)` cancels the previous search when `searchText`
             // changes again before it resolves - without that, an
             // in-flight request for an earlier, shorter keystroke (e.g.
@@ -103,7 +107,7 @@ struct FoodPickerView: View {
             .task {
                 await loadRecentlyUsed()
             }
-            .navigationTitle("Add Food")
+            .navigationTitle(drinksOnly ? "Add Drink" : "Add Food")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
@@ -119,9 +123,7 @@ struct FoodPickerView: View {
                 }
             }
             .sheet(isPresented: $showingAddCustom) {
-                AddCustomFoodView { food in
-                    pendingFood = food
-                }
+                AddCustomFoodView(onCreated: { food in pendingFood = food }, initialServingUnit: drinksOnly ? "ml" : "g")
             }
             .sheet(isPresented: $showingScanner) {
                 BarcodeScannerView(
@@ -257,7 +259,8 @@ struct FoodPickerView: View {
     /// these `results` regardless.
     private func search(_ query: String) async {
         do {
-            results = try await repository.search(query: query)
+            let found = try await repository.search(query: query)
+            results = drinksOnly ? found.filter(\.isDrink) : found
             errorMessage = nil
         } catch is CancellationError {
             // Superseded by a newer keystroke - nothing to show.
@@ -281,7 +284,7 @@ struct FoodPickerView: View {
         defer { isSearchingOnline = false }
         guard let hits = try? await OpenFoodFactsService.search(query: trimmed), !Task.isCancelled else { return }
         let localBarcodes = Set(results.compactMap(\.barcode))
-        onlineResults = hits.filter { !localBarcodes.contains($0.barcode) }
+        onlineResults = hits.filter { !localBarcodes.contains($0.barcode) && (!drinksOnly || $0.lookup.isLiquid) }
     }
 
     /// Most-recently-logged foods, most recent first - `fetchByIds` doesn't
@@ -293,7 +296,8 @@ struct FoodPickerView: View {
             let ids = try await mealEntryRepository.fetchRecentlyLoggedFoodIds()
             let foods = try await repository.fetchByIds(ids)
             let foodsById = Dictionary(uniqueKeysWithValues: foods.map { ($0.id, $0) })
-            recentFoods = ids.compactMap { foodsById[$0] }
+            let recents = ids.compactMap { foodsById[$0] }
+            recentFoods = drinksOnly ? recents.filter(\.isDrink) : recents
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -326,7 +330,7 @@ private struct ScannedLabelDraft: Identifiable {
     let barcode: String?
 }
 
-private struct LogFoodQuantityView: View {
+struct LogFoodQuantityView: View {
     /// State, not `let`: "Edit Food Details" can replace it with the
     /// corrected copy, and what gets logged is whatever it ends up as.
     @State private var food: Food

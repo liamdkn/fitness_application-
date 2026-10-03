@@ -99,7 +99,7 @@ struct NutritionRepository {
 
     /// `IN (...)` lists go in the request URL, so a long history's worth of
     /// ids is fetched in batches rather than one enormous request.
-    private static func fetchInChunks<T>(_ ids: [UUID], _ fetch: ([UUID]) async throws -> [T]) async throws -> [T] {
+    static func fetchInChunks<T>(_ ids: [UUID], _ fetch: ([UUID]) async throws -> [T]) async throws -> [T] {
         var result: [T] = []
         for start in stride(from: 0, to: ids.count, by: 80) {
             result += try await fetch(Array(ids[start..<min(start + 80, ids.count)]))
