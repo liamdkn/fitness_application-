@@ -109,17 +109,44 @@ final class OfflineMealQueue {
     func fetchEntries(date: Date) async throws -> [MealEntry] {
         let dateString = DateFormatting.isoDate(date)
         let localRows = try fetchLocalEntries(date: dateString)
-        let remote = (try? await mealEntryRepository.fetchEntries(date: date)) ?? []
+        let remote = try? await mealEntryRepository.fetchEntries(date: date)
+        return merged(local: localRows, remote: remote)
+    }
 
-        var byId = Dictionary(uniqueKeysWithValues: remote.map { ($0.id, $0) })
+    /// Local rows laid over what the server returned, local winning on a
+    /// shared id. `remote` is nil when the server couldn't be read - then
+    /// everything local stands. When it *was* read, a local row that's already
+    /// synced but no longer on the server was deleted from somewhere else
+    /// (another device, the database): it's dropped from the store too, instead
+    /// of coming back as a ghost entry for the week the phone keeps it.
+    private func merged(local localRows: [QueuedMealEntry], remote: [MealEntry]?) -> [MealEntry] {
+        var byId = Dictionary(uniqueKeysWithValues: (remote ?? []).map { ($0.id, $0) })
+        var removedAny = false
         for local in localRows {
             if local.pendingDeletion {
                 byId.removeValue(forKey: local.id)
+            } else if remote != nil, local.syncState == .synced, byId[local.id] == nil {
+                context.delete(local)
+                removedAny = true
             } else {
                 byId[local.id] = local.asMealEntry()
             }
         }
+        if removedAny { try? context.save() }
         return byId.values.sorted { $0.loggedAt < $1.loggedAt }
+    }
+
+    /// The same local-over-remote merge for a date range - what the dashboard,
+    /// insights and widgets total from, so food logged offline counts
+    /// immediately and a failed server read just leaves the local rows.
+    func fetchEntries(from: Date, to: Date) async throws -> [MealEntry] {
+        let fromString = DateFormatting.isoDate(from)
+        let toString = DateFormatting.isoDate(to)
+        let localRows = try context.fetch(FetchDescriptor<QueuedMealEntry>(
+            predicate: #Predicate { $0.date >= fromString && $0.date <= toString }
+        ))
+        let remote = try? await mealEntryRepository.fetchEntries(from: from, to: to)
+        return merged(local: localRows, remote: remote)
     }
 
     /// Total quantity logged per recipe across all dates - how much of a
