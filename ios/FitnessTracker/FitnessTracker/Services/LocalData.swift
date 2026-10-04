@@ -54,6 +54,7 @@ enum LocalData {
         // scheduled fresh when its app opens.
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         Task { await WorkoutLiveActivityManager.shared.end() }
+        Task { await SupplementReminderService.shared.clear() }
         CardioSessionMonitor.shared.sessionEnded()
     }
 }

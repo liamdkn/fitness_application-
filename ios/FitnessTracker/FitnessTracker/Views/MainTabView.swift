@@ -27,6 +27,7 @@ struct MainTabView: View {
             await CaffeineReminderService.shared.refresh()
             await StepReminderService.shared.refresh()
             await WidgetSnapshotService.shared.refresh()
+            await SupplementReminderService.shared.refresh()
         }
         .onChange(of: scenePhase) { _, newPhase in
             // `.task` only fires once, on this view's first appearance - it
@@ -51,6 +52,7 @@ struct MainTabView: View {
                 await CaffeineReminderService.shared.refresh()
                 await StepReminderService.shared.refresh()
                 await WidgetSnapshotService.shared.refresh()
+                await SupplementReminderService.shared.refresh()
             }
         }
     }

@@ -88,6 +88,8 @@ final class OfflineOutbox {
         case addWater(WaterLog)
         case deleteWater(UUID)
         case dailyCheckin(QueuedDailyCheckin)
+        case addSupplementLog(SupplementLog)
+        case deleteSupplementLog(UUID)
     }
 
     struct Entry: Codable {
@@ -160,6 +162,33 @@ final class OfflineOutbox {
         return true
     }
 
+    func cancelPendingSupplementLog(id: UUID) -> Bool {
+        guard let index = entries.firstIndex(where: {
+            if case .addSupplementLog(let log) = $0.operation { return log.id == id }
+            return false
+        }) else { return false }
+        entries.remove(at: index)
+        persist()
+        return true
+    }
+
+    /// Same as `applyingPendingWater`, for supplement doses.
+    func applyingPendingSupplementLogs(to logs: [SupplementLog], date: String) -> [SupplementLog] {
+        var result = logs
+        var deletedIds = Set<UUID>()
+        for entry in entries {
+            switch entry.operation {
+            case .addSupplementLog(let log) where log.date == date && !result.contains(where: { $0.id == log.id }):
+                result.append(log)
+            case .deleteSupplementLog(let id):
+                deletedIds.insert(id)
+            default:
+                break
+            }
+        }
+        return result.filter { !deletedIds.contains($0.id) }.sorted { $0.takenAt < $1.takenAt }
+    }
+
     /// `logs` for `date` with pending adds included and pending deletes hidden.
     func applyingPendingWater(to logs: [WaterLog], date: String) -> [WaterLog] {
         var result = logs
@@ -224,6 +253,10 @@ final class OfflineOutbox {
             try await WaterRepository().deleteLogOnServer(id: id)
         case .dailyCheckin(let checkin):
             try await DailyCheckinSubmitter.submit(checkin)
+        case .addSupplementLog(let log):
+            try await SupplementRepository().upsertLog(log)
+        case .deleteSupplementLog(let id):
+            try await SupplementRepository().deleteLogOnServer(id: id)
         }
     }
 

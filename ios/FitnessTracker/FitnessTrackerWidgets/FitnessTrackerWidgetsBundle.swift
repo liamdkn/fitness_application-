@@ -5,6 +5,7 @@ import WidgetKit
 struct FitnessTrackerWidgetsBundle: WidgetBundle {
     var body: some Widget {
         WorkoutLiveActivity()
+        SupplementLiveActivity()
         TodaySummaryWidget()
         WaterWidget()
         WorkoutWidget()

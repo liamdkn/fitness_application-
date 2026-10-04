@@ -7,7 +7,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         // Also runs when iOS launches the app in the background for new
         // Health data - that's what keeps the step reminders current.
-        Task { @MainActor in StepReminderService.shared.startObserving() }
+        Task { @MainActor in
+            StepReminderService.shared.startObserving()
+            // A tap on the supplements Live Activity runs in this process.
+            SupplementReminderService.shared.installIntentHandler()
+        }
         // UIKit-hosted pieces (alerts, share sheets, the camera scanner) don't
         // see SwiftUI's `.tint`, so give them the accent too.
         UIView.appearance().tintColor = UIColor(AppColor.accent)
