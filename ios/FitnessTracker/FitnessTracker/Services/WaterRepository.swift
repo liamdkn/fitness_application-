@@ -122,13 +122,13 @@ struct WaterRepository {
     /// Saved with a client-made id. With no connection it's queued
     /// (`OfflineOutbox`) and shows up in the day's logs straight away.
     @discardableResult
-    func addLog(date: Date, amountMl: Int, containerId: UUID?) async throws -> WaterLog {
+    func addLog(date: Date, amountMl: Int, containerId: UUID?, id: UUID = UUID(), at: Date = Date()) async throws -> WaterLog {
         let log = WaterLog(
-            id: UUID(),
+            id: id,
             date: DateFormatting.isoDate(date),
             amountMl: amountMl,
             containerId: containerId,
-            loggedAt: Date()
+            loggedAt: at
         )
         do {
             try await upsertLog(log)
@@ -137,6 +137,14 @@ struct WaterRepository {
             OfflineOutbox.shared.enqueue(.addWater(log))
         }
         return log
+    }
+
+    /// Sends water logged from the widget, each stamped with the time of the
+    /// tap. Safe to run more than once: nothing is sent twice.
+    func importWidgetWater() async {
+        for entry in PendingWater.drain() {
+            _ = try? await addLog(date: entry.at, amountMl: entry.amountMl, containerId: entry.containerId, id: entry.id, at: entry.at)
+        }
     }
 
     /// Sends one log to the server - safe to repeat (same id, same row).

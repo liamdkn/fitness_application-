@@ -45,6 +45,7 @@ enum LocalData {
         OfflineMealQueue.shared.wipeAll()
         OfflineWorkoutQueue.shared.wipeAll()
         BedtimeResolver.invalidate()
+        PendingWater.clear()
         UserDefaults.standard.removeObject(forKey: "milk-allowance-applied-date")
         UserDefaults.standard.removeObject(forKey: ownerKey)
         WidgetSnapshot.clear()

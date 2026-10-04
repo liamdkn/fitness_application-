@@ -21,6 +21,30 @@ nonisolated struct WidgetSnapshot: Codable, Equatable {
     var waterTargetMl: Int
     var caffeineMg: Int
     var caffeineLimitMg: Int
+    /// Steps Health counted today (before taking cardio steps off), and the
+    /// steps counted during cardio sessions.
+    var rawSteps: Int?
+    var cardioSteps: Int?
+    /// Today's plan: "Upper A", "Incline Walk", "Rest day".
+    var workoutTitle: String?
+    var workoutDetail: String?
+    var workoutDone: Bool?
+    var isRestDay: Bool?
+    /// Containers offered as buttons on the water widget.
+    var waterButtons: [WaterButton]?
+
+    nonisolated struct WaterButton: Codable, Equatable, Identifiable {
+        let name: String
+        let ml: Int
+        let containerId: UUID?
+        var id: String { "\(name)-\(ml)" }
+    }
+
+    /// Steps after taking cardio steps off.
+    var walkingSteps: Int? {
+        guard let rawSteps else { return steps }
+        return max(rawSteps - (cardioSteps ?? 0), 0)
+    }
 
     static let appGroup = "group.dkn.FitnessTracker"
     private static let key = "widget-snapshot-v1"

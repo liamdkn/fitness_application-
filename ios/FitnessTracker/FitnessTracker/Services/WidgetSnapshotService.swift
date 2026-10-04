@@ -35,6 +35,27 @@ final class WidgetSnapshotService {
         let liquids = await liquidsResult
         let steps = await StepReminderService.shared.currentSteps(preferences: preferences)
 
+        // Steps with and without cardio-session steps, for the steps-after-cardio widget.
+        let rawSteps = (try? await HealthKitManager().fetchDailySteps(daysBack: 0, source: preferences?.stepSource ?? .merged))?[Calendar.current.startOfDay(for: now)]
+        let cardioSessions = (try? await CardioStepSessionRepository().fetchSessions(date: now)) ?? []
+        let cardioSteps = cardioSessions.reduce(0) { $0 + $1.stepsDelta }
+
+        // Today's plan and whether it's been done.
+        let trainingDays = TrainingDayService()
+        let plan = trainingDays.plan(for: now, in: await trainingDays.weekPlans())
+        let lifted = (try? await WorkoutRepository().hasWorkout(on: now)) ?? false
+        let workoutDone: Bool? = switch plan?.type {
+        case .workout: lifted
+        case .activeRest: !cardioSessions.isEmpty
+        case .rest, nil: nil
+        }
+
+        // Up to three containers as one-tap water buttons, smallest first.
+        let containers = (try? await WaterRepository().fetchContainers()) ?? []
+        let waterButtons = containers.sorted { $0.volumeMl < $1.volumeMl }.prefix(3).map {
+            WidgetSnapshot.WaterButton(name: $0.name, ml: $0.volumeMl, containerId: $0.id)
+        }
+
         let snapshot = WidgetSnapshot(
             day: WidgetSnapshot.dayString(now),
             updatedAt: now,
@@ -51,7 +72,14 @@ final class WidgetSnapshotService {
             waterMl: Int((liquids?.hydrationMl ?? 0).rounded()),
             waterTargetMl: preferences?.dailyWaterMlTargetMin ?? 2500,
             caffeineMg: Int((liquids?.caffeineMg ?? 0).rounded()),
-            caffeineLimitMg: preferences?.caffeineLimitMg ?? 400
+            caffeineLimitMg: preferences?.caffeineLimitMg ?? 400,
+            rawSteps: rawSteps,
+            cardioSteps: cardioSteps,
+            workoutTitle: plan?.title,
+            workoutDetail: plan.map { $0.type.displayName },
+            workoutDone: workoutDone,
+            isRestDay: plan.map { $0.type == .rest },
+            waterButtons: waterButtons.isEmpty ? nil : Array(waterButtons)
         )
         lastRefresh = now
         guard snapshot != WidgetSnapshot.load() else { return }
