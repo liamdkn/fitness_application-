@@ -42,6 +42,8 @@ struct DashboardView: View {
                         onTapWeekly: { activeSheet = .weeklyCheckin }
                     )
 
+                    MissedCheckinsBanner()
+
                     LiquidsCard(
                         totalMl: viewModel.todayWaterMl,
                         targetMinMl: viewModel.waterTargetMinMl,
@@ -406,4 +408,30 @@ private struct StatRow: View {
 
 #Preview {
     DashboardView()
+}
+
+
+/// Shown after two or more days in a row with no weigh-in or check-in - the
+/// weight trend and calorie estimate lean on those, so gaps are worth saying.
+private struct MissedCheckinsBanner: View {
+    @State private var missedDays = 0
+    private let service = CheckinGapService()
+    @ObservedObject private var availability = CheckinAvailabilityService.shared
+
+    var body: some View {
+        Group {
+            if missedDays >= 2 {
+                Label("No weigh-in or check-in for \(missedDays) days. A quick weigh-in keeps your trend and calorie estimate accurate.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(AppColor.warning)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .appCard(cornerRadius: 12)
+            }
+        }
+        .task(id: availability.dailyCompletedToday) {
+            guard let logged = await service.loggedDates() else { return }
+            missedDays = CheckinGaps.consecutiveMissed(logged: logged, today: Date())
+        }
+    }
 }

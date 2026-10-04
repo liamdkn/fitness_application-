@@ -26,11 +26,14 @@ struct LiquidsLogView: View {
 
     private var halfLife: Double { preferences?.caffeineHalfLifeHours ?? 5 }
     private var caffeineLimit: Int { preferences?.caffeineLimitMg ?? 400 }
+    /// What "a glass" means for catch-up advice: a container called glass, or 250 ml.
+    private var glassMl: Int { containers.first { $0.name.localizedCaseInsensitiveContains("glass") }?.volumeMl ?? 250 }
 
     var body: some View {
         NavigationStack {
             Form {
                 summarySection
+                WaterPaceSection(day: day, preferences: preferences, glassMl: glassMl)
                 waterSection
                 drinksSection
                 customAmountSection

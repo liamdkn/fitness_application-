@@ -352,6 +352,51 @@ final class HealthKitManager {
         return onsets
     }
 
+    /// When you woke on each recent night, as minutes after midnight - the
+    /// end of the last asleep stretch of each sleep session (same session
+    /// rules as `fetchSleepOnsets`; naps under three hours are ignored).
+    func fetchWakeMinutes(daysBack: Int) async throws -> [Int] {
+        let calendar = Calendar.current
+        let startDate = Self.windowStart(daysBack: daysBack, calendar: calendar)
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.categorySample(type: sleepType, predicate: predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate)]
+        )
+        let samples = try await descriptor.result(for: store)
+
+        var wakes: [Int] = []
+        var sessionEnd: Date?
+        var lastAsleepEnd: Date?
+        var asleepMinutes = 0
+
+        func commit() {
+            if let lastAsleepEnd, asleepMinutes >= 180 {
+                let parts = calendar.dateComponents([.hour, .minute], from: lastAsleepEnd)
+                wakes.append((parts.hour ?? 0) * 60 + (parts.minute ?? 0))
+            }
+        }
+
+        for sample in samples {
+            if let sessionEnd, sample.startDate.timeIntervalSince(sessionEnd) > Self.sleepSessionGapThreshold {
+                commit()
+                lastAsleepEnd = nil
+                asleepMinutes = 0
+            }
+            sessionEnd = Swift.max(sessionEnd ?? sample.endDate, sample.endDate)
+            guard let value = HKCategoryValueSleepAnalysis(rawValue: sample.value) else { continue }
+            switch value {
+            case .asleepUnspecified, .asleepCore, .asleepDeep, .asleepREM:
+                lastAsleepEnd = sample.endDate
+                asleepMinutes += Int(sample.endDate.timeIntervalSince(sample.startDate) / 60)
+            default:
+                break
+            }
+        }
+        commit()
+        return wakes
+    }
+
     func fetchDailySleep(daysBack: Int) async throws -> [Date: DailySleep] {
         let calendar = Calendar.current
         let startDate = Self.windowStart(daysBack: daysBack, calendar: calendar)

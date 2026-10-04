@@ -8,19 +8,24 @@ struct WeeklyCheckinHistoryView: View {
     @State private var checkins: [WeeklyCheckin] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var context = CheckinContext(goals: [], weeks: [:])
 
     private let repository = WeeklyCheckinRepository()
+    private let goalsRepository = GoalsRepository()
+    private let weeklyLogRepository = WeeklyLogRepository()
 
     var body: some View {
         List {
             if let errorMessage {
                 Text(errorMessage).foregroundStyle(AppColor.error)
             }
-            ForEach(checkins) { checkin in
+            ForEach(Array(checkins.enumerated()), id: \.element.id) { index, checkin in
+                // Newest first, so the previous check-in is the next one down.
+                let previous = index + 1 < checkins.count ? checkins[index + 1] : nil
                 NavigationLink {
-                    WeeklyCheckinDetailView(checkin: checkin)
+                    WeeklyCheckinDetailView(checkin: checkin, previous: previous, context: context)
                 } label: {
-                    row(for: checkin)
+                    row(for: checkin, previous: previous)
                 }
             }
         }
@@ -37,16 +42,30 @@ struct WeeklyCheckinHistoryView: View {
     }
 
     @ViewBuilder
-    private func row(for checkin: WeeklyCheckin) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(formattedDate(checkin.checkinDate))
-                .font(.headline)
-            HStack(spacing: 12) {
+    private func row(for checkin: WeeklyCheckin, previous: WeeklyCheckin?) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(formattedDate(checkin.checkinDate))
+                    .font(.headline)
+                Spacer()
                 if let weight = checkin.weightKg {
                     Text(String(format: "%.1f kg", weight))
+                        .font(.subheadline.weight(.semibold))
                 }
-                if let weekNumber = checkin.weekNumber {
-                    Text("Week \(weekNumber)")
+            }
+            if let phase = context.phaseLabel(for: checkin) {
+                Text(phase)
+                    .font(.caption)
+                    .foregroundStyle(AppColor.accent)
+            }
+            HStack(spacing: 12) {
+                if let weight = checkin.weightKg, let before = previous?.weightKg {
+                    let change = weight - before
+                    Text(String(format: "%+.1f kg on last check-in", change))
+                }
+                if let week = context.week(for: checkin) {
+                    if let calories = week.avgCalories { Text("\(Int(calories.rounded())) kcal/day") }
+                    if let steps = week.avgSteps { Text("\(Int(steps.rounded()).formatted()) steps/day") }
                 }
             }
             .font(.caption)
@@ -61,6 +80,10 @@ struct WeeklyCheckinHistoryView: View {
         do {
             checkins = try await repository.fetchRecent()
             errorMessage = nil
+            let goals = ((try? await goalsRepository.fetchPastGoals(limit: 100)) ?? [])
+                .sorted { $0.effectiveFrom < $1.effectiveFrom }
+            let weeks = (try? await weeklyLogRepository.fetchSummary(limit: 104, before: nil)) ?? []
+            context = CheckinContext(goals: goals, weeks: Dictionary(weeks.map { ($0.weekStart, $0) }, uniquingKeysWith: { first, _ in first }))
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -79,6 +102,8 @@ struct WeeklyCheckinHistoryView: View {
 /// answers, reusing the same `WeeklyCheckinSummary` Weekly Insights shows.
 struct WeeklyCheckinDetailView: View {
     let checkin: WeeklyCheckin
+    var previous: WeeklyCheckin?
+    var context = CheckinContext(goals: [], weeks: [:])
 
     @State private var measurements: [BodyMeasurement] = []
     @State private var photos: [ProgressPhoto] = []
@@ -99,6 +124,27 @@ struct WeeklyCheckinDetailView: View {
                 }
             }
             .listRowBackground(AppRowBackground())
+
+            if let goal = context.goal(for: checkin) {
+                Section("Phase") {
+                    if let phase = context.phaseLabel(for: checkin) {
+                        LabeledContent("Phase", value: phase)
+                    }
+                    LabeledContent("Targets", value: "\(Int(goal.dailyCalorieTarget)) kcal, \(Int(goal.proteinGTarget)) g protein")
+                    if let rate = goal.weeklyWeightChangeKg {
+                        LabeledContent("Planned change", value: String(format: "%+.2f kg a week", rate))
+                    }
+                    if let weight = checkin.weightKg, let before = previous?.weightKg, let was = previous {
+                        let days = daysBetween(was.checkinDate, checkin.checkinDate)
+                        LabeledContent("Since last check-in", value: String(format: "%+.1f kg over %d days", weight - before, days))
+                    }
+                }
+                .listRowBackground(AppRowBackground())
+            }
+
+            if let week = context.week(for: checkin) {
+                weekSection(week, goal: context.goal(for: checkin))
+            }
 
             if !measurements.isEmpty {
                 Section("Measurements") {
@@ -150,6 +196,48 @@ struct WeeklyCheckinDetailView: View {
         .navigationTitle(formattedDate(checkin.checkinDate))
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+    }
+
+    private func daysBetween(_ from: String, _ to: String) -> Int {
+        guard let a = DateFormatting.date(fromISODate: from), let b = DateFormatting.date(fromISODate: to) else { return 0 }
+        return Calendar.current.dateComponents([.day], from: a, to: b).day ?? 0
+    }
+
+    /// The week the check-in looks back on: averages against targets, and
+    /// against the week before.
+    private func weekSection(_ week: WeeklyLogEntry, goal: UserGoal?) -> some View {
+        let before = context.previousWeek(of: week)
+        return Section("The week before (from \(week.weekStartDate.formatted(.dateTime.day().month(.abbreviated))))") {
+            if let weight = week.avgWeightKg {
+                let spread = week.weightSpreadKg.map { String(format: " \u{00b1} %.1f", $0) } ?? ""
+                let change = before?.avgWeightKg.map { String(format: " (%+.1f on the week before)", weight - $0) } ?? ""
+                LabeledContent("Average weight", value: String(format: "%.1f", weight) + spread + " kg" + change)
+            }
+            if let calories = week.avgCalories {
+                LabeledContent("Calories a day", value: versus(calories, target: goal?.dailyCalorieTarget, unit: "kcal"))
+            }
+            if let protein = week.avgProteinG {
+                LabeledContent("Protein a day", value: versus(protein, target: goal?.proteinGTarget, unit: "g"))
+            }
+            if let carbs = week.avgCarbsG {
+                LabeledContent("Carbs a day", value: versus(carbs, target: goal?.carbsGTarget, unit: "g"))
+            }
+            if let fat = week.avgFatG {
+                LabeledContent("Fat a day", value: versus(fat, target: goal?.fatGTarget, unit: "g"))
+            }
+            if let steps = week.avgSteps {
+                LabeledContent("Steps a day", value: versus(steps, target: goal?.stepTarget.map(Double.init), unit: ""))
+            }
+        }
+        .listRowBackground(AppRowBackground())
+    }
+
+    /// "2,430 kcal (target 2,500)".
+    private func versus(_ value: Double, target: Double?, unit: String) -> String {
+        let suffix = unit.isEmpty ? "" : " " + unit
+        let base = "\(Int(value.rounded()).formatted())\(suffix)"
+        guard let target, target > 0 else { return base }
+        return base + " (target \(Int(target.rounded()).formatted()))"
     }
 
     @ViewBuilder

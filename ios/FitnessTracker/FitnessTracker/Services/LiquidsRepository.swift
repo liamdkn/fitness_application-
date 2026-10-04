@@ -31,7 +31,7 @@ struct LiquidItem: Identifiable {
     var time: Date {
         switch kind {
         case .water(let log): log.loggedAt
-        case .drink(let drink): drink.entry.loggedAt
+        case .drink(let drink): drink.entry.displayTime
         }
     }
 
@@ -65,7 +65,7 @@ struct LiquidsDay {
     var hydrationMl: Double { waterLogs.reduce(0) { $0 + Double($1.amountMl) } + drinks.reduce(0) { $0 + $1.volumeMl } }
     var caffeineMg: Double { drinks.reduce(0) { $0 + $1.caffeineMg } }
     var caffeineDoses: [CaffeineModel.Dose] {
-        drinks.filter { $0.caffeineMg > 0 }.map { CaffeineModel.Dose(time: $0.entry.loggedAt, mg: $0.caffeineMg) }
+        drinks.filter { $0.caffeineMg > 0 }.map { CaffeineModel.Dose(time: $0.entry.displayTime, mg: $0.caffeineMg) }
     }
 }
 

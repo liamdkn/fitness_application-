@@ -24,7 +24,12 @@ struct WeightHistoryView: View {
                 Text("No weigh-ins logged yet.")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(displayedLogs) { log in
+                ForEach(Array(displayedLogs.enumerated()), id: \.element.id) { index, log in
+                    // Logs run newest first, so the gap is between this one
+                    // and the next (older) one.
+                    if index > 0, let gap = CheckinGaps.gap(between: log.loggedAt, and: displayedLogs[index - 1].loggedAt) {
+                        gapRow(gap)
+                    }
                     logRow(log)
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
@@ -54,6 +59,15 @@ struct WeightHistoryView: View {
                 }
             }
         }
+    }
+
+    private func gapRow(_ gap: CheckinGaps.Gap) -> some View {
+        let range = gap.days == 1
+            ? gap.firstMissing.formatted(.dateTime.day().month(.abbreviated))
+            : "\(gap.firstMissing.formatted(.dateTime.day().month(.abbreviated))) - \(gap.lastMissing.formatted(.dateTime.day().month(.abbreviated)))"
+        return Label("\(gap.days) day\(gap.days == 1 ? "" : "s") with no weigh-in (\(range))", systemImage: "exclamationmark.triangle")
+            .font(.caption)
+            .foregroundStyle(AppColor.warning)
     }
 
     @ViewBuilder
