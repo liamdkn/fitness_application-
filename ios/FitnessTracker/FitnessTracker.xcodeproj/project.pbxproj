@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		5277C63B770743FE99DBC38A /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 5B1E3A22BF5A49F0A0674A29 /* Supabase */; };
 		6239EC3E45E9FE781F5470FF /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C4157EEF9CF11945A655EC98 /* Foundation.framework */; };
+		7E830684F25E5B97F4D0F16E /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3AD17AF58FF4555D3C95B938 /* Foundation.framework */; };
 		DF7BB7FCC27BBF93951CC525 /* FitnessTrackerWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C94BB9EFBF4731A27B78F87A /* FitnessTrackerWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -37,6 +38,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		3AD17AF58FF4555D3C95B938 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		5D5E93D2791C793BF2786B5A /* FitnessTrackerWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FitnessTrackerWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6CF5CD1D25354B0CB4835113 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 		A1DE74E9302BA2E90083D4F2 /* FitnessTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FitnessTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C4157EEF9CF11945A655EC98 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
@@ -44,24 +47,52 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		03AE4A20B6D22DBE3D259D4D /* WatchShared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = WatchShared;
+			sourceTree = "<group>";
+		};
+		7F9DE17CE492B0262DA4EFBD /* FitnessTrackerWatch */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = FitnessTrackerWatch;
+			sourceTree = "<group>";
+		};
 		9ECF7F3A51FC8DBCD7EFE1FB /* FitnessTrackerWidgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = FitnessTrackerWidgets;
 			sourceTree = "<group>";
 		};
 		A1DE74EB302BA2E90083D4F2 /* FitnessTracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = FitnessTracker;
 			sourceTree = "<group>";
 		};
 		A2E17DB840C6E2D084A09632 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		4232D1DF6A6798644B391834 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7E830684F25E5B97F4D0F16E /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7DCA8945EBB2949E18C7B2D3 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -85,6 +116,7 @@
 			isa = PBXGroup;
 			children = (
 				7A1D9F0CA9915653AD548877 /* iOS */,
+				9E3DD4321690F267062079E1 /* watchOS */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -97,6 +129,14 @@
 			name = iOS;
 			sourceTree = "<group>";
 		};
+		9E3DD4321690F267062079E1 /* watchOS */ = {
+			isa = PBXGroup;
+			children = (
+				3AD17AF58FF4555D3C95B938 /* Foundation.framework */,
+			);
+			name = watchOS;
+			sourceTree = "<group>";
+		};
 		A1DE74E0302BA2E90083D4F2 = {
 			isa = PBXGroup;
 			children = (
@@ -106,6 +146,8 @@
 				0D992B96D90F8C49706C3AFC /* Frameworks */,
 				9ECF7F3A51FC8DBCD7EFE1FB /* FitnessTrackerWidgets */,
 				A2E17DB840C6E2D084A09632 /* Shared */,
+				7F9DE17CE492B0262DA4EFBD /* FitnessTrackerWatch */,
+				03AE4A20B6D22DBE3D259D4D /* WatchShared */,
 			);
 			sourceTree = "<group>";
 		};
@@ -114,6 +156,7 @@
 			children = (
 				A1DE74E9302BA2E90083D4F2 /* FitnessTracker.app */,
 				C94BB9EFBF4731A27B78F87A /* FitnessTrackerWidgets.appex */,
+				5D5E93D2791C793BF2786B5A /* FitnessTrackerWatch.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -157,6 +200,7 @@
 				E2762255F34E4CA1F2838485 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
+				03AE4A20B6D22DBE3D259D4D /* WatchShared */,
 				A1DE74EB302BA2E90083D4F2 /* FitnessTracker */,
 				A2E17DB840C6E2D084A09632 /* Shared */,
 			);
@@ -166,6 +210,27 @@
 			);
 			productName = FitnessTracker;
 			productReference = A1DE74E9302BA2E90083D4F2 /* FitnessTracker.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B0B0E093CFE431208B32B8DC /* FitnessTrackerWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E4DB3A2A85258F4FED927D76 /* Build configuration list for PBXNativeTarget "FitnessTrackerWatch" */;
+			buildPhases = (
+				10F86C3A0F19F6D0A8D06CE3 /* Sources */,
+				4232D1DF6A6798644B391834 /* Frameworks */,
+				0F897E4950284E2FFB0214FD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				03AE4A20B6D22DBE3D259D4D /* WatchShared */,
+				7F9DE17CE492B0262DA4EFBD /* FitnessTrackerWatch */,
+			);
+			name = FitnessTrackerWatch;
+			productName = FitnessTrackerWatch;
+			productReference = 5D5E93D2791C793BF2786B5A /* FitnessTrackerWatch.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -202,11 +267,19 @@
 			targets = (
 				A1DE74E8302BA2E90083D4F2 /* FitnessTracker */,
 				84A2B9DAC16F61E06716C463 /* FitnessTrackerWidgets */,
+				B0B0E093CFE431208B32B8DC /* FitnessTrackerWatch */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		0F897E4950284E2FFB0214FD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A1DE74E7302BA2E90083D4F2 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -224,6 +297,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		10F86C3A0F19F6D0A8D06CE3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A1DE74E5302BA2E90083D4F2 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -250,6 +330,40 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		59C334755AFA1FD6DC958DCF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Supporting/FitnessTrackerWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QN8CMK7H5F;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Fitness;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Fitness Tracker reads steps and heart rate to log your treadmill sessions.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Fitness Tracker saves your treadmill sessions as workouts.";
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = dkn.FitnessTracker;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dkn.FitnessTracker.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Debug;
+		};
 		749FA62D4E18599D5541F309 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -457,6 +571,41 @@
 			};
 			name = Release;
 		};
+		CB9F7DA83C3A797CF708695D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Supporting/FitnessTrackerWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QN8CMK7H5F;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Fitness;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Fitness Tracker reads steps and heart rate to log your treadmill sessions.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Fitness Tracker saves your treadmill sessions as workouts.";
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = dkn.FitnessTracker;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dkn.FitnessTracker.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Release;
+		};
 		FD02A0BF3A5E3AD4C9CC64D1 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -510,6 +659,15 @@
 			buildConfigurations = (
 				749FA62D4E18599D5541F309 /* Release */,
 				FD02A0BF3A5E3AD4C9CC64D1 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E4DB3A2A85258F4FED927D76 /* Build configuration list for PBXNativeTarget "FitnessTrackerWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CB9F7DA83C3A797CF708695D /* Release */,
+				59C334755AFA1FD6DC958DCF /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

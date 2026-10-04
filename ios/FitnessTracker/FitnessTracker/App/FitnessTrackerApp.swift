@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             StepReminderService.shared.startObserving()
             // A tap on the supplements Live Activity runs in this process.
             SupplementReminderService.shared.installIntentHandler()
+            WatchBridge.shared.activate()
         }
         // UIKit-hosted pieces (alerts, share sheets, the camera scanner) don't
         // see SwiftUI's `.tint`, so give them the accent too.

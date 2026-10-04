@@ -1,0 +1,59 @@
+{
+  "" : {
+    "diagnostics" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatch-primary.dia",
+    "emit-module-dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatch-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatch-primary-emit-module.dia",
+    "pch" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatch-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatch-primary.swiftdeps"
+  },
+  "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/FitnessTrackerWatch/ContentView.swift" : {
+    "const-values" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/ContentView.swiftconstvalues",
+    "dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/ContentView.d",
+    "diagnostics" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/ContentView.dia",
+    "index-unit-output-path" : "/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/ContentView.o",
+    "llvm-bc" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/ContentView.bc",
+    "object" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/ContentView.o",
+    "swift-dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/ContentView.swiftdeps",
+    "swiftmodule" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/ContentView~partial.swiftmodule"
+  },
+  "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/FitnessTrackerWatch/FitnessTrackerWatchApp.swift" : {
+    "const-values" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatchApp.swiftconstvalues",
+    "dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatchApp.d",
+    "diagnostics" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatchApp.dia",
+    "index-unit-output-path" : "/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatchApp.o",
+    "llvm-bc" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatchApp.bc",
+    "object" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatchApp.o",
+    "swift-dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatchApp.swiftdeps",
+    "swiftmodule" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/FitnessTrackerWatchApp~partial.swiftmodule"
+  },
+  "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/FitnessTrackerWatch/PhoneConnection.swift" : {
+    "const-values" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/PhoneConnection.swiftconstvalues",
+    "dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/PhoneConnection.d",
+    "diagnostics" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/PhoneConnection.dia",
+    "index-unit-output-path" : "/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/PhoneConnection.o",
+    "llvm-bc" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/PhoneConnection.bc",
+    "object" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/PhoneConnection.o",
+    "swift-dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/PhoneConnection.swiftdeps",
+    "swiftmodule" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/PhoneConnection~partial.swiftmodule"
+  },
+  "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/FitnessTrackerWatch/TreadmillSession.swift" : {
+    "const-values" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/TreadmillSession.swiftconstvalues",
+    "dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/TreadmillSession.d",
+    "diagnostics" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/TreadmillSession.dia",
+    "index-unit-output-path" : "/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/TreadmillSession.o",
+    "llvm-bc" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/TreadmillSession.bc",
+    "object" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/TreadmillSession.o",
+    "swift-dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/TreadmillSession.swiftdeps",
+    "swiftmodule" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/TreadmillSession~partial.swiftmodule"
+  },
+  "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/WatchShared/WatchMessages.swift" : {
+    "const-values" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/WatchMessages.swiftconstvalues",
+    "dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/WatchMessages.d",
+    "diagnostics" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/WatchMessages.dia",
+    "index-unit-output-path" : "/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/WatchMessages.o",
+    "llvm-bc" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/WatchMessages.bc",
+    "object" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/WatchMessages.o",
+    "swift-dependencies" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/WatchMessages.swiftdeps",
+    "swiftmodule" : "/Users/liamdurkan/Development/Projects 2026/fitness_application/ios/FitnessTracker/build/FitnessTracker.build/Debug-watchsimulator/FitnessTrackerWatch.build/Objects-normal/x86_64/WatchMessages~partial.swiftmodule"
+  }
+}

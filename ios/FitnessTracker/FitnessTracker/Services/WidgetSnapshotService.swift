@@ -82,6 +82,9 @@ final class WidgetSnapshotService {
             waterButtons: waterButtons.isEmpty ? nil : Array(waterButtons)
         )
         lastRefresh = now
+        WatchBridge.shared.pushConfig(
+            buttonsMl: waterButtons.map(\.ml), todayMl: snapshot.waterMl, targetMl: snapshot.waterTargetMl
+        )
         guard snapshot != WidgetSnapshot.load() else { return }
         snapshot.save()
         WidgetCenter.shared.reloadAllTimelines()

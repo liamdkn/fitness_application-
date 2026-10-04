@@ -19,6 +19,7 @@ struct MainTabView: View {
         .task {
             AppIntro.shared.play()
             await WaterRepository().importWidgetWater()
+            await WatchBridge.shared.retryPending()
             await OfflineOutbox.shared.flush()
             await MilkAllowanceService.applyIfNeeded()
             await HealthSyncService.shared.requestAuthorizationAndSync()
@@ -45,6 +46,7 @@ struct MainTabView: View {
             guard newPhase == .active else { return }
             Task {
                 await WaterRepository().importWidgetWater()
+                await WatchBridge.shared.retryPending()
                 await OfflineOutbox.shared.flush()
                 await MilkAllowanceService.applyIfNeeded()
                 await HealthSyncService.shared.requestAuthorizationAndSync()
