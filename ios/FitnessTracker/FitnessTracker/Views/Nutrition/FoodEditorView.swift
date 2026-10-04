@@ -38,6 +38,8 @@ struct AddCustomFoodView: View {
     @State private var fat: String
     @State private var fiber: String
     @State private var sodium: String
+    /// Salt to add to the sodium, typed in grams.
+    @State private var saltToAdd = ""
     @State private var caffeine: String
     @State private var isVerified: Bool
     /// Whether this belongs in Liquids and counts toward hydration - only
@@ -320,13 +322,38 @@ struct AddCustomFoodView: View {
             numberField("Fat", text: $fat, unit: "g")
             numberField("Fiber (optional)", text: $fiber, unit: "g")
             numberField("Sodium", text: $sodium, unit: "mg")
+            saltRow
             numberField("Caffeine (optional)", text: $caffeine, unit: "mg")
         } header: {
             Text(basis == .per100 && unitChoice != .other ? "Per 100 \(unitText) (as on the label)" : "Per serving")
         } footer: {
-            Text("Label shows salt, not sodium? Multiply the salt in grams by 400 to get mg of sodium.")
+            Text("Adding salt? Type the grams of salt for one serving in Add salt and tap the button - it's added to the sodium for you. (Salt is about 393 mg of sodium per gram.)")
         }
         .listRowBackground(AppRowBackground())
+    }
+
+    /// Salt added to one serving of this food, in grams, turned into sodium
+    /// (about 393 mg per gram) and added to the sodium above.
+    @ViewBuilder
+    private var saltRow: some View {
+        HStack {
+            Text("Add salt")
+            Spacer()
+            TextField("0", text: $saltToAdd)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 70)
+            Text("g").foregroundStyle(.secondary)
+        }
+        if let grams = Double(saltToAdd), grams > 0 {
+            let perServingMg = grams * 393
+            Button("Add \(Self.formatted(grams)) g salt (\(Int(perServingMg.rounded())) mg sodium) to one serving") {
+                // The field is in the label's basis, so convert back from a serving.
+                let step = perServingMg / (scale ?? 1)
+                sodium = Self.formatted((Double(sodium) ?? 0) + step)
+                saltToAdd = ""
+            }
+        }
     }
 
     private func energyWarning(_ check: MacroEnergy.Check) -> some View {

@@ -272,7 +272,24 @@ struct FoodRepository {
         // Left to auto: work them out from the numbers as saved.
         let resolvedCategories = categories
             ?? FoodCategory.suggested(calories: calories, proteinG: proteinG, carbsG: carbsG, fatG: fatG)
-        guard food.isCustom, food.createdBy == userId else {
+        // Correcting a catalogue food makes a personal copy that keeps its
+        // barcode - and there can only be one such copy per barcode. If an
+        // earlier correction already made it, edit that one instead of
+        // trying to create a second (which the database rejects).
+        var target = food
+        if !(food.isCustom && food.createdBy == userId), let barcode = food.barcode {
+            let existing: [Food] = try await client
+                .from("foods")
+                .select()
+                .eq("is_custom", value: true)
+                .eq("created_by", value: userId)
+                .eq("barcode", value: barcode)
+                .limit(1)
+                .execute()
+                .value
+            if let own = existing.first { target = own }
+        }
+        guard target.isCustom, target.createdBy == userId else {
             return try await createCustom(
                 name: name,
                 brand: brand,
@@ -310,7 +327,7 @@ struct FoodRepository {
                 is_drink: drink,
                 categories: resolvedCategories.map(\.rawValue)
             ))
-            .eq("id", value: food.id)
+            .eq("id", value: target.id)
             .select()
             .execute()
             .value
