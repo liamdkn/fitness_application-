@@ -70,7 +70,7 @@ final class ActiveWorkoutViewModel: ObservableObject {
         didSet { scheduleLiveActivityUpdate() }
     }
     /// Muscle groups with a currently-unresolved injury - lets the view warn
-    /// on any exercise whose `primaryMuscleGroup` matches, without the view
+    /// on any exercise that works one of them (primary or secondary), without the view
     /// itself needing to know about injuries at all.
     @Published var activeInjuryMuscleGroups: Set<String> = []
 

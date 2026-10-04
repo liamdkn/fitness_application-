@@ -8,6 +8,7 @@ struct ExerciseRepository {
         let name: String
         let category: String
         let primary_muscle_group: String?
+        let secondary_muscle_groups: [String]
         let equipment: String?
         let is_custom: Bool
         let created_by: UUID
@@ -36,6 +37,7 @@ struct ExerciseRepository {
         name: String,
         category: String,
         primaryMuscleGroup: String?,
+        secondaryMuscleGroups: [String] = [],
         equipment: String?
     ) async throws -> Exercise {
         let userId = try await client.auth.session.user.id
@@ -45,6 +47,7 @@ struct ExerciseRepository {
                 name: name,
                 category: category,
                 primary_muscle_group: primaryMuscleGroup,
+                secondary_muscle_groups: secondaryMuscleGroups,
                 equipment: equipment,
                 is_custom: true,
                 created_by: userId

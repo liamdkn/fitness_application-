@@ -50,6 +50,7 @@ struct AddCustomExerciseView: View {
     @State private var name = ""
     @State private var category = "compound"
     @State private var muscleGroup: MuscleGroup = .chest
+    @State private var secondaryGroups: Set<MuscleGroup> = []
     @State private var equipment = ""
     @State private var errorMessage: String?
     @State private var isSaving = false
@@ -72,6 +73,32 @@ struct AddCustomExerciseView: View {
                         }
                     }
                     TextField("Equipment (optional)", text: $equipment)
+                }
+                .listRowBackground(AppRowBackground())
+                Section {
+                    ForEach(MuscleGroup.allCases.filter { $0 != muscleGroup }) { group in
+                        Button {
+                            if secondaryGroups.contains(group) {
+                                secondaryGroups.remove(group)
+                            } else {
+                                secondaryGroups.insert(group)
+                            }
+                        } label: {
+                            HStack {
+                                Text(group.displayName)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if secondaryGroups.contains(group) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(AppColor.accent)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Also works")
+                } footer: {
+                    Text("Injury warnings fire for any muscle an exercise works, not just the main one.")
                 }
                 .listRowBackground(AppRowBackground())
                 if let errorMessage {
@@ -103,6 +130,7 @@ struct AddCustomExerciseView: View {
                 name: name.capitalized,
                 category: category,
                 primaryMuscleGroup: muscleGroup.rawValue,
+                secondaryMuscleGroups: secondaryGroups.subtracting([muscleGroup]).map(\.rawValue).sorted(),
                 equipment: equipment.isEmpty ? nil : equipment
             )
             onCreated(exercise)

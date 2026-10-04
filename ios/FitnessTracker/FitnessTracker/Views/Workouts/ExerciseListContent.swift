@@ -109,6 +109,13 @@ struct ExerciseRowContent: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if !exercise.secondaryMuscleGroups.isEmpty {
+                Text("Also works " + exercise.secondaryMuscleGroups
+                    .map { (MuscleGroup(rawValue: $0)?.displayName ?? $0.capitalized).lowercased() }
+                    .joined(separator: ", "))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

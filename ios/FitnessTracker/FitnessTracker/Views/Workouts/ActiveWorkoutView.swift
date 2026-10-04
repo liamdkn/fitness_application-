@@ -262,9 +262,14 @@ struct ActiveWorkoutView: View {
 
     @ViewBuilder
     private func exerciseContext(for activeExercise: ActiveExercise) -> some View {
-        if let muscleGroup = activeExercise.exercise.primaryMuscleGroup,
-           viewModel.activeInjuryMuscleGroups.contains(muscleGroup) {
-            Label("You've logged an active \(MuscleGroup(rawValue: muscleGroup)?.displayName ?? muscleGroup.capitalized) injury - go easy here.", systemImage: "exclamationmark.triangle.fill")
+        let injured = activeExercise.exercise.allMuscleGroups.filter {
+            viewModel.activeInjuryMuscleGroups.contains($0)
+        }
+        if !injured.isEmpty {
+            let names = injured
+                .map { MuscleGroup(rawValue: $0)?.displayName ?? $0.capitalized }
+                .formatted(.list(type: .and))
+            Label("You've logged an active \(names) injury - go easy here.", systemImage: "exclamationmark.triangle.fill")
                 .font(.caption)
                 .foregroundStyle(AppColor.warning)
         }
