@@ -25,6 +25,7 @@ struct FoodPickerView: View {
     @State private var errorMessage: String?
     @State private var pendingFood: Food?
     @State private var showingAddCustom = false
+    @State private var showingQuickAdd = false
     @State private var showingScanner = false
     @State private var showingLabelScanner = false
     /// Set right before `showingLabelScanner` when this came from a failed
@@ -54,25 +55,30 @@ struct FoodPickerView: View {
                         labelScanBarcode = nil
                         showingLabelScanner = true
                     }
-                    quickActionButton(icon: "bolt.fill", label: "Quick Add") { showingAddCustom = true }
+                    quickActionButton(icon: "bolt.fill", label: "Quick Add") { showingQuickAdd = true }
                 }
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
                 if searchText.isEmpty {
                     if recentFoods.isEmpty {
                         Text(drinksOnly ? "Search for a drink, or scan its barcode." : "Search for a food to log to \(mealSlotName), or scan a barcode.")
                             .foregroundStyle(.secondary)
+                            .listRowBackground(Color.clear)
                     } else {
                         Section("Recently Used") {
                             ForEach(recentFoods) { food in
                                 foodRow(food)
                             }
                         }
+                        .listRowBackground(AppRowBackground())
                     }
                 } else {
                     if !results.isEmpty {
                         ForEach(results) { food in
                             foodRow(food)
                         }
+                        .listRowBackground(AppRowBackground())
                     }
                     if !onlineResults.isEmpty {
                         Section("More results - Open Food Facts") {
@@ -80,14 +86,17 @@ struct FoodPickerView: View {
                                 onlineRow(hit)
                             }
                         }
+                        .listRowBackground(AppRowBackground())
                     } else if isSearchingOnline {
                         HStack(spacing: 8) {
                             ProgressView()
                             Text("Searching online...").foregroundStyle(.secondary)
                         }
+                        .listRowBackground(Color.clear)
                     } else if results.isEmpty {
                         Text("No matches - try a different search, scan the barcode, or add a new food.")
                             .foregroundStyle(.secondary)
+                            .listRowBackground(Color.clear)
                     }
                 }
             }
@@ -112,9 +121,15 @@ struct FoodPickerView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("New Food") { showingAddCustom = true }
+                    NavigationLink {
+                        FoodDatabaseView(onSelect: { food in select(food) })
+                    } label: {
+                        Text("Database")
+                    }
+                    .appToolbarTint()
                 }
             }
             .sheet(item: $pendingFood) { food in
@@ -123,8 +138,16 @@ struct FoodPickerView: View {
                     dismiss()
                 }
             }
+            .sheet(isPresented: $showingQuickAdd) {
+                // Logged straight away at one serving - it's a one-off, not a
+                // food to review or add to.
+                QuickAddView { item in
+                    onLog(item, 1)
+                    dismiss()
+                }
+            }
             .sheet(isPresented: $showingAddCustom) {
-                AddCustomFoodView(onCreated: { food in pendingFood = food }, initialServingUnit: drinksOnly ? "ml" : "g")
+                AddCustomFoodView(onCreated: { food in pendingFood = food }, initialServingUnit: drinksOnly ? "ml" : "g", initialIsDrink: drinksOnly)
             }
             .sheet(isPresented: $showingScanner) {
                 BarcodeScannerView(
@@ -176,11 +199,9 @@ struct FoodPickerView: View {
         value == value.rounded() ? "\(Int(value))" : String(format: "%.1f", value)
     }
 
-    /// "Quick Add" opens the exact same custom-food sheet as the "New Food"
-    /// toolbar button - a name plus calories/macros, no catalog lookup -
-    /// which is exactly what a "quick add" means in other food-logging
-    /// apps: skip search entirely and just type the numbers. No separate
-    /// flow needed.
+    /// "Quick Add" logs just calories and macros as a one-off (`QuickAddView`),
+    /// without adding a food to the database - that's what the Database
+    /// screen's "Add New Food" is for.
     private func quickActionButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
@@ -209,16 +230,19 @@ struct FoodPickerView: View {
     }
 
     @ViewBuilder
+    // Explicit `Color.primary` / `Color.secondary` below: the hierarchical
+    // `.primary` / `.secondary` styles derive from the Button's tint, which
+    // made these rows blue.
     private func foodRow(_ food: Food) -> some View {
         Button {
             select(food)
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(food.displayName)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color.primary)
                 Text("\(Int(food.calories)) kcal per \(food.servingLabel)")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.secondary)
             }
         }
     }
@@ -230,10 +254,10 @@ struct FoodPickerView: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(hit.lookup.brand.map { "\(hit.lookup.name) (\($0))" } ?? hit.lookup.name)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color.primary)
                 Text("\(Int(hit.lookup.calories)) kcal per 100\(hit.lookup.servingUnit)")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.secondary)
             }
         }
     }
@@ -283,7 +307,7 @@ struct FoodPickerView: View {
         defer { isSearchingOnline = false }
         guard let hits = try? await OpenFoodFactsService.search(query: trimmed), !Task.isCancelled else { return }
         let localBarcodes = Set(results.compactMap(\.barcode))
-        onlineResults = hits.filter { !localBarcodes.contains($0.barcode) && (!drinksOnly || $0.lookup.isLiquid) }
+        onlineResults = hits.filter { !localBarcodes.contains($0.barcode) && (!drinksOnly || $0.lookup.isDrink) }
     }
 
     /// Most-recently-logged foods, most recent first - `fetchByIds` doesn't
@@ -295,7 +319,7 @@ struct FoodPickerView: View {
             let ids = try await mealEntryRepository.fetchRecentlyLoggedFoodIds()
             let foods = try await repository.fetchByIds(ids)
             let foodsById = Dictionary(uniqueKeysWithValues: foods.map { ($0.id, $0) })
-            let recents = ids.compactMap { foodsById[$0] }
+            let recents = ids.compactMap { foodsById[$0] }.filter { !$0.isQuickAdd }
             recentFoods = drinksOnly ? recents.filter(\.isDrink) : recents
         } catch {
             errorMessage = error.localizedDescription
@@ -396,6 +420,7 @@ struct LogFoodQuantityView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
                 if let quantity, quantity > 0 {
                     Section {
                         MacroBreakdownRing(
@@ -406,6 +431,7 @@ struct LogFoodQuantityView: View {
                         )
                         .padding(.vertical, 8)
                     }
+                    .listRowBackground(AppRowBackground())
                     Section("Adds") {
                         LabeledContent("Calories", value: "\(Int(food.calories(at: quantity))) kcal")
                         LabeledContent("Protein", value: "\(Int(food.proteinG(at: quantity)))g")
@@ -418,6 +444,7 @@ struct LogFoodQuantityView: View {
                             LabeledContent("Sodium", value: "\(Int(sodium.rounded())) mg")
                         }
                     }
+                    .listRowBackground(AppRowBackground())
                 }
                 Section {
                     Button {
@@ -428,6 +455,7 @@ struct LogFoodQuantityView: View {
                 } footer: {
                     Text("Something not matching the pack? Correct it here - and untick verified if it needs another look.")
                 }
+                .listRowBackground(AppRowBackground())
             }
             .appScreen()
             .navigationTitle(food.name)
@@ -435,12 +463,14 @@ struct LogFoodQuantityView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
                         if let quantity { onConfirm(food, quantity) }
                     }
                     .disabled(!(quantity.map { $0 > 0 } ?? false))
+                    .appToolbarTint()
                 }
             }
             .task {

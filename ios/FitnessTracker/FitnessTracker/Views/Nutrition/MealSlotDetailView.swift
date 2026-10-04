@@ -13,6 +13,7 @@ struct MealSlotDetailView: View {
     @State private var addingFood = false
     @State private var addingMealPrep = false
     @State private var addingSavedMeal = false
+    @State private var copyingMeal = false
     @State private var isSavingMeal = false
     @State private var editingEntry: MealSlotEntry?
 
@@ -24,6 +25,47 @@ struct MealSlotDetailView: View {
         group?.entries ?? []
     }
 
+    /// The meal read as its protein / carb / fat parts - chicken, rice and
+    /// avocado land under Protein, Carbs and Fat - in that order, each with
+    /// its foods. A food listed under several categories (salmon: protein and
+    /// fat) sits under its main one.
+    private var categoryParts: [(category: FoodCategory, items: [MealSlotEntry])] {
+        let byCategory = Dictionary(grouping: entries, by: \.category)
+        return FoodCategory.allCases
+            .sorted { $0.sortOrder < $1.sortOrder }
+            .compactMap { category in
+                byCategory[category].map { (category, $0) }
+            }
+    }
+
+    /// A part's heading: its name, and what it adds up to.
+    private func partHeader(_ category: FoodCategory, _ items: [MealSlotEntry]) -> some View {
+        let kcal = items.reduce(0) { $0 + $1.calories }
+        let grams: Double? = switch category {
+        case .protein: items.reduce(0) { $0 + $1.proteinG }
+        case .carb: items.reduce(0) { $0 + $1.carbsG }
+        case .fat: items.reduce(0) { $0 + $1.fatG }
+        case .other: nil
+        }
+        let color: Color = switch category {
+        case .protein: AppColor.protein
+        case .carb: AppColor.carbs
+        case .fat: AppColor.fat
+        case .other: Color.secondary
+        }
+        return HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 9, height: 9)
+            Text(category.displayName)
+                .font(.subheadline.weight(.semibold))
+            Spacer()
+            Text(grams.map { "\(Int($0.rounded()))g \u{00b7} \(Int(kcal.rounded())) kcal" } ?? "\(Int(kcal.rounded())) kcal")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 4)
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -33,9 +75,14 @@ struct MealSlotDetailView: View {
                 if entries.isEmpty {
                     emptyState
                 } else {
-                    VStack(spacing: 10) {
-                        ForEach(entries) { slotEntry in
-                            foodCard(slotEntry)
+                    VStack(spacing: 18) {
+                        ForEach(categoryParts, id: \.category) { part in
+                            VStack(alignment: .leading, spacing: 8) {
+                                partHeader(part.category, part.items)
+                                ForEach(part.items) { slotEntry in
+                                    foodCard(slotEntry)
+                                }
+                            }
                         }
                     }
                 }
@@ -67,13 +114,31 @@ struct MealSlotDetailView: View {
                 Task { await viewModel.applySavedMeal(items, mealSlotId: slot.id, date: date) }
             }
         }
+        .sheet(isPresented: $copyingMeal) {
+            CopyMealView(slot: slot, slots: viewModel.mealSlots) { source in
+                Task { await viewModel.copyEntries(source, mealSlotId: slot.id, date: date) }
+            }
+        }
         .sheet(isPresented: $isSavingMeal) {
             SaveMealSheet(entries: viewModel.entries(forSlot: slot.id)) {}
         }
         .sheet(item: $editingEntry) { slotEntry in
-            EditMealEntryQuantityView(entry: slotEntry) { newQuantity in
-                Task { await viewModel.updateQuantity(slotEntry.entry, quantity: newQuantity) }
-            }
+            EditMealEntryQuantityView(
+                entry: slotEntry,
+                onConfirm: { newQuantity in
+                    Task { await viewModel.updateQuantity(slotEntry.entry, quantity: newQuantity) }
+                },
+                onRemove: {
+                    Task { await viewModel.deleteEntry(slotEntry.entry) }
+                },
+                onAddSalt: { grams in
+                    Task {
+                        // Salt is a food of its own (per 100 g), logged to this meal.
+                        guard let salt = await FoodRepository().saltFood() else { return }
+                        await viewModel.logFood(salt, quantity: grams / max(salt.servingSize, 1), mealSlotId: slot.id, date: date)
+                    }
+                }
+            )
         }
     }
 
@@ -141,6 +206,7 @@ struct MealSlotDetailView: View {
             optionButton("Add Food", icon: "plus") { addingFood = true }
             optionButton("Recipes", icon: "takeoutbag.and.cup.and.straw") { addingMealPrep = true }
             optionButton("Saved", icon: "list.bullet.rectangle") { addingSavedMeal = true }
+            optionButton("Copy", icon: "doc.on.doc") { copyingMeal = true }
             if !entries.isEmpty {
                 optionButton("Save Meal", icon: "bookmark") { isSavingMeal = true }
             }
@@ -179,80 +245,61 @@ struct MealSlotDetailView: View {
         .appCard(cornerRadius: 16)
     }
 
-    /// One food: name (with its brand underneath), the amount eaten and its
-    /// calories, then protein/carbs/fat for just that item.
+    /// One food, kept to the essentials: its name, how much you had (with the
+    /// brand after it), and its calories. The meal's protein/carbs/fat are in
+    /// the header above; per-item macros are in the edit sheet (tap the row).
+    /// Long-press for Edit / Remove.
     private func foodCard(_ slotEntry: MealSlotEntry) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(slotEntry.title)
-                        .font(.body.weight(.semibold))
+                        .font(.body.weight(.medium))
                     if slotEntry.isVerified {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.caption)
                             .foregroundStyle(AppColor.success)
                     }
                 }
-                if let brand = slotEntry.brand {
-                    Text(brand)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Text(slotEntry.amountLabel)
+                Text(subtitle(for: slotEntry))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                HStack(spacing: 12) {
-                    macroPill("P", slotEntry.proteinG, AppColor.protein)
-                    macroPill("C", slotEntry.carbsG, AppColor.carbs)
-                    macroPill("F", slotEntry.fatG, AppColor.fat)
-                }
-                .padding(.top, 2)
+                    .lineLimit(1)
             }
             Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 8) {
-                VStack(alignment: .trailing, spacing: 0) {
-                    Text("\(Int(slotEntry.calories.rounded()))")
-                        .font(.title3.bold())
-                        .monospacedDigit()
-                    Text("kcal")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Menu {
-                    Button {
-                        editingEntry = slotEntry
-                    } label: {
-                        Label("Edit Amount", systemImage: "pencil")
-                    }
-                    Button(role: .destructive) {
-                        Task { await viewModel.deleteEntry(slotEntry.entry) }
-                    } label: {
-                        Label("Remove", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 28)
-                        .contentShape(Rectangle())
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text("\(Int(slotEntry.calories.rounded()))")
+                    .font(.body.weight(.semibold))
+                    .monospacedDigit()
+                Text("kcal")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .appCard(cornerRadius: 14)
         .contentShape(RoundedRectangle(cornerRadius: 14))
         .onTapGesture { editingEntry = slotEntry }
+        .contextMenu {
+            Button {
+                editingEntry = slotEntry
+            } label: {
+                Label("Edit Amount", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                Task { await viewModel.deleteEntry(slotEntry.entry) }
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
+        }
     }
 
-    private func macroPill(_ label: String, _ grams: Double, _ color: Color) -> some View {
-        HStack(spacing: 4) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text("\(label) \(Int(grams.rounded()))g")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-        }
+    /// "80g" or "80g · Brand".
+    private func subtitle(for slotEntry: MealSlotEntry) -> String {
+        guard let brand = slotEntry.brand, !brand.isEmpty else { return slotEntry.amountLabel }
+        return "\(slotEntry.amountLabel) \u{00b7} \(brand)"
     }
 }
 
@@ -350,15 +397,25 @@ private struct EditableFoodInfo {
 private struct EditMealEntryQuantityView: View {
     let entry: MealSlotEntry
     let onConfirm: (Double) -> Void
+    let onRemove: () -> Void
+    let onAddSalt: (Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var saltText = ""
     @State private var quantityText: String
     @State private var inputMode: QuantityInputMode = .servings
     private let info: EditableFoodInfo?
 
-    init(entry: MealSlotEntry, onConfirm: @escaping (Double) -> Void) {
+    init(
+        entry: MealSlotEntry,
+        onConfirm: @escaping (Double) -> Void,
+        onRemove: @escaping () -> Void,
+        onAddSalt: @escaping (Double) -> Void
+    ) {
         self.entry = entry
         self.onConfirm = onConfirm
+        self.onRemove = onRemove
+        self.onAddSalt = onAddSalt
         self.info = EditableFoodInfo(entry)
         _quantityText = State(initialValue: Self.formattedQuantity(entry.entry.quantity))
     }
@@ -395,6 +452,7 @@ private struct EditMealEntryQuantityView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    .listRowBackground(AppRowBackground())
                     if let quantity, quantity > 0 {
                         Section {
                             MacroBreakdownRing(
@@ -405,6 +463,7 @@ private struct EditMealEntryQuantityView: View {
                             )
                             .padding(.vertical, 8)
                         }
+                        .listRowBackground(AppRowBackground())
                         Section("Adds") {
                             LabeledContent("Calories", value: "\(Int(info.caloriesPerUnit * quantity)) kcal")
                             LabeledContent("Protein", value: "\(Int(info.proteinPerUnit * quantity))g")
@@ -414,8 +473,38 @@ private struct EditMealEntryQuantityView: View {
                                 LabeledContent("Fiber", value: "\(Int(fiberPerUnit * quantity))g")
                             }
                         }
+                        .listRowBackground(AppRowBackground())
                     }
                 }
+                Section {
+                    HStack {
+                        Text("Salt added")
+                        Spacer()
+                        TextField("0", text: $saltText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 70)
+                        Text("g").foregroundStyle(.secondary)
+                    }
+                    if let grams = Double(saltText), grams > 0 {
+                        Button("Add \(AmountLabel.trimmed(grams))g salt to this meal (\(Int((grams * 393).rounded())) mg sodium)") {
+                            onAddSalt(grams)
+                            saltText = ""
+                        }
+                    }
+                } header: {
+                    Text("Salt")
+                } footer: {
+                    Text("Logged as its own item in this meal, counted in sodium. About 393 mg of sodium per gram of salt.")
+                }
+                .listRowBackground(AppRowBackground())
+                Section {
+                    Button("Remove from Meal", role: .destructive) {
+                        onRemove()
+                        dismiss()
+                    }
+                }
+                .listRowBackground(AppRowBackground())
             }
             .appScreen()
             .navigationTitle(info?.name ?? entry.name)
@@ -423,6 +512,7 @@ private struct EditMealEntryQuantityView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
@@ -432,6 +522,7 @@ private struct EditMealEntryQuantityView: View {
                         }
                     }
                     .disabled(!(quantity.map { $0 > 0 } ?? false))
+                    .appToolbarTint()
                 }
             }
         }

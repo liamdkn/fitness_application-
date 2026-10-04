@@ -22,6 +22,8 @@ struct FoodRepository {
         let created_by: UUID
         let is_verified: Bool
         let source_food_id: UUID?
+        let is_drink: Bool
+        let categories: [String]
     }
 
     /// A shared row from an Open Food Facts hit - unowned (`created_by` is
@@ -41,6 +43,8 @@ struct FoodRepository {
         let barcode: String
         let source: String
         let is_custom: Bool
+        let is_drink: Bool
+        let categories: [String]
     }
 
     /// Matches on name or brand, word by word: "pink lady apple" finds foods
@@ -49,7 +53,7 @@ struct FoodRepository {
     /// phrase to appear contiguously (which found nothing for a plain
     /// "Apple" row). The `foods_name_trgm_idx` GIN index keeps the
     /// leading-wildcard `ilike`s fast as the catalog grows.
-    func search(query: String, limit: Int = 30) async throws -> [Food] {
+    private func searchOnline(query: String, limit: Int = 30) async throws -> [Food] {
         // Strips characters that would break the raw `.or(...)` filter
         // syntax (a comma would split it into extra clauses, parens would
         // unbalance it) - harmless to drop from a plain text search term.
@@ -102,6 +106,73 @@ struct FoodRepository {
             .map { $0 }
     }
 
+    /// The whole catalogue (mine and shared) A-Z for the Food Database screen,
+    /// or - with search text - the ranked matches. A shared food the user has
+    /// made their own copy of is listed once, as the copy.
+    private func browseOnline(query: String, limit: Int = 500) async throws -> [Food] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty { return try await search(query: trimmed, limit: limit) }
+
+        struct CopyRef: Decodable {
+            let sourceFoodId: UUID?
+            enum CodingKeys: String, CodingKey { case sourceFoodId = "source_food_id" }
+        }
+        async let foodsResult: [Food] = client
+            .from("foods")
+            .select()
+            .order("name")
+            .limit(limit)
+            .execute()
+            .value
+        async let copiesResult: [CopyRef] = client
+            .from("foods")
+            .select("source_food_id")
+            .not("source_food_id", operator: .is, value: "null")
+            .execute()
+            .value
+        let foods = try await foodsResult
+        let copied = Set(((try? await copiesResult) ?? []).compactMap(\.sourceFoodId))
+        return foods.filter { !copied.contains($0.id) }
+    }
+
+    /// The seeded "Salt" food (0.39 g of sodium per gram), for adding salt to a
+    /// meal in grams. Reading it also keeps it on the phone for offline use.
+    func saltFood() async -> Food? {
+        let found = (try? await search(query: "salt", limit: 30)) ?? []
+        return found.first { $0.name.caseInsensitiveCompare("Salt") == .orderedSame && $0.source == "seed" }
+            ?? Caches.foods.all.first { $0.name.caseInsensitiveCompare("Salt") == .orderedSame && $0.source == "seed" }
+    }
+
+    // MARK: Offline-aware reads
+    //
+    // Every food that comes back from the server is also kept on the phone
+    // (`Caches.foods`), and the reads below fall back to that copy when
+    // there's no connection - so foods you've seen are still findable,
+    // scannable and loggable offline.
+
+    func search(query: String, limit: Int = 30) async throws -> [Food] {
+        do {
+            let results = try await searchOnline(query: query, limit: limit)
+            Caches.foods.store(results)
+            return results.filter { !$0.isQuickAdd }
+        } catch {
+            guard OfflineError.isConnectivity(error) else { throw error }
+            return Caches.searchFoods(query: query, limit: limit)
+        }
+    }
+
+    func browse(query: String, limit: Int = 500) async throws -> [Food] {
+        do {
+            let foods = try await browseOnline(query: query, limit: limit)
+            Caches.foods.store(foods)
+            return foods.filter { !$0.isQuickAdd }
+        } catch {
+            guard OfflineError.isConnectivity(error) else { throw error }
+            let trimmed = query.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? Caches.allFoodsSorted() : Caches.searchFoods(query: trimmed, limit: limit)
+        }
+    }
+
     /// The catalog row for an online search hit: the one already stored for
     /// that barcode if there is one (mine or shared), else a new shared row
     /// inserted now - so the second time anyone searches it, it's a local hit.
@@ -115,13 +186,20 @@ struct FoodRepository {
     /// `saveCorrection`) wins over the shared row: row-level security only
     /// shows this user their own custom foods, so any custom match is theirs.
     func fetchByBarcode(_ barcode: String) async throws -> Food? {
-        let matches: [Food] = try await client
-            .from("foods")
-            .select()
-            .eq("barcode", value: barcode)
-            .execute()
-            .value
-        return matches.first(where: \.isCustom) ?? matches.first
+        do {
+            let matches: [Food] = try await client
+                .from("foods")
+                .select()
+                .eq("barcode", value: barcode)
+                .execute()
+                .value
+            Caches.foods.store(matches)
+            return matches.first(where: \.isCustom) ?? matches.first
+        } catch {
+            guard OfflineError.isConnectivity(error) else { throw error }
+            let matches = Caches.foods.all.filter { $0.barcode == barcode }
+            return matches.first(where: \.isCustom) ?? matches.first
+        }
     }
 
     /// Every editable field of a food, sent in full - `brand`/`fiber_g` are
@@ -141,9 +219,11 @@ struct FoodRepository {
         let sodium_mg: Double?
         let caffeine_mg: Double?
         let is_verified: Bool
+        let is_drink: Bool
+        let categories: [String]
 
         enum CodingKeys: String, CodingKey {
-            case name, brand, serving_size, serving_unit, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg, caffeine_mg, is_verified
+            case name, brand, serving_size, serving_unit, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg, caffeine_mg, is_verified, is_drink, categories
         }
 
         func encode(to encoder: Encoder) throws {
@@ -160,6 +240,8 @@ struct FoodRepository {
             try c.encode(sodium_mg, forKey: .sodium_mg)
             try c.encode(caffeine_mg, forKey: .caffeine_mg)
             try c.encode(is_verified, forKey: .is_verified)
+            try c.encode(is_drink, forKey: .is_drink)
+            try c.encode(categories, forKey: .categories)
         }
     }
 
@@ -181,9 +263,15 @@ struct FoodRepository {
         fiberG: Double?,
         sodiumMg: Double?,
         caffeineMg: Double? = nil,
-        isVerified: Bool
+        isVerified: Bool,
+        isDrink: Bool? = nil,
+        categories: [FoodCategory]? = nil
     ) async throws -> Food {
         let userId = try await client.auth.session.user.id
+        let drink = isDrink ?? food.isDrink
+        // Left to auto: work them out from the numbers as saved.
+        let resolvedCategories = categories
+            ?? FoodCategory.suggested(calories: calories, proteinG: proteinG, carbsG: carbsG, fatG: fatG)
         guard food.isCustom, food.createdBy == userId else {
             return try await createCustom(
                 name: name,
@@ -199,7 +287,9 @@ struct FoodRepository {
                 caffeineMg: caffeineMg,
                 isVerified: isVerified,
                 sourceFoodId: food.isCustom ? food.sourceFoodId : food.id,
-                barcode: food.barcode
+                barcode: food.barcode,
+                isDrink: drink,
+                categories: resolvedCategories
             )
         }
         let updated: [Food] = try await client
@@ -216,13 +306,16 @@ struct FoodRepository {
                 fiber_g: fiberG,
                 sodium_mg: sodiumMg,
                 caffeine_mg: caffeineMg,
-                is_verified: isVerified
+                is_verified: isVerified,
+                is_drink: drink,
+                categories: resolvedCategories.map(\.rawValue)
             ))
             .eq("id", value: food.id)
             .select()
             .execute()
             .value
         guard let result = updated.first else { throw RepositoryError.insertFailed }
+        Caches.foods.store([result])
         return result
     }
 
@@ -244,7 +337,11 @@ struct FoodRepository {
                 caffeine_mg: lookup.caffeineMg,
                 barcode: barcode,
                 source: "off",
-                is_custom: false
+                is_custom: false,
+                is_drink: lookup.isDrink,
+                categories: FoodCategory.suggested(
+                    calories: lookup.calories, proteinG: lookup.proteinG, carbsG: lookup.carbsG, fatG: lookup.fatG
+                ).map(\.rawValue)
             ))
             .select()
             .execute()
@@ -252,30 +349,45 @@ struct FoodRepository {
         guard let food = inserted.first else {
             throw RepositoryError.insertFailed
         }
+        Caches.foods.store([food])
         return food
     }
 
     /// The user's own drinks (custom foods measured in ml) - a brew pot, a
     /// pod coffee - offered for quick logging even before they've been logged.
     func fetchCustomDrinks() async throws -> [Food] {
-        try await client
-            .from("foods")
-            .select()
-            .eq("is_custom", value: true)
-            .ilike("serving_unit", pattern: "ml%")
-            .order("name")
-            .execute()
-            .value
+        do {
+            let drinks: [Food] = try await client
+                .from("foods")
+                .select()
+                .eq("is_custom", value: true)
+                .ilike("serving_unit", pattern: "ml%")
+                .order("name")
+                .execute()
+                .value
+            Caches.foods.store(drinks)
+            return drinks
+        } catch {
+            guard OfflineError.isConnectivity(error) else { throw error }
+            return Caches.foods.all.filter { $0.isCustom && $0.isDrink }.sorted { $0.name < $1.name }
+        }
     }
 
     func fetchByIds(_ ids: [UUID]) async throws -> [Food] {
         guard !ids.isEmpty else { return [] }
-        return try await client
-            .from("foods")
-            .select()
-            .in("id", values: ids)
-            .execute()
-            .value
+        do {
+            let foods: [Food] = try await client
+                .from("foods")
+                .select()
+                .in("id", values: ids)
+                .execute()
+                .value
+            Caches.foods.store(foods)
+            return foods
+        } catch {
+            guard OfflineError.isConnectivity(error) else { throw error }
+            return Caches.foods.items(ids: ids)
+        }
     }
 
     /// `source`/`barcode` default to a plain manual add - `source: "ocr"`
@@ -302,7 +414,9 @@ struct FoodRepository {
         isVerified: Bool = false,
         sourceFoodId: UUID? = nil,
         barcode: String? = nil,
-        source: String = "user"
+        source: String = "user",
+        isDrink: Bool = false,
+        categories: [FoodCategory]? = nil
     ) async throws -> Food {
         let userId = try await client.auth.session.user.id
         let inserted: [Food] = try await client
@@ -324,7 +438,11 @@ struct FoodRepository {
                 is_custom: true,
                 created_by: userId,
                 is_verified: isVerified,
-                source_food_id: sourceFoodId
+                source_food_id: sourceFoodId,
+                is_drink: isDrink,
+                categories: (categories ?? FoodCategory.suggested(
+                    calories: calories, proteinG: proteinG, carbsG: carbsG, fatG: fatG
+                )).map(\.rawValue)
             ))
             .select()
             .execute()
@@ -332,6 +450,7 @@ struct FoodRepository {
         guard let food = inserted.first else {
             throw RepositoryError.insertFailed
         }
+        Caches.foods.store([food])
         return food
     }
 }

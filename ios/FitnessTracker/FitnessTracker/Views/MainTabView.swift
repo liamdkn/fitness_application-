@@ -15,8 +15,11 @@ struct MainTabView: View {
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }
+        .overlay(alignment: .top) { OfflineBanner() }
         .task {
             AppIntro.shared.play()
+            await OfflineOutbox.shared.flush()
+            await MilkAllowanceService.applyIfNeeded()
             await HealthSyncService.shared.requestAuthorizationAndSync()
             await DailyCheckinReminderService.shared.requestAuthorization()
             await DailyCheckinReminderService.shared.refresh()
@@ -39,6 +42,8 @@ struct MainTabView: View {
             }
             guard newPhase == .active else { return }
             Task {
+                await OfflineOutbox.shared.flush()
+                await MilkAllowanceService.applyIfNeeded()
                 await HealthSyncService.shared.requestAuthorizationAndSync()
                 await DailyCheckinReminderService.shared.refresh()
                 await CaffeineReminderService.shared.refresh()

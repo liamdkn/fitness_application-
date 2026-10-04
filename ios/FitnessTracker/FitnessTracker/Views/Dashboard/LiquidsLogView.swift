@@ -47,9 +47,11 @@ struct LiquidsLogView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Edit") { showingEditContainers = true }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                    .appToolbarTint()
                 }
             }
             .task { await load() }
@@ -64,7 +66,7 @@ struct LiquidsLogView: View {
                 }, drinksOnly: true)
             }
             .sheet(isPresented: $showingNewDrink) {
-                AddCustomFoodView(onCreated: { food in pendingDrink = food }, initialServingUnit: "ml")
+                AddCustomFoodView(onCreated: { food in pendingDrink = food }, initialServingUnit: "ml", initialIsDrink: true)
             }
             .sheet(isPresented: $showingCoffeeSetup) {
                 CoffeeSetupSheet { food in
@@ -114,6 +116,7 @@ struct LiquidsLogView: View {
                 }
             }
         }
+        .listRowBackground(AppRowBackground())
     }
 
     private var waterSection: some View {
@@ -134,6 +137,7 @@ struct LiquidsLogView: View {
                 }
             }
         }
+        .listRowBackground(AppRowBackground())
     }
 
     private var drinksSection: some View {
@@ -170,11 +174,17 @@ struct LiquidsLogView: View {
             } label: {
                 Label("New Drink", systemImage: "plus")
             }
+            NavigationLink {
+                MilkAllowanceView()
+            } label: {
+                Label("Daily Milk Allowance", systemImage: "cup.and.heat.waves")
+            }
         } header: {
             Text("Drinks")
         } footer: {
             Text("A drink counts toward your calories, sodium and caffeine like any food - it's logged to a Drinks meal.")
         }
+        .listRowBackground(AppRowBackground())
     }
 
     private var customAmountSection: some View {
@@ -189,6 +199,7 @@ struct LiquidsLogView: View {
                 .disabled((Int(customAmountText) ?? 0) <= 0)
             }
         }
+        .listRowBackground(AppRowBackground())
     }
 
     @ViewBuilder
@@ -200,6 +211,7 @@ struct LiquidsLogView: View {
                 }
                 .onDelete(perform: removeItems)
             }
+            .listRowBackground(AppRowBackground())
         }
     }
 
@@ -247,6 +259,7 @@ struct LiquidsLogView: View {
     // MARK: - Loading and actions
 
     private func load() async {
+        await MilkAllowanceService.applyIfNeeded()
         async let prefs = try? preferencesRepository.fetch()
         await loadContainers()
         await loadDay()

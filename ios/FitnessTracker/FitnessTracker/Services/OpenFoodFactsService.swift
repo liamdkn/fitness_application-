@@ -19,6 +19,9 @@ enum OpenFoodFactsService {
         let sodiumMg: Double?
         let caffeineMg: Double?
         let isLiquid: Bool
+        /// A beverage (drink, milk, water) as opposed to a liquid ingredient
+        /// like oil or sauce - decided by Open Food Facts' categories.
+        let isDrink: Bool
 
         /// What the per-100 figures are per - measured out in ml, not g.
         var servingUnit: String { isLiquid ? "ml" : "g" }
@@ -35,6 +38,13 @@ enum OpenFoodFactsService {
         }
         let liquidCategories: Set<String> = ["en:beverages", "en:milks", "en:waters"]
         return categories?.contains(where: { liquidCategories.contains($0) }) ?? false
+    }
+
+    /// Only a beverage category makes it a drink - a litre of olive oil is a
+    /// liquid but not something to count toward hydration.
+    static func isDrink(categories: [String]?) -> Bool {
+        let drinkCategories: Set<String> = ["en:beverages", "en:milks", "en:waters", "en:plant-based-beverages"]
+        return categories?.contains(where: { drinkCategories.contains($0) }) ?? false
     }
 
     static func lookup(barcode: String) async throws -> Lookup? {
@@ -59,7 +69,8 @@ enum OpenFoodFactsService {
             fiberG: product.nutriments?.fiber100g,
             sodiumMg: product.nutriments?.sodiumMg,
             caffeineMg: product.nutriments?.caffeineMg,
-            isLiquid: isLiquid(quantity: product.quantity, categories: product.categoriesTags)
+            isLiquid: isLiquid(quantity: product.quantity, categories: product.categoriesTags),
+            isDrink: isDrink(categories: product.categoriesTags)
         )
     }
 
@@ -109,7 +120,8 @@ enum OpenFoodFactsService {
                     fiberG: hit.nutriments?.fiber100g,
                     sodiumMg: hit.nutriments?.sodiumMg,
                     caffeineMg: hit.nutriments?.caffeineMg,
-                    isLiquid: isLiquid(quantity: hit.quantity, categories: hit.categoriesTags)
+                    isLiquid: isLiquid(quantity: hit.quantity, categories: hit.categoriesTags),
+                    isDrink: isDrink(categories: hit.categoriesTags)
                 )
             )
         }

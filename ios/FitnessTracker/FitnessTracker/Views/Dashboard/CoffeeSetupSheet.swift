@@ -13,6 +13,35 @@ import SwiftUI
 struct CoffeeSetupSheet: View {
     private enum Mode: Hashable { case pot, pod }
 
+    /// Caffeine that ends up in a drip pot per gram of grounds, by what's in
+    /// the bag. Bean type moves this far more than roast does: arabica beans
+    /// are about 1% caffeine (roughly 10 mg per gram into the pot), robusta
+    /// about twice that, and roasting loses weight rather than caffeine, so
+    /// light, medium and dark of the same bean land within a few percent of
+    /// each other. Estimates from published bean figures, not lab results.
+    private enum CoffeeType: String, CaseIterable, Identifiable {
+        case frenchDark = "French / dark roast"
+        case medium = "Medium roast"
+        case light = "Light roast"
+        case robustaBlend = "Robusta blend (e.g. many Italian blends)"
+        case robusta = "Pure robusta"
+        case decaf = "Decaf"
+        case custom = "Other - enter my own"
+
+        var id: String { rawValue }
+
+        /// mg of caffeine per gram of grounds; `nil` for the custom entry.
+        var mgPerGram: Double? {
+            switch self {
+            case .frenchDark, .medium, .light: 10
+            case .robustaBlend: 16
+            case .robusta: 22
+            case .decaf: 0.5
+            case .custom: nil
+            }
+        }
+    }
+
     let onSaved: (Food) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -22,7 +51,8 @@ struct CoffeeSetupSheet: View {
     @State private var potLitres = "1.6"
     @State private var scoops = "3"
     @State private var gramsPerScoop = "10"
-    @State private var mgPerGram = "10"
+    @State private var coffeeType: CoffeeType = .frenchDark
+    @State private var customMgPerGram = "10"
     // Pod
     @State private var podName = "Pod coffee"
     @State private var podMl = "150"
@@ -32,7 +62,8 @@ struct CoffeeSetupSheet: View {
     private let repository = FoodRepository()
 
     private var totalPotMg: Double? {
-        guard let scoops = Double(scoops), let grams = Double(gramsPerScoop), let mg = Double(mgPerGram),
+        let mgPerGram = coffeeType.mgPerGram ?? Double(customMgPerGram)
+        guard let scoops = Double(scoops), let grams = Double(gramsPerScoop), let mg = mgPerGram,
               scoops > 0, grams > 0, mg > 0 else { return nil }
         return scoops * grams * mg
     }
@@ -76,10 +107,12 @@ struct CoffeeSetupSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
                         .disabled(!isValid || isSaving)
+                    .appToolbarTint()
                 }
             }
         }
@@ -92,16 +125,25 @@ struct CoffeeSetupSheet: View {
             field("Pot size", text: $potLitres, unit: "L")
             field("Scoops of coffee", text: $scoops, unit: "scoops")
             field("Grams per scoop", text: $gramsPerScoop, unit: "g")
-            field("Caffeine per gram of grounds", text: $mgPerGram, unit: "mg/g")
+            Picker("Coffee", selection: $coffeeType) {
+                ForEach(CoffeeType.allCases) { Text($0.rawValue).tag($0) }
+            }
+            if coffeeType == .custom {
+                field("Caffeine per gram of grounds", text: $customMgPerGram, unit: "mg/g")
+            } else if let mg = coffeeType.mgPerGram {
+                LabeledContent("Caffeine per gram of grounds", value: "\(mg.formatted()) mg")
+            }
         } footer: {
-            Text("Weigh one scoop of your coffee once and enter it. About 10 mg of caffeine per gram of grounds ends up in a drip pot; a darker or stronger bean can differ.")
+            Text("Weigh one scoop of your coffee once and enter it. Roast level changes caffeine very little - bean type matters more, which is why French, medium and light roast share a figure here. Pick Other if your bag says otherwise.")
         }
+        .listRowBackground(AppRowBackground())
         if let per100 = potMgPer100Ml, let total = totalPotMg {
             Section("What this makes") {
                 LabeledContent("Whole pot", value: "\(Int(total.rounded())) mg")
                 LabeledContent("Per 250 ml cup", value: "\(Int((per100 * 2.5).rounded())) mg")
                 LabeledContent("Per 100 ml", value: String(format: "%.1f mg", per100))
             }
+            .listRowBackground(AppRowBackground())
         }
     }
 
@@ -114,6 +156,7 @@ struct CoffeeSetupSheet: View {
         } footer: {
             Text("Pods vary a lot by brand and size - check the box or the maker's site for the caffeine in yours. One pod is one serving, so logging 1 serving is one cup.")
         }
+        .listRowBackground(AppRowBackground())
     }
 
     private func field(_ label: String, text: Binding<String>, unit: String) -> some View {
@@ -156,13 +199,13 @@ struct CoffeeSetupSheet: View {
                 food = try await repository.saveCorrection(
                     of: existing, name: name, brand: existing.brand, servingSize: servingSize, servingUnit: "ml",
                     calories: 1, proteinG: 0, carbsG: 0, fatG: 0, fiberG: nil, sodiumMg: nil,
-                    caffeineMg: caffeine, isVerified: true
+                    caffeineMg: caffeine, isVerified: true, isDrink: true
                 )
             } else {
                 food = try await repository.createCustom(
                     name: name, brand: nil, servingSize: servingSize, servingUnit: "ml",
                     calories: 1, proteinG: 0, carbsG: 0, fatG: 0, fiberG: nil, sodiumMg: nil,
-                    caffeineMg: caffeine, isVerified: true
+                    caffeineMg: caffeine, isVerified: true, isDrink: true
                 )
             }
             onSaved(food)

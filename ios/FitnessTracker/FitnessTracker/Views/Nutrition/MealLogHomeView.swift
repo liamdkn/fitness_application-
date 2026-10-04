@@ -92,8 +92,7 @@ struct MealLogHomeView: View {
                         sodiumMg: totals.sodiumMg,
                         sodiumLimitMg: preferences?.sodiumLimitMg ?? 2300,
                         caffeineMg: totals.caffeineMg,
-                        caffeineLimitMg: preferences?.caffeineLimitMg ?? 400,
-                        foodsMissingSodium: viewModel.slotGroups.flatMap(\.entries).filter(\.isMissingSodium).count
+                        caffeineLimitMg: preferences?.caffeineLimitMg ?? 400
                     )
 
                     if !bankAdjustment.treatsToday.isEmpty || !bankAdjustment.fundedTreats.isEmpty {
@@ -200,6 +199,7 @@ struct MealLogHomeView: View {
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done") { showingDatePicker = false }
+                            .appToolbarTint()
                         }
                     }
                     .onChange(of: selectedDate) { _, newDate in
@@ -443,27 +443,18 @@ private struct MealSlotSummaryContent: View {
 
 }
 
-/// Sodium against its daily limit, and today's caffeine. Sodium only counts
-/// foods that have a figure on record, so when some don't it says so rather
-/// than quietly presenting a minimum as the total.
+/// Sodium against its daily limit, and today's caffeine. (Sodium only counts
+/// foods that have a figure on record.)
 private struct SodiumCaffeineRow: View {
     let sodiumMg: Double
     let sodiumLimitMg: Int
     let caffeineMg: Double
     let caffeineLimitMg: Int
-    let foodsMissingSodium: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
-                metric("Sodium", value: sodiumMg, limit: Double(sodiumLimitMg), color: AppColor.sodium)
-                metric("Caffeine", value: caffeineMg, limit: Double(caffeineLimitMg), color: AppColor.caffeine)
-            }
-            if foodsMissingSodium > 0 {
-                Text("\(foodsMissingSodium) food\(foodsMissingSodium == 1 ? "" : "s") logged today with no sodium recorded - the total is a minimum.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+        HStack(spacing: 12) {
+            metric("Sodium", value: sodiumMg, limit: Double(sodiumLimitMg), color: AppColor.sodium)
+            metric("Caffeine", value: caffeineMg, limit: Double(caffeineLimitMg), color: AppColor.caffeine)
         }
     }
 

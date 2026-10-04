@@ -16,6 +16,9 @@ struct MealSlotEntry: Identifiable {
     var brand: String? { food?.brand.flatMap { $0.isEmpty ? nil : $0 } }
     var isVerified: Bool { food?.isVerified ?? false }
     var isMealPrep: Bool { recipe != nil }
+    /// Which part of the meal this sits under: its food's main category;
+    /// recipes and uncategorised foods fall under Other.
+    var category: FoodCategory { food?.primaryCategory ?? .other }
     var servingLabel: String { food?.servingLabel ?? recipe?.servingUnit ?? "" }
     /// What was actually eaten ("80g", "250ml", "2 egg") rather than the raw
     /// servings multiplier ("0.8 x 100g") - see `AmountLabel`.
@@ -33,9 +36,6 @@ struct MealSlotEntry: Identifiable {
     var caffeineMg: Double { food?.caffeineMg(at: entry.quantity) ?? 0 }
     /// Millilitres, for drinks only.
     var volumeMl: Double { food?.volumeMl(at: entry.quantity) ?? 0 }
-    /// A food with no sodium figure on record - its sodium is counted as 0
-    /// in the totals, so the totals are a minimum, not a measurement.
-    var isMissingSodium: Bool { food != nil && food?.sodiumMg == nil }
 }
 
 struct MealSlotGroup: Identifiable {
@@ -184,11 +184,18 @@ final class MealLogViewModel: ObservableObject {
         }
     }
 
+    /// Copies a day's entries onto another day. Goes through the offline
+    /// queue like any single log, so it works with no connection (the source
+    /// day is read local-first too).
     func repeatDay(from sourceDate: Date, to targetDate: Date) async {
         do {
-            let copied = try await mealEntryRepository.copyEntries(from: sourceDate, to: targetDate)
+            let source = try await offlineQueue.fetchEntries(date: sourceDate)
+            let copied = try source.map {
+                try queueEntry(date: targetDate, mealSlotId: $0.mealSlotId, foodId: $0.foodId, recipeId: $0.recipeId, quantity: $0.quantity)
+            }
             entries.append(contentsOf: copied)
             await fetchMissingReferences(for: copied)
+            refreshWidgets()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -196,9 +203,39 @@ final class MealLogViewModel: ObservableObject {
 
     func applySavedMeal(_ items: [SavedMealItem], mealSlotId: UUID, date: Date) async {
         do {
-            let applied = try await mealEntryRepository.applySavedMealItems(items, date: date, mealSlotId: mealSlotId)
+            let applied = try items.map {
+                try queueEntry(date: date, mealSlotId: mealSlotId, foodId: $0.foodId, recipeId: $0.recipeId, quantity: $0.quantity)
+            }
             entries.append(contentsOf: applied)
             await fetchMissingReferences(for: applied)
+            refreshWidgets()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// One food or recipe entry added through the offline queue.
+    private func queueEntry(date: Date, mealSlotId: UUID, foodId: UUID?, recipeId: UUID?, quantity: Double) throws -> MealEntry {
+        if let foodId {
+            return try offlineQueue.addFoodEntry(date: date, mealSlotId: mealSlotId, foodId: foodId, quantity: quantity)
+        }
+        if let recipeId {
+            return try offlineQueue.addRecipeEntry(date: date, mealSlotId: mealSlotId, recipeId: recipeId, quantity: quantity)
+        }
+        throw RepositoryError.insertFailed
+    }
+
+    /// Logs copies of entries from another day (see `CopyMealView`) into a
+    /// slot on `date` - new rows through the offline queue, so it works with
+    /// no connection and editing the copies leaves the originals alone.
+    func copyEntries(_ source: [MealEntry], mealSlotId: UUID, date: Date) async {
+        do {
+            let copied = try source.map {
+                try queueEntry(date: date, mealSlotId: mealSlotId, foodId: $0.foodId, recipeId: $0.recipeId, quantity: $0.quantity)
+            }
+            entries.append(contentsOf: copied)
+            await fetchMissingReferences(for: copied)
+            refreshWidgets()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -212,9 +249,12 @@ final class MealLogViewModel: ObservableObject {
 
     func applySavedDay(_ items: [SavedDayItem], date: Date) async {
         do {
-            let applied = try await mealEntryRepository.applySavedDayItems(items, date: date)
+            let applied = try items.map {
+                try queueEntry(date: date, mealSlotId: $0.mealSlotId, foodId: $0.foodId, recipeId: $0.recipeId, quantity: $0.quantity)
+            }
             entries.append(contentsOf: applied)
             await fetchMissingReferences(for: applied)
+            refreshWidgets()
         } catch {
             errorMessage = error.localizedDescription
         }

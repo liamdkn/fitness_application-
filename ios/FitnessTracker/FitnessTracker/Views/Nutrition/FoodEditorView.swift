@@ -40,6 +40,11 @@ struct AddCustomFoodView: View {
     @State private var sodium: String
     @State private var caffeine: String
     @State private var isVerified: Bool
+    /// Whether this belongs in Liquids and counts toward hydration - only
+    /// offered for foods measured in ml, since oil and sauce are ml too.
+    @State private var isDrink: Bool
+    /// Chosen roles (protein / carb / fat source); `nil` = automatic from the numbers.
+    @State private var categoryOverride: Set<FoodCategory>?
     @State private var errorMessage: String?
     @State private var isSaving = false
     private let repository = FoodRepository()
@@ -56,6 +61,7 @@ struct AddCustomFoodView: View {
         initialFiber: String = "",
         initialSodium: String = "",
         initialCaffeine: String = "",
+        initialIsDrink: Bool = false,
         source: String = "user",
         barcode: String? = nil,
         reviewing: Food? = nil
@@ -80,6 +86,10 @@ struct AddCustomFoodView: View {
             _sodium = State(initialValue: food.sodiumMg.map { Self.formatted($0) } ?? "")
             _caffeine = State(initialValue: food.caffeineMg.map { Self.formatted($0) } ?? "")
             _isVerified = State(initialValue: food.isVerified)
+            _isDrink = State(initialValue: food.isDrink)
+            // Matches what the numbers would give -> still automatic.
+            let auto = FoodCategory.suggested(calories: food.calories, proteinG: food.proteinG, carbsG: food.carbsG, fatG: food.fatG)
+            _categoryOverride = State(initialValue: food.categories == auto ? nil : Set(food.categories))
         } else {
             _name = State(initialValue: initialName)
             _brand = State(initialValue: "")
@@ -93,6 +103,8 @@ struct AddCustomFoodView: View {
             _sodium = State(initialValue: initialSodium)
             _caffeine = State(initialValue: initialCaffeine)
             _isVerified = State(initialValue: false)
+            _isDrink = State(initialValue: initialIsDrink)
+            _categoryOverride = State(initialValue: nil)
         }
         let choice: UnitChoice = unit.lowercased() == "g" ? .g : (unit.lowercased() == "ml" ? .ml : .other)
         _servingSize = State(initialValue: size)
@@ -182,10 +194,12 @@ struct AddCustomFoodView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(reviewing != nil ? "Continue" : "Save") { Task { await save() } }
                         .disabled(!isValid || isSaving)
+                    .appToolbarTint()
                 }
             }
             .onChange(of: unitChoice) {
@@ -203,21 +217,57 @@ struct AddCustomFoodView: View {
         return source == "ocr" ? "Confirm Scanned Label" : "New Food"
     }
 
+    /// What the numbers entered so far point to.
+    private var suggestedCategories: [FoodCategory] {
+        guard let cal = Double(calories), cal > 0 else { return [] }
+        return FoodCategory.suggested(
+            calories: cal, proteinG: Double(protein) ?? 0, carbsG: Double(carbs) ?? 0, fatG: Double(fat) ?? 0
+        )
+    }
+
+    /// `nil` = automatic; otherwise the roles chosen by hand, in meal order.
+    private var categoriesToSave: [FoodCategory]? {
+        categoryOverride.map { $0.sorted { $0.sortOrder < $1.sortOrder } }
+    }
+
     private var foodSection: some View {
         Section {
             TextField("Name", text: $name)
                 .textInputAutocapitalization(.words)
             TextField(reviewing != nil && brand.isEmpty ? "Brand - not found, add it" : "Brand (optional)", text: $brand)
                 .textInputAutocapitalization(.words)
+            Toggle("Set category automatically", isOn: Binding(
+                get: { categoryOverride == nil },
+                set: { categoryOverride = $0 ? nil : Set(suggestedCategories) }
+            ))
+            if let selected = categoryOverride {
+                ForEach([FoodCategory.protein, .carb, .fat]) { option in
+                    Toggle(isOn: Binding(
+                        get: { selected.contains(option) },
+                        set: { isOn in
+                            var next = selected
+                            if isOn { next.insert(option) } else { next.remove(option) }
+                            categoryOverride = next
+                        }
+                    )) {
+                        Label("\(option.displayName) source", systemImage: "circle.fill")
+                            .foregroundStyle(Color.primary)
+                            .tint(AppColor.accent)
+                    }
+                }
+            }
         } header: {
             Text("Food")
         } footer: {
-            if reviewing != nil {
+            if categoryOverride == nil, !suggestedCategories.isEmpty {
+                Text("Category: \(suggestedCategories.map(\.displayName).joined(separator: " + ")) source - worked out from the numbers. A food can be more than one, like salmon (protein and fat).")
+            } else if reviewing != nil {
                 Text("This food isn't verified yet. Check it against the pack, fix anything that's off, and tick verified at the bottom - then it won't ask again.")
             } else if let barcode {
                 Text("Saved against barcode \(barcode), so scanning this product again finds it.")
             }
         }
+        .listRowBackground(AppRowBackground())
     }
 
     private var servingSection: some View {
@@ -236,6 +286,9 @@ struct AddCustomFoodView: View {
                 Text("Other").tag(UnitChoice.other)
             }
             .pickerStyle(.segmented)
+            if unitChoice == .ml {
+                Toggle("This is a drink", isOn: $isDrink)
+            }
             if unitChoice == .other {
                 TextField("Unit (e.g. egg, slice)", text: $customUnit)
             } else {
@@ -250,10 +303,13 @@ struct AddCustomFoodView: View {
         } footer: {
             if unitChoice == .other {
                 Text("For things counted rather than weighed. Enter the label's numbers for one serving.")
+            } else if unitChoice == .ml {
+                Text("Turn on for things you drink - they show in Liquids and count toward water and caffeine. Leave it off for oil, sauce and other ingredients measured in ml. Type the numbers exactly as printed; if the label is per 100 ml but a serving is, say, 6 ml, choose Per 100 ml and set the serving to 6.")
             } else {
                 Text("Type the numbers exactly as printed. If the label is per 100 \(unitText) but a serving is, say, 6 \(unitText), choose Per 100 \(unitText) and set the serving to 6 - the app works out one serving for you.")
             }
         }
+        .listRowBackground(AppRowBackground())
     }
 
     private var nutritionSection: some View {
@@ -270,6 +326,7 @@ struct AddCustomFoodView: View {
         } footer: {
             Text("Label shows salt, not sodium? Multiply the salt in grams by 400 to get mg of sodium.")
         }
+        .listRowBackground(AppRowBackground())
     }
 
     private func energyWarning(_ check: MacroEnergy.Check) -> some View {
@@ -282,6 +339,7 @@ struct AddCustomFoodView: View {
                     .foregroundStyle(AppColor.warning)
             }
         }
+        .listRowBackground(AppRowBackground())
     }
 
     /// What the typed numbers come to for one serving - makes the per-100
@@ -308,6 +366,7 @@ struct AddCustomFoodView: View {
                  ? "Tick once every number matches the pack. A verified food skips this check when you scan or pick it. Untick it any time to be asked again."
                  : "Enter the sodium to be able to verify - a food isn't fully accurate without it.")
         }
+        .listRowBackground(AppRowBackground())
     }
 
     @ViewBuilder
@@ -330,6 +389,12 @@ struct AddCustomFoodView: View {
     private static func formatted(_ value: Double) -> String {
         let text = String(format: "%.2f", value)
         return text.replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
+    }
+
+    /// The flag as saved: only a food measured in ml can be a drink; for g or
+    /// counted units an existing food keeps whatever it had.
+    private var drinkFlag: Bool {
+        unitChoice == .ml ? isDrink : (unitChoice == .other ? (reviewing?.isDrink ?? false) : false)
     }
 
     private func save() async {
@@ -360,6 +425,8 @@ struct AddCustomFoodView: View {
                     && (sodiumValue ?? -1) == (reviewing.sodiumMg ?? -1)
                     && (caffeineValue ?? -1) == (reviewing.caffeineMg ?? -1)
                     && isVerified == reviewing.isVerified
+                    && drinkFlag == reviewing.isDrink
+                    && (categoriesToSave ?? suggestedCategories) == reviewing.categories
                 let result = unchanged ? reviewing : try await repository.saveCorrection(
                     of: reviewing,
                     name: cleanName,
@@ -373,7 +440,9 @@ struct AddCustomFoodView: View {
                     fiberG: fiberValue,
                     sodiumMg: sodiumValue,
                     caffeineMg: caffeineValue,
-                    isVerified: isVerified
+                    isVerified: isVerified,
+                    isDrink: drinkFlag,
+                    categories: categoriesToSave
                 )
                 onCreated(result)
                 dismiss()
@@ -393,7 +462,9 @@ struct AddCustomFoodView: View {
                 caffeineMg: caffeineValue,
                 isVerified: isVerified,
                 barcode: barcode,
-                source: source
+                source: source,
+                isDrink: drinkFlag,
+                categories: categoriesToSave
             )
             onCreated(food)
             dismiss()
