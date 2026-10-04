@@ -25,7 +25,40 @@ struct RootView: View {
         return !session.isExpired || !network.isConnected
     }
 
+    /// The launch screen stays up until the stored login has been checked, and
+    /// at least this long so it doesn't just flicker.
+    @State private var launchHoldElapsed = false
+    private static let minimumLaunchHold: TimeInterval = 0.8
+
+    private var isStarting: Bool {
+        supabase.configurationError == nil && !(supabase.hasResolvedInitialSession && launchHoldElapsed)
+    }
+
     var body: some View {
+        ZStack {
+            content
+            if isStarting {
+                LaunchView()
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+        }
+        .animation(.easeOut(duration: 0.35), value: isStarting)
+        // The card-edge glow plays as the app is revealed (or right after
+        // signing in), not behind the launch screen where nobody sees it.
+        .onChange(of: isStarting) { _, starting in
+            if !starting && isSignedIn { AppIntro.shared.play() }
+        }
+        .onChange(of: isSignedIn) { _, signedIn in
+            if signedIn && !isStarting { AppIntro.shared.play() }
+        }
+        .task {
+            try? await Task.sleep(nanoseconds: UInt64(Self.minimumLaunchHold * 1_000_000_000))
+            launchHoldElapsed = true
+        }
+    }
+
+    private var content: some View {
         Group {
             if let problem = supabase.configurationError {
                 ContentUnavailableView {

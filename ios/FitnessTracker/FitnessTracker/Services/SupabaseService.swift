@@ -11,6 +11,10 @@ final class SupabaseService: ObservableObject {
     /// `Config.xcconfig`); `RootView` shows it instead of the app.
     let configurationError: String?
     @Published private(set) var session: Session?
+    /// False until the stored login has been looked at once - before that,
+    /// "no session" just means "not checked yet", and showing the sign-in
+    /// screen would flash it at someone who is signed in.
+    @Published private(set) var hasResolvedInitialSession = false
 
     private init() {
         let urlString = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String
@@ -50,6 +54,11 @@ final class SupabaseService: ObservableObject {
         client = SupabaseClient(supabaseURL: url, supabaseKey: anonKey, options: options)
 
         Task { await observeAuthChanges() }
+        // Never hold the launch screen for long if the check is slow.
+        Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            hasResolvedInitialSession = true
+        }
     }
 
     private func observeAuthChanges() async {
@@ -58,6 +67,7 @@ final class SupabaseService: ObservableObject {
             // phone is theirs (see `LocalData`).
             if let userId = session?.user.id { LocalData.claim(userId) }
             self.session = session
+            hasResolvedInitialSession = true
         }
     }
 

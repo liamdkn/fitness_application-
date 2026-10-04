@@ -17,7 +17,6 @@ struct MainTabView: View {
         }
         .overlay(alignment: .top) { OfflineBanner() }
         .task {
-            AppIntro.shared.play()
             await WaterRepository().importWidgetWater()
             await WatchBridge.shared.retryPending()
             await OfflineOutbox.shared.flush()
