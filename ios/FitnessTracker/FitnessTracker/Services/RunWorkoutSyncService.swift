@@ -78,65 +78,98 @@ struct RunWorkoutSyncService {
         )
     }
 
+    /// A pace alert of plus or minus 5% around a pace, when the Watch can use one.
+    private func paceAlert(secPerKm: Double?) -> (any WorkoutAlert)? {
+        guard let pace = secPerKm, pace > 0 else { return nil }
+        let centerSpeed = 1000 / pace
+        let alert = SpeedRangeAlert(
+            target: Measurement(value: centerSpeed * 0.95, unit: UnitSpeed.metersPerSecond)
+                ... Measurement(value: centerSpeed * 1.05, unit: UnitSpeed.metersPerSecond),
+            metric: .average
+        )
+        return CustomWorkout.supportsAlert(alert, activity: .running, location: .outdoor) ? alert : nil
+    }
+
+    private func goal(for step: RunStep) -> WorkoutGoal {
+        if let distance = step.distanceM, distance > 0 { return .distance(distance, .meters) }
+        if let seconds = step.seconds, seconds > 0 { return .time(Double(seconds), .seconds) }
+        return .open
+    }
+
+    private func workoutStep(_ step: RunStep, name: String) -> WorkoutStep {
+        WorkoutStep(
+            goal: goal(for: step),
+            alert: paceAlert(secPerKm: step.paceSecPerKm.map(Double.init)),
+            displayName: step.paceSecPerKm.map { "\(name) \u{00b7} \(PaceText.format($0))" } ?? name
+        )
+    }
+
     private func makeWorkoutPlan(for run: PlannedRun) -> WorkoutPlan {
-        let paceSecondsPerKm: Double? = {
-            guard let distanceKm = run.targetDistanceKm,
-                  distanceKm > 0,
-                  let durationMinutes = run.targetDurationMin,
-                  durationMinutes > 0
+        // The pace to hold for the main part: one that was entered, else the
+        // one implied by distance and time.
+        let derivedPace: Double? = {
+            guard let distanceKm = run.targetDistanceKm, distanceKm > 0,
+                  let durationMinutes = run.targetDurationMin, durationMinutes > 0
             else { return nil }
             return Double(durationMinutes * 60) / distanceKm
         }()
+        let mainPace = run.mainPaceSec.map(Double.init) ?? derivedPace
 
-        let paceAlert: (any WorkoutAlert)? = paceSecondsPerKm.flatMap { pace in
-            let centerSpeed = 1000 / pace
-            let speedRange = (centerSpeed * 0.95)...(centerSpeed * 1.05)
-            let alert = SpeedRangeAlert(
-                target: Measurement(value: speedRange.lowerBound, unit: UnitSpeed.metersPerSecond)
-                    ... Measurement(value: speedRange.upperBound, unit: UnitSpeed.metersPerSecond),
-                metric: .average
-            )
-            return CustomWorkout.supportsAlert(alert, activity: .running, location: .outdoor) ? alert : nil
-        }
-
-        let paceLabel = paceSecondsPerKm.map { RunFormat.pace(seconds: $0, meters: 1000) }
-            .flatMap { $0 }
         var stepTitleParts = [run.runType.displayName]
-        if let paceLabel { stepTitleParts.append(paceLabel) }
+        if let mainPace, let label = RunFormat.pace(seconds: mainPace, meters: 1000) { stepTitleParts.append(label) }
         if let notes = run.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
             stepTitleParts.append(notes)
         }
 
-        let workGoal: WorkoutGoal
-        if let distanceKm = run.targetDistanceKm, distanceKm > 0 {
-            workGoal = .distance(distanceKm * 1000, .meters)
-        } else if let durationMinutes = run.targetDurationMin, durationMinutes > 0 {
-            workGoal = .time(Double(durationMinutes * 60), .seconds)
+        let blocks: [IntervalBlock]
+        if let custom = run.blocks, !custom.isEmpty {
+            blocks = custom.map { block in
+                var steps = [IntervalStep(.work, step: workoutStep(block.work, name: "Work"))]
+                if let recovery = block.recovery {
+                    steps.append(IntervalStep(.recovery, step: workoutStep(recovery, name: "Recover")))
+                }
+                return IntervalBlock(steps: steps, iterations: max(block.reps, 1))
+            }
         } else {
-            workGoal = .open
+            let workGoal: WorkoutGoal
+            if let distanceKm = run.targetDistanceKm, distanceKm > 0 {
+                workGoal = .distance(distanceKm * 1000, .meters)
+            } else if let durationMinutes = run.targetDurationMin, durationMinutes > 0 {
+                workGoal = .time(Double(durationMinutes * 60), .seconds)
+            } else {
+                workGoal = .open
+            }
+            blocks = [
+                IntervalBlock(steps: [
+                    IntervalStep(.work, step: WorkoutStep(
+                        goal: workGoal,
+                        alert: paceAlert(secPerKm: mainPace),
+                        displayName: stepTitleParts.joined(separator: " \u{00b7} ")
+                    ))
+                ])
+            ]
         }
+
+        let warmupMin = run.warmupMin ?? warmupMinutes
+        let cooldownMin = run.cooldownMin ?? cooldownMinutes
+        let warmup: WorkoutStep? = warmupMin > 0 ? WorkoutStep(
+            goal: .time(Double(warmupMin * 60), .seconds),
+            alert: paceAlert(secPerKm: run.warmupPaceSec.map(Double.init)),
+            displayName: "Warm Up \u{00b7} \(warmupMin) min" + (run.warmupPaceSec.map { " \u{00b7} \(PaceText.format($0))" } ?? "")
+        ) : nil
+        let cooldown: WorkoutStep? = cooldownMin > 0 ? WorkoutStep(
+            goal: .time(Double(cooldownMin * 60), .seconds),
+            alert: paceAlert(secPerKm: run.cooldownPaceSec.map(Double.init)),
+            displayName: "Cool Down \u{00b7} \(cooldownMin) min" + (run.cooldownPaceSec.map { " \u{00b7} \(PaceText.format($0))" } ?? "")
+        ) : nil
 
         let workout = CustomWorkout(
             activity: .running,
             location: .outdoor,
             displayName: "\(run.runType.displayName) Run",
-            warmup: WorkoutStep(
-                goal: .time(Double(warmupMinutes * 60), .seconds),
-                displayName: "Warm Up · \(warmupMinutes) min"
-            ),
-            blocks: [
-                IntervalBlock(steps: [
-                    IntervalStep(.work, step: WorkoutStep(
-                        goal: workGoal,
-                        alert: paceAlert,
-                        displayName: stepTitleParts.joined(separator: " · ")
-                    ))
-                ])
-            ],
-            cooldown: WorkoutStep(
-                goal: .time(Double(cooldownMinutes * 60), .seconds),
-                displayName: "Cool Down · \(cooldownMinutes) min"
-            )
+            warmup: warmup,
+            blocks: blocks,
+            cooldown: cooldown
         )
 
         return WorkoutPlan(.custom(workout), id: run.id)

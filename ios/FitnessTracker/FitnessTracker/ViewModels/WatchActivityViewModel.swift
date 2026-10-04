@@ -105,7 +105,10 @@ final class WatchActivityViewModel: ObservableObject {
                 case .walk:
                     guard !importedCardioIds.contains(workout.id) else { continue }
                     guard !overlapsExistingAppSession(workout, in: appCardioSessions) else { continue }
-                    built.append(.cardio(workout, cardioType: .outdoorWalk))
+                    // A walk the Watch started as an Indoor Walk is a treadmill
+                    // session, not an outdoor walk - so it counts as one and
+                    // its steps can come off the day's real walking.
+                    built.append(.cardio(workout, cardioType: workout.isIndoor == true ? .inclineTreadmill : .outdoorWalk))
                 case .stairmaster:
                     guard !importedCardioIds.contains(workout.id) else { continue }
                     guard !overlapsExistingAppSession(workout, in: appCardioSessions) else { continue }
@@ -193,6 +196,11 @@ final class WatchActivityViewModel: ObservableObject {
                 route: route,
                 healthkitUUID: workout.id
             )
+            // A machine-counted walk's steps go in the same place a hand-timed
+            // one's do, so "exclude cardio steps" works for Watch sessions too.
+            if workout.kind == .walk, workout.isIndoor == true, let steps = workout.stepCount, steps > 0 {
+                _ = try? await CardioStepSessionRepository().logSession(date: workout.startedAt, stepsBefore: 0, stepsAfter: steps)
+            }
             candidates.removeAll { $0.id == workout.id }
         } catch {
             errorMessage = error.localizedDescription

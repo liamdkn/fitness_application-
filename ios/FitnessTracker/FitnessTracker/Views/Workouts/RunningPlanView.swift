@@ -387,6 +387,9 @@ struct RunningPlanView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if let line = run.structureLine {
+                    Text(line).font(.caption).foregroundStyle(.secondary)
+                }
                 if let notes = run.notes, !notes.isEmpty {
                     Text(notes).font(.caption).foregroundStyle(.secondary)
                 }
@@ -457,8 +460,50 @@ private struct PlannedRunEditSheet: View {
     @State private var distanceText = ""
     @State private var durationText = ""
     @State private var notes = ""
+    @State private var warmupText = "10"
+    @State private var warmupPaceText = ""
+    @State private var cooldownText = "10"
+    @State private var cooldownPaceText = ""
+    @State private var mainPaceText = ""
+    @State private var blocks: [BlockDraft] = []
     @State private var errorMessage: String?
     private let repository = RunningPlanRepository()
+
+    /// One repeated piece being edited: everything as the text typed.
+    private struct BlockDraft: Identifiable {
+        let id = UUID()
+        var reps = "1"
+        var byDistance = true
+        var work = ""        // metres when byDistance, else seconds
+        var workPace = ""
+        var recoverySeconds = ""
+        var recoveryPace = ""
+
+        init() {}
+
+        init(_ block: RunBlock) {
+            reps = String(block.reps)
+            byDistance = block.work.distanceM != nil
+            work = block.work.distanceM.map { String(Int($0)) } ?? block.work.seconds.map(String.init) ?? ""
+            workPace = PaceText.field(block.work.paceSecPerKm)
+            recoverySeconds = block.recovery?.seconds.map(String.init) ?? ""
+            recoveryPace = PaceText.field(block.recovery?.paceSecPerKm)
+        }
+
+        var block: RunBlock? {
+            guard let reps = Int(reps), reps > 0, let amount = Double(work), amount > 0 else { return nil }
+            let step = RunStep(
+                distanceM: byDistance ? amount : nil,
+                seconds: byDistance ? nil : Int(amount),
+                paceSecPerKm: PaceText.parse(workPace)
+            )
+            var recovery: RunStep?
+            if let seconds = Int(recoverySeconds), seconds > 0 {
+                recovery = RunStep(distanceM: nil, seconds: seconds, paceSecPerKm: PaceText.parse(recoveryPace))
+            }
+            return RunBlock(reps: reps, work: step, recovery: recovery)
+        }
+    }
 
     init(planId: UUID, existing: PlannedRun?, onSaved: @escaping () -> Void) {
         self.planId = planId
@@ -470,6 +515,12 @@ private struct PlannedRunEditSheet: View {
             _distanceText = State(initialValue: existing.targetDistanceKm.map { RunningPlanDefaults.plain($0) } ?? "")
             _durationText = State(initialValue: existing.targetDurationMin.map(String.init) ?? "")
             _notes = State(initialValue: existing.notes ?? "")
+            _warmupText = State(initialValue: String(existing.warmupMin ?? 10))
+            _warmupPaceText = State(initialValue: PaceText.field(existing.warmupPaceSec))
+            _cooldownText = State(initialValue: String(existing.cooldownMin ?? 10))
+            _cooldownPaceText = State(initialValue: PaceText.field(existing.cooldownPaceSec))
+            _mainPaceText = State(initialValue: PaceText.field(existing.mainPaceSec))
+            _blocks = State(initialValue: (existing.blocks ?? []).map(BlockDraft.init))
         }
     }
 
@@ -505,6 +556,42 @@ private struct PlannedRunEditSheet: View {
                                 .frame(width: 70)
                             Text("min").foregroundStyle(.secondary)
                         }
+                        paceField("Pace", text: $mainPaceText)
+                    }
+                    .listRowBackground(AppRowBackground())
+
+                    Section {
+                        minutesField("Length", text: $warmupText)
+                        paceField("Pace", text: $warmupPaceText)
+                    } header: {
+                        Text("Warm-up")
+                    } footer: {
+                        Text("0 minutes means no warm-up. Pace is optional, as minutes:seconds per km, e.g. 6:30.")
+                    }
+                    .listRowBackground(AppRowBackground())
+
+                    Section {
+                        ForEach($blocks) { $block in
+                            blockEditor($block)
+                        }
+                        .onDelete { blocks.remove(atOffsets: $0) }
+                        Button {
+                            blocks.append(BlockDraft())
+                        } label: {
+                            Label(blocks.isEmpty ? "Add Intervals or Pace Blocks" : "Add Another Block", systemImage: "plus.circle")
+                        }
+                    } header: {
+                        Text("Intervals and blocks")
+                    } footer: {
+                        Text("Repeat a piece at its own pace, e.g. 6 \u{00d7} 400 m at 4:30 with 90 s recovery. When there are blocks they replace the single target above on the Watch.")
+                    }
+                    .listRowBackground(AppRowBackground())
+
+                    Section {
+                        minutesField("Length", text: $cooldownText)
+                        paceField("Pace", text: $cooldownPaceText)
+                    } header: {
+                        Text("Cool-down")
                     }
                     .listRowBackground(AppRowBackground())
                 }
@@ -532,22 +619,97 @@ private struct PlannedRunEditSheet: View {
         }
     }
 
+    private func paceField(_ label: String, text: Binding<String>) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            TextField("m:ss", text: text)
+                .keyboardType(.numbersAndPunctuation)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 70)
+            Text("/km").foregroundStyle(.secondary)
+        }
+    }
+
+    private func minutesField(_ label: String, text: Binding<String>) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            TextField("10", text: text)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 70)
+            Text("min").foregroundStyle(.secondary)
+        }
+    }
+
+    private func blockEditor(_ block: Binding<BlockDraft>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Repeat")
+                Spacer()
+                TextField("1", text: block.reps)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 50)
+                Text("\u{00d7}").foregroundStyle(.secondary)
+            }
+            Picker("Work by", selection: block.byDistance) {
+                Text("Distance").tag(true)
+                Text("Time").tag(false)
+            }
+            .pickerStyle(.segmented)
+            HStack {
+                Text("Work")
+                Spacer()
+                TextField("-", text: block.work)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 70)
+                Text(block.wrappedValue.byDistance ? "m" : "s").foregroundStyle(.secondary)
+            }
+            paceField("Work pace", text: block.workPace)
+            HStack {
+                Text("Recovery")
+                Spacer()
+                TextField("-", text: block.recoverySeconds)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 70)
+                Text("s").foregroundStyle(.secondary)
+            }
+            paceField("Recovery pace", text: block.recoveryPace)
+        }
+        .padding(.vertical, 4)
+    }
+
     private func save() async {
         let distance = runType == .rest ? nil : Double(distanceText)
         let duration = runType == .rest ? nil : Int(durationText)
         let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isRest = runType == .rest
+        let segments = RunningPlanRepository.Segments(
+            warmupMin: isRest ? nil : Int(warmupText).map { min(max($0, 0), 60) },
+            warmupPaceSec: isRest ? nil : PaceText.parse(warmupPaceText),
+            cooldownMin: isRest ? nil : Int(cooldownText).map { min(max($0, 0), 60) },
+            cooldownPaceSec: isRest ? nil : PaceText.parse(cooldownPaceText),
+            mainPaceSec: isRest ? nil : PaceText.parse(mainPaceText),
+            blocks: isRest ? nil : (blocks.compactMap(\.block).isEmpty ? nil : blocks.compactMap(\.block))
+        )
         do {
             if let existing {
                 try await repository.updateRun(
                     id: existing.id, date: date, runType: runType,
                     targetDistanceKm: distance, targetDurationMin: duration,
-                    notes: trimmedNotes.isEmpty ? nil : trimmedNotes
+                    notes: trimmedNotes.isEmpty ? nil : trimmedNotes,
+                    segments: segments
                 )
             } else {
                 try await repository.addRun(
                     planId: planId, date: date, runType: runType,
                     targetDistanceKm: distance, targetDurationMin: duration,
-                    notes: trimmedNotes.isEmpty ? nil : trimmedNotes
+                    notes: trimmedNotes.isEmpty ? nil : trimmedNotes,
+                    segments: segments
                 )
             }
             onSaved()

@@ -47,6 +47,8 @@ struct DetectedWatchWorkout: Identifiable {
     let avgCadenceSPM: Int?
     /// Active + resting energy, as Apple's own "Total Calories".
     let totalCalories: Double?
+    /// Steps taken during the workout, as the Watch counted them.
+    let stepCount: Int?
 }
 
 final class HealthKitManager {
@@ -134,6 +136,8 @@ final class HealthKitManager {
                 let basal = workout.statistics(for: basalEnergyType)?.sumQuantity()?.doubleValue(for: .kilocalorie())
                 if let activeCalories { totalCalories = activeCalories + (basal ?? 0) }
             }
+            let stepCount = workout.statistics(for: stepType)?.sumQuantity()
+                .map { Int($0.doubleValue(for: .count()).rounded()) }
             return DetectedWatchWorkout(
                 id: workout.uuid.uuidString,
                 kind: kind,
@@ -146,7 +150,8 @@ final class HealthKitManager {
                 elevationGainM: elevationGainM,
                 avgPowerW: avgPowerW,
                 avgCadenceSPM: avgCadenceSPM,
-                totalCalories: totalCalories
+                totalCalories: totalCalories,
+                stepCount: stepCount
             )
         }
     }

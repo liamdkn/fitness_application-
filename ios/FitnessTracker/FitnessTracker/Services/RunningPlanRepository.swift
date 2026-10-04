@@ -4,6 +4,18 @@ import Supabase
 struct RunningPlanRepository {
     let client = SupabaseService.shared.client
 
+
+    /// The pieces of a run beyond its date, type and basic targets.
+    struct Segments {
+        var warmupMin: Int?
+        var warmupPaceSec: Int?
+        var cooldownMin: Int?
+        var cooldownPaceSec: Int?
+        var mainPaceSec: Int?
+        var blocks: [RunBlock]?
+        static let none = Segments()
+    }
+
     private struct NewPlannedRun: Encodable {
         let running_plan_id: UUID
         let user_id: UUID
@@ -12,6 +24,29 @@ struct RunningPlanRepository {
         let target_distance_km: Double?
         let target_duration_min: Int?
         let notes: String?
+        let segments: Segments
+
+        enum CodingKeys: String, CodingKey {
+            case running_plan_id, user_id, date, run_type, target_distance_km, target_duration_min, notes
+            case warmup_min, warmup_pace_sec, cooldown_min, cooldown_pace_sec, main_pace_sec, blocks
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(running_plan_id, forKey: .running_plan_id)
+            try c.encode(user_id, forKey: .user_id)
+            try c.encode(date, forKey: .date)
+            try c.encode(run_type, forKey: .run_type)
+            try c.encode(target_distance_km, forKey: .target_distance_km)
+            try c.encode(target_duration_min, forKey: .target_duration_min)
+            try c.encode(notes, forKey: .notes)
+            try c.encode(segments.warmupMin, forKey: .warmup_min)
+            try c.encode(segments.warmupPaceSec, forKey: .warmup_pace_sec)
+            try c.encode(segments.cooldownMin, forKey: .cooldown_min)
+            try c.encode(segments.cooldownPaceSec, forKey: .cooldown_pace_sec)
+            try c.encode(segments.mainPaceSec, forKey: .main_pace_sec)
+            try c.encode(segments.blocks, forKey: .blocks)
+        }
     }
 
     /// Every editable field sent in full, with the optional ones as
@@ -22,9 +57,11 @@ struct RunningPlanRepository {
         let target_distance_km: Double?
         let target_duration_min: Int?
         let notes: String?
+        let segments: Segments
 
         enum CodingKeys: String, CodingKey {
             case date, run_type, target_distance_km, target_duration_min, notes
+            case warmup_min, warmup_pace_sec, cooldown_min, cooldown_pace_sec, main_pace_sec, blocks
         }
 
         func encode(to encoder: Encoder) throws {
@@ -34,6 +71,12 @@ struct RunningPlanRepository {
             try c.encode(target_distance_km, forKey: .target_distance_km)
             try c.encode(target_duration_min, forKey: .target_duration_min)
             try c.encode(notes, forKey: .notes)
+            try c.encode(segments.warmupMin, forKey: .warmup_min)
+            try c.encode(segments.warmupPaceSec, forKey: .warmup_pace_sec)
+            try c.encode(segments.cooldownMin, forKey: .cooldown_min)
+            try c.encode(segments.cooldownPaceSec, forKey: .cooldown_pace_sec)
+            try c.encode(segments.mainPaceSec, forKey: .main_pace_sec)
+            try c.encode(segments.blocks, forKey: .blocks)
         }
     }
 
@@ -107,7 +150,8 @@ struct RunningPlanRepository {
         runType: RunType,
         targetDistanceKm: Double?,
         targetDurationMin: Int?,
-        notes: String?
+        notes: String?,
+        segments: Segments = .none
     ) async throws -> PlannedRun {
         let userId = try await client.auth.session.user.id
         let inserted: [PlannedRun] = try await client
@@ -119,7 +163,8 @@ struct RunningPlanRepository {
                 run_type: runType.rawValue,
                 target_distance_km: targetDistanceKm,
                 target_duration_min: targetDurationMin,
-                notes: notes
+                notes: notes,
+                segments: segments
             ))
             .select()
             .execute()
@@ -135,7 +180,8 @@ struct RunningPlanRepository {
         runType: RunType,
         targetDistanceKm: Double?,
         targetDurationMin: Int?,
-        notes: String?
+        notes: String?,
+        segments: Segments = .none
     ) async throws -> PlannedRun {
         let updated: [PlannedRun] = try await client
             .from("planned_runs")
@@ -144,7 +190,8 @@ struct RunningPlanRepository {
                 run_type: runType.rawValue,
                 target_distance_km: targetDistanceKm,
                 target_duration_min: targetDurationMin,
-                notes: notes
+                notes: notes,
+                segments: segments
             ))
             .eq("id", value: id)
             .select()
