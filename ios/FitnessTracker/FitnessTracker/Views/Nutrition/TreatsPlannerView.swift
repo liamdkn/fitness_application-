@@ -13,17 +13,19 @@ struct TreatsPlannerView: View {
     @State private var treats: [PlannedTreat] = []
     @State private var showingPlanTreat = false
     @State private var errorMessage: String?
+    /// 0 = this week, 1 = next week, and so on - treats can be planned ahead.
+    @State private var weekOffset = 0
     private let goalsRepository = GoalsRepository()
     private let mealSlotsRepository = MealSlotsRepository()
     private let plannedTreatRepository = PlannedTreatRepository()
 
-    /// Always the current calendar week (Monday-first, matching
-    /// `MealLogHomeView`'s own week) - this screen manages what's coming
-    /// up, not whatever day happens to be selected on the log screen.
+    /// The week being planned (Monday-first, matching `MealLogHomeView`'s own
+    /// week): this one, or one up to a couple of months ahead.
     private var weekDates: [Date] {
         var calendar = Calendar.current
         calendar.firstWeekday = 2
-        guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start else { return [] }
+        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: Date())?.start,
+              let weekStart = calendar.date(byAdding: .weekOfYear, value: weekOffset, to: thisWeek) else { return [] }
         return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: weekStart) }
     }
 
@@ -51,8 +53,44 @@ struct TreatsPlannerView: View {
         return dailyTarget - bankedCalories / Double(nonTreatDays)
     }
 
+    private var weekTitle: String {
+        switch weekOffset {
+        case 0: return "This week"
+        case 1: return "Next week"
+        default:
+            guard let first = weekDates.first else { return "" }
+            return "Week of " + first.formatted(.dateTime.day().month(.abbreviated))
+        }
+    }
+
+    private var weekSwitcher: some View {
+        HStack {
+            Button {
+                weekOffset -= 1
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(weekOffset <= 0)
+            Spacer()
+            Text(weekTitle).font(.headline)
+            Spacer()
+            Button {
+                weekOffset += 1
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(weekOffset >= 8)
+        }
+        .buttonStyle(.borderless)
+    }
+
     var body: some View {
         List {
+            Section {
+                weekSwitcher
+            }
+            .listRowBackground(AppRowBackground())
+
             Section {
                 weeklyHeader
             }
@@ -63,7 +101,7 @@ struct TreatsPlannerView: View {
                     plannedTreatsSummary
                 }
                 if treats.isEmpty {
-                    Text("Nothing banked this week - add a treat and its calories/macros come off the totals above, spread out of the other days to compensate.")
+                    Text("Nothing banked for \(weekTitle.lowercased()) - add a treat and its calories/macros come off the totals above, spread out of the other days to compensate.")
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(treats) { treat in
@@ -99,6 +137,12 @@ struct TreatsPlannerView: View {
             }
         }
         .task { await load() }
+        .onChange(of: weekOffset) {
+            Task {
+                await loadGoal()
+                await loadTreats()
+            }
+        }
         .sheet(isPresented: $showingPlanTreat) {
             PlanTreatSheet(weekDates: weekDates, mealSlots: mealSlots) {
                 await loadTreats()
@@ -234,13 +278,12 @@ struct TreatsPlannerView: View {
         await loadTreats()
     }
 
-    /// Today's active goal - this screen only ever shows/manages the
-    /// current week, so unlike `MealLogHomeView` (which can look at any
-    /// past day) there's no historical goal to resolve here.
+    /// The goal in force at the start of the week shown (today's for this
+    /// week; a future week assumes the current goal carries on).
     private func loadGoal() async {
         let allGoals = ((try? await goalsRepository.fetchPastGoals(limit: 100)) ?? [])
             .sorted { $0.effectiveFrom < $1.effectiveFrom }
-        let isoDate = DateFormatting.isoDate(Date())
+        let isoDate = DateFormatting.isoDate(max(weekDates.first ?? Date(), Date()))
         goal = allGoals.last { $0.effectiveFrom <= isoDate }
     }
 
