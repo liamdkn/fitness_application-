@@ -41,10 +41,20 @@ struct SavedMealPickerView: View {
                     ForEach(sections, id: \.title) { section in
                         Section(section.title) {
                             ForEach(section.meals) { savedMeal in
-                                Button(savedMeal.name) {
-                                    Task { await apply(savedMeal) }
+                                NavigationLink {
+                                    SavedMealMenuPage(savedMeal: savedMeal, mealSlotName: mealSlotName) { items in
+                                        onApply(items)
+                                        dismiss()
+                                    }
+                                } label: {
+                                    Text(savedMeal.name)
                                 }
                                 .contextMenu {
+                                    Button {
+                                        Task { await apply(savedMeal) }
+                                    } label: {
+                                        Label("Add As Saved", systemImage: "plus.circle")
+                                    }
                                     Button {
                                         recategorizing = savedMeal
                                     } label: {

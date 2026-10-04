@@ -49,36 +49,26 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		03AE4A20B6D22DBE3D259D4D /* WatchShared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = WatchShared;
 			sourceTree = "<group>";
 		};
 		7F9DE17CE492B0262DA4EFBD /* FitnessTrackerWatch */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = FitnessTrackerWatch;
 			sourceTree = "<group>";
 		};
 		9ECF7F3A51FC8DBCD7EFE1FB /* FitnessTrackerWidgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = FitnessTrackerWidgets;
 			sourceTree = "<group>";
 		};
 		A1DE74EB302BA2E90083D4F2 /* FitnessTracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = FitnessTracker;
 			sourceTree = "<group>";
 		};
 		A2E17DB840C6E2D084A09632 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = Shared;
 			sourceTree = "<group>";
 		};
