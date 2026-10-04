@@ -23,9 +23,12 @@ struct NutritionRepository {
     }
 
     func fetchDailyTotals(from: Date, to: Date) async throws -> [NutritionLog] {
-        async let healthResult = fetchRange(from: from, to: to)
-        async let entriesResult = MealEntryRepository().fetchEntries(from: from, to: to)
-        let (health, entries) = try await (healthResult, entriesResult)
+        // Old Apple Health history is a bonus: offline it's simply absent. The
+        // meal log is read local-first, so entries logged with no signal count.
+        async let healthResult = try? fetchRange(from: from, to: to)
+        async let entriesResult = OfflineMealQueue.shared.fetchEntries(from: from, to: to)
+        let health = await healthResult ?? []
+        let entries = try await entriesResult
         guard !entries.isEmpty else { return health }
 
         let foodIds = Array(Set(entries.compactMap(\.foodId)))

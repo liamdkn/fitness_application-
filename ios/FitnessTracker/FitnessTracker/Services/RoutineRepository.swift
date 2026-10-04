@@ -82,14 +82,16 @@ struct RoutineRepository {
     }
 
     func fetchActiveRoutine() async throws -> Routine? {
-        let routines: [Routine] = try await client
-            .from("routines")
-            .select()
-            .eq("is_active", value: true)
-            .limit(1)
-            .execute()
-            .value
-        return routines.first
+        try await cachedRead(key: "active-routine") {
+            let routines: [Routine] = try await client
+                .from("routines")
+                .select()
+                .eq("is_active", value: true)
+                .limit(1)
+                .execute()
+                .value
+            return routines.first
+        }
     }
 
     func createRoutine(name: String) async throws -> Routine {
@@ -117,13 +119,15 @@ struct RoutineRepository {
     }
 
     func fetchDays(routineId: UUID) async throws -> [RoutineDay] {
-        try await client
-            .from("routine_days")
-            .select()
-            .eq("routine_id", value: routineId)
-            .order("position")
-            .execute()
-            .value
+        try await cachedRead(key: "routine-days-\(routineId)") {
+            try await client
+                .from("routine_days")
+                .select()
+                .eq("routine_id", value: routineId)
+                .order("position")
+                .execute()
+                .value
+        }
     }
 
     func addDay(routineId: UUID, label: String, position: Int, isOptional: Bool = false) async throws -> RoutineDay {

@@ -18,6 +18,7 @@ final class NetworkMonitor: ObservableObject {
     private var onReconnect: [() -> Void] = []
 
     private init() {
+        if Self.simulateOffline { isConnected = false }
         monitor.pathUpdateHandler = { [weak self] path in
             let connected = path.status == .satisfied
             Task { @MainActor [weak self] in
@@ -27,7 +28,19 @@ final class NetworkMonitor: ObservableObject {
         monitor.start(queue: queue)
     }
 
+    /// Debug builds only: launch with `-simulateOffline` to behave as if there
+    /// were no connection (this and every Supabase request - see
+    /// `SupabaseService`).
+    static var simulateOffline: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-simulateOffline")
+        #else
+        false
+        #endif
+    }
+
     private func handleUpdate(connected: Bool) {
+        if Self.simulateOffline { isConnected = false; return }
         let wasConnected = isConnected
         isConnected = connected
         if connected, !wasConnected {

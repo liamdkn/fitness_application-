@@ -63,6 +63,33 @@ extension View {
     }
 }
 
+extension View {
+    /// Nav-bar buttons (Cancel, Done, Save...) in the normal text colour -
+    /// white in dark mode - instead of the accent blue. Put on the content of
+    /// each `ToolbarItem`. (`Color.primary` rather than `.primary`, which
+    /// would pick up the blue tint.)
+    func appToolbarTint() -> some View {
+        self.tint(Color.primary)
+    }
+}
+
+/// The background of List and Form rows: frosted, translucent glass instead of
+/// the system's opaque grouped grey. Every `Section` applies it with
+/// `.listRowBackground(AppRowBackground())`. (Real `glassEffect` per row stacks
+/// a bright rim between every pair of rows, so rows use the material.)
+struct AppRowBackground: View {
+    /// How opaque the frosting is, 0 (clear) to 1 (the full material). Lower
+    /// it to see more of the background through the lists.
+    static let frost = 0.4
+
+    var body: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .opacity(Self.frost)
+            .overlay(Color.white.opacity(0.03))
+    }
+}
+
 /// A `NavigationStack` with the app background applied to every screen in it.
 /// Each tab's root uses this instead of a plain `NavigationStack`.
 struct AppNavigationStack<Content: View>: View {

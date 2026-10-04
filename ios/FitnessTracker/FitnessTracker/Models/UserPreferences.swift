@@ -24,6 +24,12 @@ struct UserPreferences: Codable {
     /// after midnight, 1110 = 18:30).
     var stepRemindersEnabled: Bool = true
     var stepReminderMinutes: Int = 1110
+    /// Daily milk allowance - see `MilkAllowanceService`.
+    var milkAllowanceEnabled: Bool = false
+    var milkAllowanceMl: Int = 100
+    var milkFoodId: UUID?
+    /// "yyyy-MM-dd" of the last day the allowance was added.
+    var milkAppliedDate: String?
 
     enum CodingKeys: String, CodingKey {
         case weeklyCheckinWeekday = "weekly_checkin_weekday"
@@ -42,6 +48,10 @@ struct UserPreferences: Codable {
         case caffeineRemindersEnabled = "caffeine_reminders_enabled"
         case stepRemindersEnabled = "step_reminders_enabled"
         case stepReminderMinutes = "step_reminder_minutes"
+        case milkAllowanceEnabled = "milk_allowance_enabled"
+        case milkAllowanceMl = "milk_allowance_ml"
+        case milkFoodId = "milk_food_id"
+        case milkAppliedDate = "milk_applied_date"
     }
 
     /// Older rows (and a missing row) simply lack the new columns -
@@ -64,6 +74,10 @@ struct UserPreferences: Codable {
         caffeineRemindersEnabled = try c.decodeIfPresent(Bool.self, forKey: .caffeineRemindersEnabled) ?? true
         stepRemindersEnabled = try c.decodeIfPresent(Bool.self, forKey: .stepRemindersEnabled) ?? true
         stepReminderMinutes = try c.decodeIfPresent(Int.self, forKey: .stepReminderMinutes) ?? 1110
+        milkAllowanceEnabled = try c.decodeIfPresent(Bool.self, forKey: .milkAllowanceEnabled) ?? false
+        milkAllowanceMl = try c.decodeIfPresent(Int.self, forKey: .milkAllowanceMl) ?? 100
+        milkFoodId = try c.decodeIfPresent(UUID.self, forKey: .milkFoodId)
+        milkAppliedDate = try c.decodeIfPresent(String.self, forKey: .milkAppliedDate)
     }
 
     init(

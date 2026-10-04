@@ -11,7 +11,10 @@ struct DailyCheckinSheet: View {
     @State private var selectedWorkoutChoice: WorkoutChoice = .rest
     @State private var energyLevel = 5
     @State private var sorenessLevel = 1
-    @State private var yesterdayWaterText = ""
+    /// Not asked any more - water is logged through the day in Liquids - but a
+    /// value saved by an older check-in is carried through unchanged when this
+    /// one is re-saved, rather than being wiped.
+    @State private var existingYesterdayWaterMl: Int?
     @State private var yesterdayOffPlan = false
     @State private var yesterdayOffPlanNotes = ""
     @State private var yesterdaySleepHoursText = ""
@@ -79,21 +82,9 @@ struct DailyCheckinSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Yesterday") {
-                    HStack {
-                        Text("Water Intake")
-                        Spacer()
-                        TextField("-", text: $yesterdayWaterText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                            .onChange(of: yesterdayWaterText) { _, newValue in
-                                yesterdayWaterText = Self.filteredDecimalText(newValue, maxDecimalPlaces: 1)
-                            }
-                        Text("L").foregroundStyle(.secondary).font(.caption)
-                    }
-
                     Toggle("Alcohol or off-plan meal?", isOn: $yesterdayOffPlan)
 
                     if yesterdayOffPlan {
@@ -101,6 +92,7 @@ struct DailyCheckinSheet: View {
                             .lineLimit(2...4)
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(AppColor.error)
@@ -116,6 +108,7 @@ struct DailyCheckinSheet: View {
                     } label: {
                         Image(systemName: "xmark")
                     }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -128,6 +121,7 @@ struct DailyCheckinSheet: View {
                         }
                     }
                     .disabled(isSaving)
+                    .appToolbarTint()
                 }
             }
             .task { await load() }
@@ -185,7 +179,7 @@ struct DailyCheckinSheet: View {
                 weightText = existing.weightKg.map { String(format: "%.1f", $0) } ?? ""
                 energyLevel = existing.energyLevel ?? 5
                 sorenessLevel = existing.sorenessLevel ?? 1
-                yesterdayWaterText = existing.yesterdayWaterMl.map { String(format: "%.1f", Double($0) / 1000.0) } ?? ""
+                existingYesterdayWaterMl = existing.yesterdayWaterMl
                 yesterdayOffPlan = existing.yesterdayOffPlan ?? false
                 yesterdayOffPlanNotes = existing.yesterdayOffPlanNotes ?? ""
                 if let routineDayId = existing.routineDayId {
@@ -226,48 +220,42 @@ struct DailyCheckinSheet: View {
             workoutChoiceLabel = "Rest"
         }
 
-        do {
-            try await checkinRepository.save(
-                date: Date(),
-                weightKg: weightKg,
-                routineDayId: routineDayId,
-                workoutChoiceLabel: workoutChoiceLabel,
-                isRestDay: isRest,
-                energyLevel: energyLevel,
-                sorenessLevel: sorenessLevel,
-                yesterdayWaterMl: Double(yesterdayWaterText).map { Int(($0 * 1000).rounded()) },
-                yesterdayOffPlan: yesterdayOffPlan,
-                yesterdayOffPlanNotes: yesterdayOffPlan ? yesterdayOffPlanNotes : nil
-            )
-
-            if let weightKg {
-                let updated = try? await bodyWeightRepository.updateTodaysWeight(kg: weightKg)
-                if updated == nil {
-                    _ = try? await bodyWeightRepository.logWeight(kg: weightKg)
-                }
-            }
-
-            if let sleepHours = Double(yesterdaySleepHoursText) {
-                let minutes = Int((sleepHours * 60).rounded())
-                let unchangedFromSync = existingSleepLog?.totalSleepMinutes == minutes
-                if !unchangedFromSync {
-                    try? await healthRepository.upsertSleep([
-                        SleepLog(
-                            userId: try await SupabaseService.shared.client.auth.session.user.id,
-                            date: DateFormatting.isoDate(Date()),
-                            totalSleepMinutes: minutes,
-                            inBedMinutes: minutes,
-                            source: "manual"
-                        )
-                    ])
-                }
-            }
-
-            CheckinAvailabilityService.shared.checkinCompleted(.daily)
-            await onSaved()
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
+        // Only a sleep figure the user changed is written back; one that
+        // matches the Health sync is left alone.
+        var sleepMinutes: Int?
+        if let sleepHours = Double(yesterdaySleepHoursText) {
+            let minutes = Int((sleepHours * 60).rounded())
+            if existingSleepLog?.totalSleepMinutes != minutes { sleepMinutes = minutes }
         }
+
+        let checkin = QueuedDailyCheckin(
+            date: Date(),
+            weightKg: weightKg,
+            routineDayId: routineDayId,
+            workoutChoiceLabel: workoutChoiceLabel,
+            isRestDay: isRest,
+            energyLevel: energyLevel,
+            sorenessLevel: sorenessLevel,
+            yesterdayWaterMl: existingYesterdayWaterMl,
+            yesterdayOffPlan: yesterdayOffPlan,
+            yesterdayOffPlanNotes: yesterdayOffPlan ? yesterdayOffPlanNotes : nil,
+            sleepMinutes: sleepMinutes
+        )
+
+        do {
+            try await DailyCheckinSubmitter.submit(checkin)
+        } catch {
+            // No connection: keep it on the phone and send it when back
+            // online - the check-in counts as done either way.
+            guard OfflineError.isConnectivity(error) else {
+                errorMessage = error.localizedDescription
+                return
+            }
+            OfflineOutbox.shared.enqueue(.dailyCheckin(checkin))
+        }
+
+        CheckinAvailabilityService.shared.checkinCompleted(.daily)
+        await onSaved()
+        dismiss()
     }
 }

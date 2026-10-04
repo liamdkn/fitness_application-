@@ -1,5 +1,48 @@
 import Foundation
 
+/// What a food mainly is in a meal: a protein, carb or fat source, or
+/// something else (seasoning, mostly-water foods). Lets a meal be read - and
+/// later built - as its protein / carb / fat parts.
+nonisolated enum FoodCategory: String, Codable, CaseIterable, Identifiable, Hashable {
+    case protein, carb, fat, other
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .protein: "Protein"
+        case .carb: "Carbs"
+        case .fat: "Fat"
+        case .other: "Other"
+        }
+    }
+
+    /// Order a meal lists its parts in.
+    var sortOrder: Int {
+        switch self {
+        case .protein: 0
+        case .carb: 1
+        case .fat: 2
+        case .other: 3
+        }
+    }
+
+    /// Every role a food's numbers point to: each macro that supplies at least
+    /// 30% of its energy (4/4/9 kcal per gram) - so salmon and eggs are both
+    /// protein and fat sources. Empty for near-zero-calorie foods. The same
+    /// rule the database backfill used, in display order.
+    static func suggested(calories: Double, proteinG: Double, carbsG: Double, fatG: Double) -> [FoodCategory] {
+        let p = proteinG * 4, c = carbsG * 4, f = fatG * 9
+        let total = p + c + f
+        guard total > 10 else { return [] }
+        var result: [FoodCategory] = []
+        if p / total >= 0.30 { result.append(.protein) }
+        if c / total >= 0.30 { result.append(.carb) }
+        if f / total >= 0.30 { result.append(.fat) }
+        return result
+    }
+}
+
 struct Food: Codable, Identifiable, Hashable {
     let id: UUID
     let name: String
@@ -28,9 +71,17 @@ struct Food: Codable, Identifiable, Hashable {
     /// The shared catalog row this is a personal copy of, if any - used to
     /// hide the original from search once a copy exists.
     let sourceFoodId: UUID?
+    /// Whether this belongs in Liquids and counts toward hydration and
+    /// caffeine. Not the same as being measured in ml - olive oil and hot
+    /// sauce are.
+    let isDrink: Bool
+    /// The roles this food fills in a meal (see `FoodCategory`) - empty when
+    /// not set. A food can have several: salmon is a protein and a fat source.
+    let categories: [FoodCategory]
 
     enum CodingKeys: String, CodingKey {
-        case id, name, brand
+        case id, name, brand, categories
+        case isDrink = "is_drink"
         case servingSize = "serving_size"
         case servingUnit = "serving_unit"
         case calories
@@ -58,10 +109,44 @@ struct Food: Codable, Identifiable, Hashable {
     func sodiumMg(at quantity: Double) -> Double? { sodiumMg.map { $0 * quantity } }
     func caffeineMg(at quantity: Double) -> Double? { caffeineMg.map { $0 * quantity } }
 
-    /// A drink is a food measured in millilitres ("ml", or "ml cup" for a
-    /// stored cup size) - logging one is a normal meal entry, and the
-    /// Liquids screen reads hydration and caffeine from those entries.
-    var isDrink: Bool { servingUnit.lowercased().hasPrefix("ml") }
+    /// The one a meal lists this food under: protein before carb before fat.
+    var primaryCategory: FoodCategory? { categories.first }
+
+    /// Source value of a one-off "just these calories and macros" entry.
+    static let quickAddSource = "quick_add"
+
+    /// True for a Quick Add entry - a hidden one-off that totals like any
+    /// food but is never listed in search, recents or the food database.
+    var isQuickAdd: Bool { source == Self.quickAddSource }
+
+    /// A drink (`isDrink`) is measured in millilitres ("ml", or "ml cup" for a
+    /// stored cup size) - logging one is a normal meal entry, and the Liquids
+    /// screen reads hydration and caffeine from those entries. Foods saved
+    /// before the flag existed decode as drinks if they're in ml.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        brand = try c.decodeIfPresent(String.self, forKey: .brand)
+        servingSize = try c.decode(Double.self, forKey: .servingSize)
+        servingUnit = try c.decode(String.self, forKey: .servingUnit)
+        calories = try c.decode(Double.self, forKey: .calories)
+        proteinG = try c.decode(Double.self, forKey: .proteinG)
+        carbsG = try c.decode(Double.self, forKey: .carbsG)
+        fatG = try c.decode(Double.self, forKey: .fatG)
+        fiberG = try c.decodeIfPresent(Double.self, forKey: .fiberG)
+        barcode = try c.decodeIfPresent(String.self, forKey: .barcode)
+        source = try c.decode(String.self, forKey: .source)
+        isCustom = try c.decode(Bool.self, forKey: .isCustom)
+        createdBy = try c.decodeIfPresent(UUID.self, forKey: .createdBy)
+        isVerified = try c.decode(Bool.self, forKey: .isVerified)
+        sodiumMg = try c.decodeIfPresent(Double.self, forKey: .sodiumMg)
+        caffeineMg = try c.decodeIfPresent(Double.self, forKey: .caffeineMg)
+        sourceFoodId = try c.decodeIfPresent(UUID.self, forKey: .sourceFoodId)
+        isDrink = try c.decodeIfPresent(Bool.self, forKey: .isDrink) ?? servingUnit.lowercased().hasPrefix("ml")
+        categories = (try c.decodeIfPresent([FoodCategory].self, forKey: .categories) ?? [])
+            .sorted { $0.sortOrder < $1.sortOrder }
+    }
 
     /// Millilitres in `quantity` servings; `nil` for a food that isn't a drink.
     func volumeMl(at quantity: Double) -> Double? { isDrink ? servingSize * quantity : nil }

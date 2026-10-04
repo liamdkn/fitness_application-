@@ -12,7 +12,7 @@ import SwiftUI
 /// button). Colours come from `AppColor`; the large corner radius matches the
 /// cards the buttons sit in, so changing it here keeps the two in step.
 struct AppButtonStyle: ButtonStyle {
-    enum Kind { case primary, secondary, destructive }
+    enum Kind { case primary, secondary, destructive, accent }
     enum Size { case large, compact }
 
     /// Shared by large buttons and the cards that hold them.
@@ -24,12 +24,18 @@ struct AppButtonStyle: ButtonStyle {
 
     @Environment(\.isEnabled) private var isEnabled
 
-    private var tint: Color { kind == .destructive ? AppColor.danger : AppColor.button }
+    private var tint: Color {
+        switch kind {
+        case .destructive: AppColor.danger
+        case .accent: AppColor.accent
+        default: AppColor.button
+        }
+    }
     private var radius: CGFloat { size == .large ? Self.largeCornerRadius : Self.compactCornerRadius }
 
     private var foreground: Color {
         switch kind {
-        case .primary: .white
+        case .primary, .accent: .white
         case .secondary: .primary
         case .destructive: AppColor.danger
         }
@@ -43,6 +49,7 @@ struct AppButtonStyle: ButtonStyle {
     private var glass: Glass {
         switch kind {
         case .primary: .regular.tint(tint.opacity(0.35)).interactive()
+        case .accent: .regular.tint(tint.opacity(0.85)).interactive()
         case .secondary: .regular.interactive()
         case .destructive: .regular.tint(tint.opacity(0.35)).interactive()
         }
@@ -66,20 +73,23 @@ extension ButtonStyle where Self == AppButtonStyle {
     static var appPrimary: AppButtonStyle { AppButtonStyle(kind: .primary, size: .large) }
     static var appSecondary: AppButtonStyle { AppButtonStyle(kind: .secondary, size: .large) }
     static var appDestructive: AppButtonStyle { AppButtonStyle(kind: .destructive, size: .large) }
+    /// The one blue call-to-action on a screen (e.g. Start Workout).
+    static var appAccent: AppButtonStyle { AppButtonStyle(kind: .accent, size: .large) }
     static var appPrimaryCompact: AppButtonStyle { AppButtonStyle(kind: .primary, size: .compact) }
     static var appSecondaryCompact: AppButtonStyle { AppButtonStyle(kind: .secondary, size: .compact) }
     static var appDestructiveCompact: AppButtonStyle { AppButtonStyle(kind: .destructive, size: .compact) }
 }
 
 /// A square-ish glass tile button with an icon over a label (the meal screen's
-/// Add Food / Recipes / Saved row, the quick-add buttons): accent-coloured
-/// content on interactive Liquid Glass.
+/// Add Food / Recipes / Saved row, the quick-add buttons): white content on
+/// interactive Liquid Glass.
 struct AppTileButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(AppColor.accent)
+            // Explicit colour: hierarchical `.primary` would pick up the tint.
+            .foregroundStyle(Color.primary)
             .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: AppButtonStyle.compactCornerRadius))
             .opacity(isEnabled ? 1 : 0.5)
             .contentShape(RoundedRectangle(cornerRadius: AppButtonStyle.compactCornerRadius))

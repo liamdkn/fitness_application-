@@ -64,15 +64,21 @@ struct MealEntryRepository {
     /// serving, so a food you always log as "137g" keeps offering 137g.
     func fetchLastQuantity(foodId: UUID) async throws -> Double? {
         struct Row: Decodable { let quantity: Double }
-        let rows: [Row] = try await client
-            .from("meal_entries")
-            .select("quantity")
-            .eq("food_id", value: foodId)
-            .order("logged_at", ascending: false)
-            .limit(1)
-            .execute()
-            .value
-        return rows.first?.quantity
+        do {
+            let rows: [Row] = try await client
+                .from("meal_entries")
+                .select("quantity")
+                .eq("food_id", value: foodId)
+                .order("logged_at", ascending: false)
+                .limit(1)
+                .execute()
+                .value
+            return rows.first?.quantity
+        } catch {
+            // Offline: just don't pre-fill - the quantity screen still works.
+            if OfflineError.isConnectivity(error) { return nil }
+            throw error
+        }
     }
 
     /// This user's most recently logged foods (recipes excluded), deduped
@@ -81,21 +87,23 @@ struct MealEntryRepository {
     /// before deduping, since the same food logged on several different
     /// days would otherwise crowd out real variety within `limit`.
     func fetchRecentlyLoggedFoodIds(limit: Int = 20) async throws -> [UUID] {
-        let rows: [MealEntry] = try await client
-            .from("meal_entries")
-            .select()
-            .order("logged_at", ascending: false)
-            .limit(limit * 6)
-            .execute()
-            .value
-        var seen = Set<UUID>()
-        var ordered: [UUID] = []
-        for row in rows {
-            guard let foodId = row.foodId, seen.insert(foodId).inserted else { continue }
-            ordered.append(foodId)
-            if ordered.count == limit { break }
+        try await cachedRead(key: "recent-food-ids") {
+            let rows: [MealEntry] = try await client
+                .from("meal_entries")
+                .select()
+                .order("logged_at", ascending: false)
+                .limit(limit * 6)
+                .execute()
+                .value
+            var seen = Set<UUID>()
+            var ordered: [UUID] = []
+            for row in rows {
+                guard let foodId = row.foodId, seen.insert(foodId).inserted else { continue }
+                ordered.append(foodId)
+                if ordered.count == limit { break }
+            }
+            return ordered
         }
-        return ordered
     }
 
     /// Every entry within an inclusive calendar range - used for the

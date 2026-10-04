@@ -23,21 +23,30 @@ struct SavedDaysRepository {
     }
 
     func fetchAll() async throws -> [SavedDay] {
-        try await client
-            .from("saved_days")
-            .select()
-            .order("name")
-            .execute()
-            .value
+        try await cachedRead(key: "saved-days") {
+            try await client
+                .from("saved_days")
+                .select()
+                .order("name")
+                .execute()
+                .value
+        }
     }
 
+    /// Also pulls in the items' foods and recipes, so a saved day can be
+    /// applied later with no connection.
     func fetchItems(savedDayId: UUID) async throws -> [SavedDayItem] {
-        try await client
-            .from("saved_day_items")
-            .select()
-            .eq("saved_day_id", value: savedDayId)
-            .execute()
-            .value
+        let items: [SavedDayItem] = try await cachedRead(key: "saved-day-items-\(savedDayId)") {
+            try await client
+                .from("saved_day_items")
+                .select()
+                .eq("saved_day_id", value: savedDayId)
+                .execute()
+                .value
+        }
+        _ = try? await FoodRepository().fetchByIds(items.compactMap(\.foodId))
+        _ = try? await RecipeRepository().fetchByIds(items.compactMap(\.recipeId))
+        return items
     }
 
     /// Snapshots every meal slot's current entries (`entries`, across the

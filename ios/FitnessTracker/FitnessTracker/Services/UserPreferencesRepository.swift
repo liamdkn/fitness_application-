@@ -20,6 +20,29 @@ struct UserPreferencesRepository {
         let caffeine_reminders_enabled: Bool
     }
 
+    /// `milk_food_id` / `milk_applied_date` go as explicit nulls so clearing works.
+    private struct UpsertMilkAllowance: Encodable {
+        let user_id: UUID
+        let milk_allowance_enabled: Bool
+        let milk_allowance_ml: Int
+        let milk_food_id: UUID?
+
+        enum CodingKeys: String, CodingKey { case user_id, milk_allowance_enabled, milk_allowance_ml, milk_food_id }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(user_id, forKey: .user_id)
+            try c.encode(milk_allowance_enabled, forKey: .milk_allowance_enabled)
+            try c.encode(milk_allowance_ml, forKey: .milk_allowance_ml)
+            try c.encode(milk_food_id, forKey: .milk_food_id)
+        }
+    }
+
+    private struct UpsertMilkApplied: Encodable {
+        let user_id: UUID
+        let milk_applied_date: String
+    }
+
     private struct UpsertStepReminders: Encodable {
         let user_id: UUID
         let step_reminders_enabled: Bool
@@ -67,7 +90,29 @@ struct UserPreferencesRepository {
         }
     }
 
+    /// Read with a last-known-good fallback, so the reminders, widgets and
+    /// milk allowance still have their settings with no connection.
     func fetch() async throws -> UserPreferences {
+        try await cachedRead(key: "user-preferences") { try await fetchFromServer() }
+    }
+
+    func setMilkAllowance(enabled: Bool, ml: Int, foodId: UUID?) async throws {
+        let userId = try await client.auth.session.user.id
+        try await client
+            .from("user_preferences")
+            .upsert(UpsertMilkAllowance(user_id: userId, milk_allowance_enabled: enabled, milk_allowance_ml: ml, milk_food_id: foodId), onConflict: "user_id")
+            .execute()
+    }
+
+    func markMilkApplied(date: String) async throws {
+        let userId = try await client.auth.session.user.id
+        try await client
+            .from("user_preferences")
+            .upsert(UpsertMilkApplied(user_id: userId, milk_applied_date: date), onConflict: "user_id")
+            .execute()
+    }
+
+    private func fetchFromServer() async throws -> UserPreferences {
         let userId = try await client.auth.session.user.id
         let rows: [UserPreferences] = try await client
             .from("user_preferences")

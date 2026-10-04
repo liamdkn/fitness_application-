@@ -28,6 +28,10 @@ struct MealSlotsRepository {
     /// back to a default rather than requiring a signup-time DB trigger,
     /// adapted here for a table of rows instead of a single settings row.
     func fetchAll() async throws -> [MealSlot] {
+        try await cachedRead(key: "meal-slots") { try await fetchAllFromServer() }
+    }
+
+    private func fetchAllFromServer() async throws -> [MealSlot] {
         let existing: [MealSlot] = try await client
             .from("meal_slots")
             .select()

@@ -6,12 +6,19 @@ struct RecipeRepository {
 
     func fetchByIds(_ ids: [UUID]) async throws -> [Recipe] {
         guard !ids.isEmpty else { return [] }
-        return try await client
-            .from("recipes")
-            .select()
-            .in("id", values: ids)
-            .execute()
-            .value
+        do {
+            let recipes: [Recipe] = try await client
+                .from("recipes")
+                .select()
+                .in("id", values: ids)
+                .execute()
+                .value
+            Caches.recipes.store(recipes)
+            return recipes
+        } catch {
+            guard OfflineError.isConnectivity(error) else { throw error }
+            return Caches.recipes.items(ids: ids)
+        }
     }
 
     func fetchIngredients(recipeId: UUID) async throws -> [RecipeIngredient] {

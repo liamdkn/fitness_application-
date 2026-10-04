@@ -25,13 +25,21 @@ final class SupabaseService: ObservableObject {
         // callers checking auth state on launch need to check
         // `session.isExpired` themselves rather than assuming "session
         // present" already means "session valid."
-        client = SupabaseClient(
-            supabaseURL: url,
-            supabaseKey: anonKey,
-            options: SupabaseClientOptions(
-                auth: .init(emitLocalSessionAsInitialSession: true)
-            )
+        var options = SupabaseClientOptions(
+            auth: .init(emitLocalSessionAsInitialSession: true)
         )
+        #if DEBUG
+        if NetworkMonitor.simulateOffline {
+            // Every request fails the way a real no-signal request does.
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [OfflineSimulatingURLProtocol.self]
+            options = SupabaseClientOptions(
+                auth: .init(emitLocalSessionAsInitialSession: true),
+                global: .init(session: URLSession(configuration: configuration))
+            )
+        }
+        #endif
+        client = SupabaseClient(supabaseURL: url, supabaseKey: anonKey, options: options)
 
         Task { await observeAuthChanges() }
     }
@@ -50,3 +58,16 @@ final class SupabaseService: ObservableObject {
         try await client.auth.signOut()
     }
 }
+
+#if DEBUG
+/// Fails every request with "not connected to the internet" - used only by
+/// the `-simulateOffline` launch argument.
+final class OfflineSimulatingURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+    }
+    override func stopLoading() {}
+}
+#endif

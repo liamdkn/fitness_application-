@@ -31,21 +31,30 @@ struct SavedMealsRepository {
     }
 
     func fetchAll() async throws -> [SavedMeal] {
-        try await client
-            .from("saved_meals")
-            .select()
-            .order("name")
-            .execute()
-            .value
+        try await cachedRead(key: "saved-meals") {
+            try await client
+                .from("saved_meals")
+                .select()
+                .order("name")
+                .execute()
+                .value
+        }
     }
 
+    /// Also pulls in the items' foods and recipes, so a saved meal can be
+    /// applied later with no connection.
     func fetchItems(savedMealId: UUID) async throws -> [SavedMealItem] {
-        try await client
-            .from("saved_meal_items")
-            .select()
-            .eq("saved_meal_id", value: savedMealId)
-            .execute()
-            .value
+        let items: [SavedMealItem] = try await cachedRead(key: "saved-meal-items-\(savedMealId)") {
+            try await client
+                .from("saved_meal_items")
+                .select()
+                .eq("saved_meal_id", value: savedMealId)
+                .execute()
+                .value
+        }
+        _ = try? await FoodRepository().fetchByIds(items.compactMap(\.foodId))
+        _ = try? await RecipeRepository().fetchByIds(items.compactMap(\.recipeId))
+        return items
     }
 
     /// Snapshots `entries` (a meal slot's already-logged entries for some
