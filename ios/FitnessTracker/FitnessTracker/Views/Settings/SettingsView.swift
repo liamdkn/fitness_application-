@@ -123,6 +123,9 @@ struct SettingsView: View {
                 .listRowBackground(AppRowBackground())
 
                 Section("Account") {
+                    NavigationLink("Your Data") {
+                        AccountDataView()
+                    }
                     Button("Sign Out", role: .destructive) {
                         Task {
                             // Send anything waiting first; only warn if some

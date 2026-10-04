@@ -67,6 +67,18 @@ struct ProgressPhotoRepository {
         return photo
     }
 
+    /// Removes every photo file this user has uploaded - done before deleting
+    /// the account, since stored files can't be removed from the database side.
+    func deleteAllFiles() async throws {
+        let photos = try await fetchRecent(limit: 5000)
+        let paths = photos.map(\.storagePath)
+        guard !paths.isEmpty else { return }
+        // In batches, so one request never carries thousands of paths.
+        for start in stride(from: 0, to: paths.count, by: 100) {
+            _ = try await client.storage.from(bucket).remove(paths: Array(paths[start..<min(start + 100, paths.count)]))
+        }
+    }
+
     func signedURL(path: String, expiresIn: Int = 3600) async throws -> URL {
         try await client.storage.from(bucket).createSignedURL(path: path, expiresIn: expiresIn)
     }
