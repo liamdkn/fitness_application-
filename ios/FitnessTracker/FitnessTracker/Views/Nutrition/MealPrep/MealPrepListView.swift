@@ -77,6 +77,7 @@ struct MealPrepListView: View {
                         link(for: summary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if !frozen.isEmpty {
@@ -85,6 +86,7 @@ struct MealPrepListView: View {
                         link(for: summary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if !dishes.isEmpty {
@@ -97,6 +99,7 @@ struct MealPrepListView: View {
                 } footer: {
                     Text("Make Again starts a new batch with the same ingredients - swap a brand or change an amount before you save.")
                 }
+                .listRowBackground(AppRowBackground())
             }
         }
         .appScreen()
@@ -109,6 +112,7 @@ struct MealPrepListView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .appToolbarTint()
             }
         }
         .task { await load() }

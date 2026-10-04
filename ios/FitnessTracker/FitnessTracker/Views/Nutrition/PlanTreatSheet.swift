@@ -89,6 +89,7 @@ struct PlanTreatSheet: View {
                     }
                     TextField(items.isEmpty ? "What's the treat? (e.g. Birthday cake)" : "Name (optional)", text: $label)
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section {
                     ForEach(Array(items.enumerated()), id: \.offset) { _, item in
@@ -117,6 +118,7 @@ struct PlanTreatSheet: View {
                          ? "Search for the foods like you would for a meal and add as many as you like. Or skip this and type the totals below."
                          : "The treat's calories and macros are the total of these.")
                 }
+                .listRowBackground(AppRowBackground())
 
                 if items.isEmpty {
                     Section("Or enter the totals - extra, on top of a normal day's share") {
@@ -128,6 +130,7 @@ struct PlanTreatSheet: View {
                             energyRow(energyCheck)
                         }
                     }
+                    .listRowBackground(AppRowBackground())
                 } else {
                     Section("Total - extra, on top of a normal day's share") {
                         LabeledContent("Calories", value: "\(Int(itemTotals.calories.rounded())) kcal")
@@ -135,6 +138,7 @@ struct PlanTreatSheet: View {
                         LabeledContent("Carbs", value: "\(Int(itemTotals.carbsG.rounded()))g")
                         LabeledContent("Fat", value: "\(Int(itemTotals.fatG.rounded()))g")
                     }
+                    .listRowBackground(AppRowBackground())
                 }
 
                 Text("This comes off the week's totals up top, and the other days adjust to compensate - the week's budget stays the same, only how it's spread across the days changes.")
@@ -157,10 +161,12 @@ struct PlanTreatSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
                         .disabled(!isValid || isSaving)
+                    .appToolbarTint()
                 }
             }
         }

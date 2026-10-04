@@ -29,6 +29,7 @@ struct MealSlotsSettingsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 EditButton()
+                .appToolbarTint()
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -37,6 +38,7 @@ struct MealSlotsSettingsView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .appToolbarTint()
             }
         }
         .task { await load() }

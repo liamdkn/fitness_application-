@@ -80,6 +80,7 @@ struct AdjustPhaseView: View {
                 } footer: {
                     Text("Everything through the day before this stays exactly as it was - only days from here on are judged against the new numbers.")
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Nutrition") {
                     LabeledField(label: "Daily Calories", text: $dailyCalorieTarget, unit: "kcal")
@@ -97,22 +98,26 @@ struct AdjustPhaseView: View {
                             .foregroundStyle(AppColor.danger)
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 if currentGoal.phaseType != .maintain {
                     Section("Rate") {
                         LabeledField(label: weeklyRateLabel, text: $weeklyRateKg, unit: "kg")
                     }
+                    .listRowBackground(AppRowBackground())
                 }
 
                 Section("Other Targets") {
                     LabeledField(label: "Step Target", text: $stepTarget, unit: "steps")
                     LabeledField(label: "Sleep Target", text: $sleepTargetHours, unit: "hrs")
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Cardio Targets") {
                     LabeledField(label: "Sessions / Week", text: $cardioSessionsPerWeek, unit: "sessions")
                     LabeledField(label: "Minutes / Session", text: $cardioMinutesPerSession, unit: "min")
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Training Targets") {
                     LabeledField(label: "Sessions / Week", text: $strengthSessionsPerWeek, unit: "sessions")
@@ -121,6 +126,7 @@ struct AdjustPhaseView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .listRowBackground(AppRowBackground())
 
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(AppColor.error)
@@ -138,6 +144,7 @@ struct AdjustPhaseView: View {
                     }
                     .disabled(!isValid || isSaving)
                 }
+                .listRowBackground(AppRowBackground())
             }
             .appScreen()
             .navigationTitle("Adjust Phase")
@@ -145,6 +152,7 @@ struct AdjustPhaseView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
             }
         }

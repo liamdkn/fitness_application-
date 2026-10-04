@@ -74,6 +74,7 @@ struct MealPrepDetailView: View {
                     LabeledContent("Portion weight", value: "\(Int(weight.rounded()))g")
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             if !summary.isFinished {
                 Section {
@@ -83,6 +84,7 @@ struct MealPrepDetailView: View {
                         Label("Log a Portion", systemImage: "fork.knife")
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             Section("Ingredients") {
@@ -103,6 +105,7 @@ struct MealPrepDetailView: View {
                     }
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             if let previous {
                 Section {
@@ -118,6 +121,7 @@ struct MealPrepDetailView: View {
                 } footer: {
                     Text("Per portion.")
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             Section {
@@ -174,6 +178,7 @@ struct MealPrepDetailView: View {
                     Text("Eaten from, so it can be finished but not deleted - the portions you logged still count in your totals.")
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             if let errorMessage {
                 Text(errorMessage).foregroundStyle(AppColor.error)
@@ -406,6 +411,7 @@ private struct EditBatchSheet: View {
                         Text("Portions set what one serving is worth: the whole batch divided by this.")
                     }
                 }
+                .listRowBackground(AppRowBackground())
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(AppColor.error)
                 }
@@ -416,10 +422,12 @@ private struct EditBatchSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
                         .disabled(isSaving)
+                    .appToolbarTint()
                 }
             }
         }

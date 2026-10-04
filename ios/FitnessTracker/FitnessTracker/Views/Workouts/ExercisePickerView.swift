@@ -14,7 +14,7 @@ struct ExercisePickerView: View {
                     onPick(exercise)
                     dismiss()
                 } label: {
-                    ExerciseRowContent(exercise: exercise)
+                    ExerciseRowContent(exercise: exercise, isTried: listViewModel.isTried(exercise))
                 }
             }
             .appScreen()
@@ -23,9 +23,11 @@ struct ExercisePickerView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("New Exercise") { showingAddCustom = true }
+                    .appToolbarTint()
                 }
             }
             .sheet(isPresented: $showingAddCustom) {
@@ -71,6 +73,7 @@ struct AddCustomExerciseView: View {
                     }
                     TextField("Equipment (optional)", text: $equipment)
                 }
+                .listRowBackground(AppRowBackground())
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(AppColor.error)
                 }
@@ -81,10 +84,12 @@ struct AddCustomExerciseView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
                         .disabled(name.isEmpty || isSaving)
+                    .appToolbarTint()
                 }
             }
         }

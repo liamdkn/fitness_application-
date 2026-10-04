@@ -31,6 +31,7 @@ struct RoutineEditorView: View {
                 Section {
                     sessionsBanner(target: sessionsTarget)
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if let routine {
@@ -48,6 +49,7 @@ struct RoutineEditorView: View {
                         }
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if routine == nil {
@@ -55,6 +57,7 @@ struct RoutineEditorView: View {
                     Text("You don't have a split set up yet. Add your first day below - e.g. \"Push\", \"Pull\", \"Legs\", or \"Full Body\".")
                         .foregroundStyle(.secondary)
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             ForEach(days) { day in
@@ -72,6 +75,7 @@ struct RoutineEditorView: View {
                 } footer: {
                     Text("What Train's day carousel shows for each day of the week - a specific workout, an active rest day like a run, or a full rest day.")
                 }
+                .listRowBackground(AppRowBackground())
             }
         }
         .appScreen()
@@ -83,6 +87,7 @@ struct RoutineEditorView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .appToolbarTint()
             }
         }
         .task { await load() }
@@ -273,6 +278,7 @@ private struct ScheduleSlotEditorView: View {
                     .listRowInsets(EdgeInsets())
                     .padding()
                 }
+                .listRowBackground(AppRowBackground())
 
                 switch dayType {
                 case .workout:
@@ -308,10 +314,12 @@ private struct ScheduleSlotEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
                         .disabled(isSaving || (dayType == .workout && availableDays.isEmpty))
+                    .appToolbarTint()
                 }
             }
         }

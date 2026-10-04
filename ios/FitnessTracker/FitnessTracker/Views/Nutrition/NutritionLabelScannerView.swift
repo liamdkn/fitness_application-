@@ -172,6 +172,7 @@ struct NutritionLabelScannerView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
             }
         }

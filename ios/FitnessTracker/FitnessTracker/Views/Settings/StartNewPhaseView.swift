@@ -69,6 +69,7 @@ struct StartNewPhaseView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                        .listRowBackground(AppRowBackground())
                     } else {
                         Section {
                             Text("\(createdGoal.phaseType.displayName) phase started.")
@@ -77,6 +78,7 @@ struct StartNewPhaseView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                        .listRowBackground(AppRowBackground())
                         Section {
                             MeasurementsPhotosCaptureView(
                                 onSaveMeasurement: { waist, left, right in
@@ -93,10 +95,12 @@ struct StartNewPhaseView: View {
                                 }
                             )
                         }
+                        .listRowBackground(AppRowBackground())
                     }
                     Section {
                         Button("Done") { dismiss() }
                     }
+                    .listRowBackground(AppRowBackground())
                 } else {
                     Section("Phase Type") {
                         Picker("Type", selection: $phaseType) {
@@ -106,6 +110,7 @@ struct StartNewPhaseView: View {
                         }
                         .pickerStyle(.segmented)
                     }
+                    .listRowBackground(AppRowBackground())
 
                     Section("Details") {
                         DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
@@ -115,6 +120,7 @@ struct StartNewPhaseView: View {
                             LabeledField(label: weeklyRateLabel, text: $weeklyRateKg, unit: "kg")
                         }
                     }
+                    .listRowBackground(AppRowBackground())
 
                     Section("Nutrition Targets") {
                         LabeledField(label: "Daily Calories", text: $dailyCalorieTarget, unit: "kcal")
@@ -132,16 +138,19 @@ struct StartNewPhaseView: View {
                                 .foregroundStyle(AppColor.danger)
                         }
                     }
+                    .listRowBackground(AppRowBackground())
 
                     Section("Other Targets") {
                         LabeledField(label: "Step Target", text: $stepTarget, unit: "steps")
                         LabeledField(label: "Sleep Target", text: $sleepTargetHours, unit: "hrs")
                     }
+                    .listRowBackground(AppRowBackground())
 
                     Section("Cardio Targets") {
                         LabeledField(label: "Sessions / Week", text: $cardioSessionsPerWeek, unit: "sessions")
                         LabeledField(label: "Minutes / Session", text: $cardioMinutesPerSession, unit: "min")
                     }
+                    .listRowBackground(AppRowBackground())
 
                     Section("Training Targets") {
                         LabeledField(label: "Sessions / Week", text: $strengthSessionsPerWeek, unit: "sessions")
@@ -150,6 +159,7 @@ struct StartNewPhaseView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .listRowBackground(AppRowBackground())
 
                     if let errorMessage {
                         Text(errorMessage).foregroundStyle(AppColor.error)
@@ -167,6 +177,7 @@ struct StartNewPhaseView: View {
                         }
                         .disabled(!isValid || isSaving)
                     }
+                    .listRowBackground(AppRowBackground())
                 }
             }
             .appScreen()
@@ -175,6 +186,7 @@ struct StartNewPhaseView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
             }
         }

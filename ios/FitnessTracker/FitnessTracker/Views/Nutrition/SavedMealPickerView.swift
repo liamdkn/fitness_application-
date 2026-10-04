@@ -57,6 +57,7 @@ struct SavedMealPickerView: View {
                                 Task { await delete(toDelete) }
                             }
                         }
+                        .listRowBackground(AppRowBackground())
                     }
                 }
             }
@@ -65,6 +66,7 @@ struct SavedMealPickerView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
             }
             .task { await load() }
@@ -137,6 +139,7 @@ struct SavedMealCategoryField: View {
         } footer: {
             Text("Groups saved meals together in the Saved Meals list.")
         }
+        .listRowBackground(AppRowBackground())
         .onAppear(perform: setInitialChoice)
         .onChange(of: choice) { sync() }
         .onChange(of: newName) { sync() }
@@ -188,6 +191,7 @@ struct SaveMealSheet: View {
                     TextField("Name (e.g. \"My Usual Breakfast\")", text: $name)
                         .textInputAutocapitalization(.words)
                 }
+                .listRowBackground(AppRowBackground())
                 SavedMealCategoryField(category: $category, existingCategories: existingCategories)
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(AppColor.error)
@@ -198,10 +202,12 @@ struct SaveMealSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+                    .appToolbarTint()
                 }
             }
             .task {
@@ -256,9 +262,11 @@ private struct ChangeCategorySheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
+                    .appToolbarTint()
                 }
             }
         }

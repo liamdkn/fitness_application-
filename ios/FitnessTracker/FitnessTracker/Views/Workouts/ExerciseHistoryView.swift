@@ -64,6 +64,7 @@ struct ExerciseHistoryView: View {
                     } header: {
                         Text(entry.performedAt, style: .date)
                     }
+                    .listRowBackground(AppRowBackground())
                 }
             }
         }

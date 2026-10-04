@@ -22,6 +22,7 @@ struct AddExerciseNoteSheet: View {
                     TextField("e.g. Shoulder was sore on this one", text: $noteText, axis: .vertical)
                         .lineLimit(4...10)
                 }
+                .listRowBackground(AppRowBackground())
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(AppColor.error)
                 }
@@ -31,6 +32,7 @@ struct AddExerciseNoteSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -43,6 +45,7 @@ struct AddExerciseNoteSheet: View {
                         }
                     }
                     .disabled(isSaving)
+                    .appToolbarTint()
                 }
             }
             .task {

@@ -102,6 +102,7 @@ struct CardioSessionEndSheet: View {
                         Text("bpm").foregroundStyle(.secondary).font(.caption)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
             .appScreen()
             .navigationTitle("End Session")
@@ -116,6 +117,7 @@ struct CardioSessionEndSheet: View {
                             dismiss()
                         }
                     }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
@@ -128,6 +130,7 @@ struct CardioSessionEndSheet: View {
                         }
                     }
                     .disabled(!isValid || isSaving)
+                    .appToolbarTint()
                 }
             }
             .confirmationDialog("Leave Without Finishing?", isPresented: $showingCancelDialog) {

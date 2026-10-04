@@ -21,6 +21,7 @@ struct InjuriesView: View {
                         injuryRow(injury)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if !resolvedInjuries.isEmpty {
@@ -29,6 +30,7 @@ struct InjuriesView: View {
                         injuryRow(injury)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if injuries.isEmpty {
@@ -45,6 +47,7 @@ struct InjuriesView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .appToolbarTint()
             }
         }
         .task { await load() }
@@ -148,17 +151,20 @@ private struct AddInjurySheet: View {
                         }
                     }
                 }
+                .listRowBackground(AppRowBackground())
                 Section("Details") {
                     DatePicker("Started", selection: $startedAt, in: ...Date(), displayedComponents: .date)
                     TextField("Notes (optional)", text: $notes, axis: .vertical)
                         .lineLimit(2...4)
                 }
+                .listRowBackground(AppRowBackground())
             }
             .appScreen()
             .navigationTitle("Log Injury")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
@@ -170,6 +176,7 @@ private struct AddInjurySheet: View {
                         }
                     }
                     .disabled(isSaving)
+                    .appToolbarTint()
                 }
             }
         }

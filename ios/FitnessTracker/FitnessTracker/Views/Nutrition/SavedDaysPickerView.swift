@@ -43,6 +43,7 @@ struct SavedDaysPickerView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
             }
             .task { await load() }
@@ -99,6 +100,7 @@ struct SaveDaySheet: View {
                 } footer: {
                     Text("\(Int(totals.calories)) kcal \u{00b7} P\(Int(totals.proteinG))g \u{00b7} C\(Int(totals.carbsG))g \u{00b7} F\(Int(totals.fatG))g will be saved as this day's totals.")
                 }
+                .listRowBackground(AppRowBackground())
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(AppColor.error)
                 }
@@ -108,10 +110,12 @@ struct SaveDaySheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+                    .appToolbarTint()
                 }
             }
         }

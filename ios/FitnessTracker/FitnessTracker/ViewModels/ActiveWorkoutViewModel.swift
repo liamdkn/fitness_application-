@@ -47,6 +47,16 @@ struct ActiveExercise: Identifiable {
     }
 }
 
+/// A one-off change to a planned day, made before starting it: planned
+/// exercises to leave out and extra ones to add. Applies to this workout only -
+/// the routine itself isn't touched.
+struct WorkoutModification {
+    var removedExerciseIds: Set<UUID> = []
+    var addedExercises: [Exercise] = []
+
+    var isEmpty: Bool { removedExerciseIds.isEmpty && addedExercises.isEmpty }
+}
+
 @MainActor
 final class ActiveWorkoutViewModel: ObservableObject {
     @Published private(set) var workout: Workout
@@ -77,8 +87,12 @@ final class ActiveWorkoutViewModel: ObservableObject {
     private var liveActivityTask: Task<Void, Never>?
     private var liveActivityEnded = false
 
-    init(workout: Workout) {
+    /// Applied once, after the day's exercises first load (never on a resume).
+    private var pendingModification: WorkoutModification?
+
+    init(workout: Workout, modification: WorkoutModification? = nil) {
         self.workout = workout
+        self.pendingModification = (modification?.isEmpty ?? true) ? nil : modification
     }
 
     /// Pushes the current exercise / set / rest timer to the Live Activity.
@@ -197,6 +211,20 @@ final class ActiveWorkoutViewModel: ObservableObject {
             }
         } catch {
             errorMessage = error.localizedDescription
+        }
+        // The "Start Modified Workout" changes - leave out some planned
+        // exercises, add others - through the same paths as doing it mid-workout.
+        if let modification = pendingModification {
+            pendingModification = nil
+            for exerciseId in modification.removedExerciseIds {
+                await removeExercise(exerciseId: exerciseId)
+            }
+            for exercise in modification.addedExercises {
+                await addAdHocExercise(exercise)
+            }
+            // Removing and adding leaves gaps and repeats in the saved
+            // positions; renumber them to match what's on screen.
+            await persistExerciseOrder()
         }
         // Advisory only - never blocks the workout from loading if this
         // fails (offline, or any other error).

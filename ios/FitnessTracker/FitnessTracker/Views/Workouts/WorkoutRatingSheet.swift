@@ -2,7 +2,7 @@ import SwiftUI
 
 /// How many of this workout's exercises actually got a set logged, vs how
 /// many were part of the session (routine-day planned, or added ad hoc)
-/// but never touched - shown on the finish sheet as "X of Y completed, Z
+/// but never touched - shown on the paused screen as "X of Y completed, Z
 /// skipped." Lays the groundwork for a future rating/penalty on skipping,
 /// not scored here - just surfaced.
 struct WorkoutCompletionSummary {
@@ -11,18 +11,31 @@ struct WorkoutCompletionSummary {
     var skippedExercises: Int { max(0, totalExercises - completedExercises) }
 }
 
+/// The paused workout: rate it (and add notes) to save it, or discard it.
+/// Reached from the single "Pause Workout" button at the bottom of the live
+/// screen. Saving needs a rating; swiping the sheet away (or Resume) goes
+/// back to the workout, which is untouched - still running, nothing saved -
+/// until Save or Discard is actually tapped.
 struct WorkoutRatingSheet: View {
     let summary: WorkoutCompletionSummary
     let onSave: (Int, String) async -> Void
+    let onDiscard: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var rating = 3
+    @State private var rating: Int?
     @State private var notes: String
-    @State private var isSaving = false
+    @State private var isWorking = false
+    @State private var confirmingDiscard = false
 
-    init(summary: WorkoutCompletionSummary, initialNotes: String, onSave: @escaping (Int, String) async -> Void) {
+    init(
+        summary: WorkoutCompletionSummary,
+        initialNotes: String,
+        onSave: @escaping (Int, String) async -> Void,
+        onDiscard: @escaping () async -> Void
+    ) {
         self.summary = summary
         self.onSave = onSave
+        self.onDiscard = onDiscard
         _notes = State(initialValue: initialNotes)
     }
 
@@ -36,49 +49,78 @@ struct WorkoutRatingSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
-                Section("Rate This Workout") {
+                Section {
                     Picker("Rating", selection: $rating) {
                         ForEach(1...5, id: \.self) { value in
-                            Text("\(value)").tag(value)
+                            Text("\(value)").tag(Optional(value))
                         }
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                } header: {
+                    Text("Rate This Workout")
+                } footer: {
+                    if rating == nil {
+                        Text("Pick a rating to save the workout.")
+                    }
                 }
+                .listRowBackground(AppRowBackground())
 
-                // Whole-workout notes moved here from the live workout
-                // screen - a field sitting at the bottom of an in-progress
-                // workout went unused; asking for it once, at the natural
-                // "how'd that go" moment, is the more honest home for it.
+                // Whole-workout notes live here rather than on the live
+                // screen - asked for once, at the natural "how'd that go" moment.
                 Section("Notes") {
                     TextField("Notes (optional)", text: $notes, axis: .vertical)
                         .lineLimit(2...6)
                 }
-            }
-            .appScreen()
-            .navigationTitle("Workout Finished")
-            // Swipeable, deliberately - realizing you forgot to log a set
-            // should be a swipe back to the workout, not a dead end. The
-            // workout itself is untouched either way (still running,
-            // nothing saved) until Save is actually tapped.
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                .listRowBackground(AppRowBackground())
+
+                Section {
                     Button {
-                        isSaving = true
+                        guard let rating else { return }
+                        isWorking = true
                         Task {
                             await onSave(rating, notes)
-                            isSaving = false
+                            isWorking = false
                             dismiss()
                         }
                     } label: {
-                        if isSaving {
-                            ProgressView()
+                        if isWorking {
+                            ProgressView().frame(maxWidth: .infinity)
                         } else {
-                            Text("Save")
+                            Text("Save Workout")
                         }
                     }
-                    .disabled(isSaving)
+                    .buttonStyle(.appAccent)
+                    .disabled(rating == nil || isWorking)
+
+                    Button {
+                        confirmingDiscard = true
+                    } label: {
+                        Text("Discard Workout")
+                    }
+                    .buttonStyle(.appDestructive)
+                    .disabled(isWorking)
+
+                    Button("Resume Workout") { dismiss() }
+                        .frame(maxWidth: .infinity)
+                        .disabled(isWorking)
+                        .padding(.top, 4)
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+            .appScreen()
+            .navigationTitle("Workout Paused")
+            .confirmationDialog("Discard this workout? Nothing will be saved and this can't be undone.", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+                Button("Discard Workout", role: .destructive) {
+                    isWorking = true
+                    Task {
+                        await onDiscard()
+                        isWorking = false
+                        dismiss()
+                    }
                 }
             }
         }

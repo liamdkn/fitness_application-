@@ -33,6 +33,7 @@ struct RunDetailView: View {
             Section {
                 statsGrid
             }
+            .listRowBackground(AppRowBackground())
 
             if !splits.isEmpty {
                 Section("Splits") {
@@ -46,6 +47,7 @@ struct RunDetailView: View {
                         }
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
         }
         .appScreen()

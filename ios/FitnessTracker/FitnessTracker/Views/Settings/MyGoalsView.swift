@@ -43,6 +43,7 @@ struct MyGoalsView: View {
                 }
                 Button("Start New Phase") { showingNewPhase = true }
             }
+            .listRowBackground(AppRowBackground())
 
             Section("Hydration") {
                 Stepper(value: $dailyWaterMlTargetMin, in: 500...dailyWaterMlTargetMax, step: 250) {
@@ -69,6 +70,7 @@ struct MyGoalsView: View {
                     Text(waterTargetError).foregroundStyle(AppColor.error)
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             if !upcomingPhaseGroups.isEmpty {
                 Section("Upcoming Phases") {
@@ -76,6 +78,7 @@ struct MyGoalsView: View {
                         upcomingPhaseRow(group)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if nutritionInsight != nil || tdeeChartPoints.count >= 2 {
@@ -118,6 +121,7 @@ struct MyGoalsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if !pastPhaseGroups.isEmpty {
@@ -126,6 +130,7 @@ struct MyGoalsView: View {
                         pastPhaseRow(group)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
         }
         .appScreen()

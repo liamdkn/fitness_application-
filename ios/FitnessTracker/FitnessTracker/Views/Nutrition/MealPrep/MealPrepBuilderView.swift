@@ -76,6 +76,7 @@ struct MealPrepBuilderView: View {
                         Text("g").foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section {
                     ForEach(ingredients) { ingredient in
@@ -91,6 +92,7 @@ struct MealPrepBuilderView: View {
                 } footer: {
                     Text("Weigh each one as it goes in. Tap an amount to change it, or use ... to swap in a different brand.")
                 }
+                .listRowBackground(AppRowBackground())
 
                 if !ingredients.isEmpty {
                     Section("Per portion") {
@@ -107,11 +109,13 @@ struct MealPrepBuilderView: View {
                         LabeledContent("Fat", value: "\(Int(perPortion.fatG))g")
                         LabeledContent("Whole batch", value: "\(Int(batchTotals.calories)) kcal")
                     }
+                    .listRowBackground(AppRowBackground())
 
                     if let previousBatch {
                         Section("Vs last batch") {
                             batchComparison(previousBatch)
                         }
+                        .listRowBackground(AppRowBackground())
                     }
                 }
 
@@ -126,10 +130,12 @@ struct MealPrepBuilderView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
                         .disabled(!canSave)
+                    .appToolbarTint()
                 }
             }
             .task {
@@ -364,6 +370,7 @@ private struct IngredientAmountSheet: View {
                         Text(ingredient.food.servingUnit).foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
                 if let quantity {
                     Section("Adds") {
                         LabeledContent("Calories", value: "\(Int(ingredient.food.calories(at: quantity))) kcal")
@@ -371,6 +378,7 @@ private struct IngredientAmountSheet: View {
                         LabeledContent("Carbs", value: "\(Int(ingredient.food.carbsG(at: quantity)))g")
                         LabeledContent("Fat", value: "\(Int(ingredient.food.fatG(at: quantity)))g")
                     }
+                    .listRowBackground(AppRowBackground())
                 }
             }
             .appScreen()
@@ -379,6 +387,7 @@ private struct IngredientAmountSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
@@ -388,6 +397,7 @@ private struct IngredientAmountSheet: View {
                         }
                     }
                     .disabled(quantity == nil)
+                    .appToolbarTint()
                 }
             }
         }
@@ -424,6 +434,7 @@ private struct BrandSwapSheet: View {
                         }
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 if !linkedFoods.isEmpty {
                     Section("Your other brands") {
@@ -449,6 +460,7 @@ private struct BrandSwapSheet: View {
                             }
                         }
                     }
+                    .listRowBackground(AppRowBackground())
                 }
 
                 Section {
@@ -460,6 +472,7 @@ private struct BrandSwapSheet: View {
                 } footer: {
                     Text("Swapping links the two as the same product, so Brand Compare can rank them.")
                 }
+                .listRowBackground(AppRowBackground())
             }
             .appScreen()
             .navigationTitle("Swap Brand")
@@ -467,6 +480,7 @@ private struct BrandSwapSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
             }
             .sheet(isPresented: $showingSearch) {

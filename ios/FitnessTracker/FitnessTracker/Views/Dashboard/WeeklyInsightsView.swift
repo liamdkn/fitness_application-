@@ -139,6 +139,7 @@ struct WeeklyInsightsView: View {
             }
             .refreshable { await viewModel.load() }
         }
+        .appScreen()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -147,6 +148,7 @@ struct WeeklyInsightsView: View {
                 } label: {
                     Image(systemName: "tablecells")
                 }
+                .appToolbarTint()
             }
         }
         .task {
@@ -191,16 +193,19 @@ struct WeeklyInsightsView: View {
                 Section("Trend") {
                     AdherenceTrendChart(points: viewModel.scoreHistory)
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             Section("Adherence Score") {
                 WeeklyAdherenceCard(weeklyScore: viewModel.weeklyAdherence)
             }
+            .listRowBackground(AppRowBackground())
 
             if let checkin = viewModel.weeklyCheckin, checkin.hasSurveyContent {
                 Section("Weekly Check-In") {
                     WeeklyCheckinSummary(checkin: checkin)
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if let summary = viewModel.summary {
@@ -218,6 +223,7 @@ struct WeeklyInsightsView: View {
                         target: viewModel.goal?.cardioSessionsPerWeek.map { "\($0)" }
                     )
                 }
+                .listRowBackground(AppRowBackground())
 
                 // Avg + breakdown work for any week; the "you need X/day"
                 // debt rows only ever populate for the live current week
@@ -245,6 +251,7 @@ struct WeeklyInsightsView: View {
                             NutritionDebtSummaryView(debt: nutritionDebt)
                         }
                     }
+                    .listRowBackground(AppRowBackground())
                 }
 
                 if !viewModel.dailySteps.isEmpty {
@@ -260,6 +267,7 @@ struct WeeklyInsightsView: View {
                             StepsDebtRow(debt: stepsDebt, stepTarget: stepTarget)
                         }
                     }
+                    .listRowBackground(AppRowBackground())
                 }
 
                 if let avgWaterMlPerDay = viewModel.avgWaterMlPerDay {
@@ -271,6 +279,7 @@ struct WeeklyInsightsView: View {
                             target: nil
                         )
                     }
+                    .listRowBackground(AppRowBackground())
                 }
 
                 Section("Weight") {
@@ -301,6 +310,7 @@ struct WeeklyInsightsView: View {
                         )
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 if viewModel.isCurrentWeek {
                     Section {
@@ -308,6 +318,7 @@ struct WeeklyInsightsView: View {
                     } header: {
                         Text("Maintenance Calories")
                     }
+                    .listRowBackground(AppRowBackground())
                 }
             } else if viewModel.isLoading {
                 ProgressView()
@@ -365,7 +376,7 @@ private struct WeekPickerList: View {
             }
         }
         .frame(maxHeight: 280)
-        .background(.background.secondary)
+        .background(AppRowBackground())
     }
 
     private func label(for entry: WeeklyLogEntry) -> String {

@@ -39,12 +39,14 @@ struct ManageCardioTypesView: View {
                 } footer: {
                     Text("Choose which cardio types show up in your quick-pick list.")
                 }
+                .listRowBackground(AppRowBackground())
             }
             .appScreen()
             .navigationTitle("Cardio Types")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
@@ -54,6 +56,7 @@ struct ManageCardioTypesView: View {
                             dismiss()
                         }
                     }
+                    .appToolbarTint()
                 }
             }
         }

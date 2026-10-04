@@ -98,6 +98,7 @@ struct WeeklyCheckinDetailView: View {
                     LabeledContent("Week", value: "\(weekNumber)")
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             if !measurements.isEmpty {
                 Section("Measurements") {
@@ -115,12 +116,14 @@ struct WeeklyCheckinDetailView: View {
                         }
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if checkin.hasSurveyContent {
                 Section("Notes From This Week") {
                     WeeklyCheckinSummary(checkin: checkin)
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if !photos.isEmpty {
@@ -136,6 +139,7 @@ struct WeeklyCheckinDetailView: View {
                     .padding(.vertical, 6)
                     .padding(.horizontal, 12)
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if let errorMessage {

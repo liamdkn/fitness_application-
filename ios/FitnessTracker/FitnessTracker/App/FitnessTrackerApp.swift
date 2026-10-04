@@ -11,6 +11,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // UIKit-hosted pieces (alerts, share sheets, the camera scanner) don't
         // see SwiftUI's `.tint`, so give them the accent too.
         UIView.appearance().tintColor = UIColor(AppColor.accent)
+        // Nav-bar buttons (Cancel, Done, New Food...) in the normal text colour
+        // - white in dark mode - rather than the accent blue.
+        UINavigationBar.appearance().tintColor = .label
+        UIBarButtonItem.appearance().tintColor = .label
+        for state in [UIControl.State.normal, .highlighted, .disabled] {
+            UIBarButtonItem.appearance().setTitleTextAttributes([.foregroundColor: UIColor.label], for: state)
+        }
         return true
     }
 

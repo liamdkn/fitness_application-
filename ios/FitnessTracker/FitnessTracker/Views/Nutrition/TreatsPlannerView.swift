@@ -72,12 +72,14 @@ struct TreatsPlannerView: View {
                     .onDelete(perform: deleteTreats)
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             Section("Per Day, After Treats") {
                 ForEach(weekDates, id: \.self) { date in
                     dayBreakdownRow(date)
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             if let errorMessage {
                 Text(errorMessage).foregroundStyle(AppColor.error)
@@ -93,6 +95,7 @@ struct TreatsPlannerView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .appToolbarTint()
             }
         }
         .task { await load() }

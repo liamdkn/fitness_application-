@@ -57,6 +57,7 @@ struct ExerciseTargetConfigView: View {
                         Text("kg").foregroundStyle(.secondary).font(.caption)
                     }
                 }
+                .listRowBackground(AppRowBackground())
                 if !isValid {
                     Text("Rep range high must be at least rep range low.")
                         .foregroundStyle(AppColor.danger)
@@ -68,6 +69,7 @@ struct ExerciseTargetConfigView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
@@ -75,6 +77,7 @@ struct ExerciseTargetConfigView: View {
                         dismiss()
                     }
                     .disabled(!isValid)
+                    .appToolbarTint()
                 }
             }
         }

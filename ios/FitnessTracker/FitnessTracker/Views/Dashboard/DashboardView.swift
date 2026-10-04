@@ -79,8 +79,7 @@ struct DashboardView: View {
                             StatRow(
                                 icon: "figure.walk",
                                 label: "Steps",
-                                value: displaySteps.map { "\($0)" } ?? "-",
-                                target: viewModel.goal?.stepTarget.map { "\($0)" }
+                                value: displaySteps.map { "\($0)" } ?? "-"
                             )
                             if viewModel.cardioExclusionEnabled, viewModel.cardioStepsExcludedToday > 0 {
                                 Text("\(viewModel.cardioStepsExcludedToday) cardio steps excluded")
@@ -90,8 +89,7 @@ struct DashboardView: View {
                             StatRow(
                                 icon: "bed.double.fill",
                                 label: "Sleep last night",
-                                value: viewModel.lastNightSleepMinutes.map(formattedDuration) ?? "-",
-                                target: viewModel.goal?.sleepTargetMinutes.map(formattedDuration)
+                                value: viewModel.lastNightSleepMinutes.map(formattedDuration) ?? "-"
                             )
                         }
                     }
@@ -395,17 +393,13 @@ private struct StatRow: View {
     let icon: String
     let label: String
     let value: String
-    let target: String?
 
+    /// Just today's figure - the goals live in My Goals, not repeated here.
     var body: some View {
         HStack {
             Label(label, systemImage: icon)
             Spacer()
-            if let target {
-                Text("\(value) / \(target)")
-            } else {
-                Text(value)
-            }
+            Text(value)
         }
     }
 }

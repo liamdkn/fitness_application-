@@ -11,24 +11,39 @@ final class ExerciseListViewModel: ObservableObject {
     @Published var exercises: [Exercise] = []
     @Published var searchText = ""
     @Published var errorMessage: String?
+    /// Exercises with at least one logged set - listed first.
+    @Published private(set) var triedIds: Set<UUID> = []
     private let repository = ExerciseRepository()
 
+    func isTried(_ exercise: Exercise) -> Bool { triedIds.contains(exercise.id) }
+
+    /// Exercises you have history with first, then the ones you haven't
+    /// tried; A-Z within each (the catalogue arrives A-Z, and this sort is
+    /// stable).
+    private func triedFirst(_ list: [Exercise]) -> [Exercise] {
+        list.filter(isTried) + list.filter { !isTried($0) }
+    }
+
     var filtered: [Exercise] {
-        guard !searchText.isEmpty else { return exercises }
-        return exercises.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        let matches = searchText.isEmpty
+            ? exercises
+            : exercises.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        return triedFirst(matches)
     }
 
     var groupedByMuscle: [(group: MuscleGroup, exercises: [Exercise])] {
         let byGroup = Dictionary(grouping: filtered) { $0.primaryMuscleGroup }
         return MuscleGroup.allCases.compactMap { group in
             guard let exercises = byGroup[group.rawValue], !exercises.isEmpty else { return nil }
-            return (group, exercises)
+            return (group, triedFirst(exercises))
         }
     }
 
     func load() async {
         do {
             exercises = try await repository.fetchAll()
+            // Advisory ordering only - the list still loads if this fails.
+            triedIds = (try? await repository.fetchTriedIds()) ?? []
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -62,6 +77,7 @@ struct ExerciseListContent<Row: View>: View {
                             row(exercise)
                         }
                     }
+                    .listRowBackground(AppRowBackground())
                 }
             } else {
                 ForEach(listViewModel.filtered) { exercise in
@@ -78,12 +94,18 @@ struct ExerciseListContent<Row: View>: View {
 /// exercise-catalog row regardless of what tapping it does.
 struct ExerciseRowContent: View {
     let exercise: Exercise
+    /// `false` marks an exercise with no logged sets yet; `nil` shows nothing.
+    var isTried: Bool?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(exercise.name)
             if let equipment = exercise.equipment {
-                Text(equipment)
+                Text(isTried == false ? "\(equipment) \u{00b7} not tried yet" : equipment)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if isTried == false {
+                Text("Not tried yet")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

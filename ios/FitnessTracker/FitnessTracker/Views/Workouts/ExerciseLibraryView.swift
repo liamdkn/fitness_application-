@@ -16,7 +16,7 @@ struct ExerciseLibraryView: View {
             NavigationLink {
                 ExerciseHistoryView(exercise: exercise)
             } label: {
-                ExerciseRowContent(exercise: exercise)
+                ExerciseRowContent(exercise: exercise, isTried: listViewModel.isTried(exercise))
             }
         }
         .appScreen()
@@ -24,6 +24,7 @@ struct ExerciseLibraryView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("New Exercise") { showingAddCustom = true }
+                .appToolbarTint()
             }
         }
         .sheet(isPresented: $showingAddCustom) {

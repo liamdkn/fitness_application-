@@ -4,7 +4,6 @@ import SwiftUI
 struct ActiveWorkoutView: View {
     @StateObject private var viewModel: ActiveWorkoutViewModel
     @State private var showingAddExercise = false
-    @State private var showingCancelDialog = false
     @State private var showingRatingSheet = false
     @State private var noteEditingExercise: ActiveExercise?
     @State private var historyExercise: Exercise?
@@ -57,8 +56,8 @@ struct ActiveWorkoutView: View {
         return result
     }
 
-    init(workout: Workout) {
-        _viewModel = StateObject(wrappedValue: ActiveWorkoutViewModel(workout: workout))
+    init(workout: Workout, modification: WorkoutModification? = nil) {
+        _viewModel = StateObject(wrappedValue: ActiveWorkoutViewModel(workout: workout, modification: modification))
     }
 
     /// Moves the whole display group (a solo exercise, or an entire
@@ -104,20 +103,43 @@ struct ActiveWorkoutView: View {
 
     var body: some View {
         List {
-            Section {
-                Text(formattedElapsed)
-                    .font(.system(.title, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .center)
+            // Clock and sets on the left, the gym as a pill on the right - one
+            // compact glass card rather than a stacked clock, divider and caption.
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(formattedElapsed)
+                        .font(.system(size: 38, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                    Text(loggedSetCount == 1 ? "1 set logged" : "\(loggedSetCount) sets logged")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
                 Button {
                     showingGymPicker = true
                 } label: {
-                    Label(currentGymName, systemImage: "mappin.and.ellipse")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                    HStack(spacing: 6) {
+                        Image(systemName: "mappin.and.ellipse")
+                        Text(currentGymName)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(Color.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassEffect(.regular.interactive(), in: Capsule())
                 }
                 .buttonStyle(.plain)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .appCard(cornerRadius: AppButtonStyle.largeCornerRadius)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .listRowSeparator(.hidden)
 
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage).foregroundStyle(AppColor.error)
@@ -131,32 +153,29 @@ struct ActiveWorkoutView: View {
                 }
             }
 
+            // Add Exercise and Pause Workout as one matched pair: same width,
+            // same shape, one a lighter secondary and one the main action.
             Section {
-                Button {
-                    showingAddExercise = true
-                } label: {
-                    Label("Add Exercise", systemImage: "plus")
-                }
-            }
+                VStack(spacing: 12) {
+                    Button {
+                        showingAddExercise = true
+                    } label: {
+                        Label("Add Exercise", systemImage: "plus")
+                    }
+                    .buttonStyle(.appSecondary)
 
-            Section {
-                Button {
-                    showingRatingSheet = true
-                } label: {
-                    Text("Finish Workout")
-                        .frame(maxWidth: .infinity)
+                    Button {
+                        showingRatingSheet = true
+                    } label: {
+                        Label("Pause Workout", systemImage: "pause.fill")
+                    }
+                    .buttonStyle(.appPrimary)
                 }
-                .buttonStyle(.appPrimary)
-
-                Button {
-                    showingCancelDialog = true
-                } label: {
-                    Text("Cancel Workout")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.appDestructive)
+                .padding(.vertical, 4)
             }
             .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         }
         .scrollDismissesKeyboard(.interactively)
         // A floating overlay rather than a List section - a Section that
@@ -207,9 +226,16 @@ struct ActiveWorkoutView: View {
             }
         }
         .sheet(isPresented: $showingRatingSheet) {
-            WorkoutRatingSheet(summary: completionSummary, initialNotes: viewModel.workout.notes ?? "") { rating, notes in
-                await viewModel.finish(rating: rating, notes: notes)
-            }
+            WorkoutRatingSheet(
+                summary: completionSummary,
+                initialNotes: viewModel.workout.notes ?? "",
+                onSave: { rating, notes in
+                    await viewModel.finish(rating: rating, notes: notes)
+                },
+                onDiscard: {
+                    await viewModel.cancel()
+                }
+            )
         }
         .sheet(item: $noteEditingExercise) { activeExercise in
             AddExerciseNoteSheet(
@@ -225,11 +251,6 @@ struct ActiveWorkoutView: View {
         }
         .navigationDestination(item: $historyExercise) { exercise in
             ExerciseHistoryView(exercise: exercise)
-        }
-        .confirmationDialog("Delete this workout? This can't be undone.", isPresented: $showingCancelDialog) {
-            Button("Delete Workout", role: .destructive) {
-                Task { await viewModel.cancel() }
-            }
         }
         .onChange(of: viewModel.isFinished) { _, finished in
             if finished { dismiss() }
@@ -325,6 +346,7 @@ struct ActiveWorkoutView: View {
                 }
             }
         }
+        .listRowBackground(AppRowBackground())
     }
 
     /// A qualifying superset (2+ members sharing a group id) renders as one
@@ -395,6 +417,7 @@ struct ActiveWorkoutView: View {
                 }
             }
         }
+        .listRowBackground(AppRowBackground())
     }
 
     private func movementLetter(at index: Int) -> String {
@@ -525,6 +548,7 @@ private struct GymPickerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
             }
         }

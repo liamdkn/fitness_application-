@@ -142,6 +142,7 @@ private struct ContainerEditorSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
@@ -154,6 +155,7 @@ private struct ContainerEditorSheet: View {
                         }
                     }
                     .disabled(!isValid || isSaving)
+                    .appToolbarTint()
                 }
             }
         }

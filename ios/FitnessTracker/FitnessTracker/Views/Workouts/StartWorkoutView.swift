@@ -244,6 +244,7 @@ struct StartWorkoutView: View {
                         NavigationLink("Edit") {
                             RoutineEditorView()
                         }
+                        .appToolbarTint()
                     }
                 }
             }

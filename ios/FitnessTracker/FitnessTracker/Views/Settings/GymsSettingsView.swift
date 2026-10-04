@@ -26,6 +26,7 @@ struct GymsSettingsView: View {
                     Text("Add your gym(s) below - tracking which one a workout happened at keeps weight suggestions from mixing up different equipment.")
                         .foregroundStyle(.secondary)
                 }
+                .listRowBackground(AppRowBackground())
             } else {
                 Section {
                     Picker("Preferred Gym", selection: $preferredGymId) {
@@ -42,6 +43,7 @@ struct GymsSettingsView: View {
                 } footer: {
                     Text("What a new workout starts logged against by default - still changeable per session from within the workout itself.")
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             Section("Gyms") {
@@ -61,6 +63,7 @@ struct GymsSettingsView: View {
                     Label("Add Gym", systemImage: "plus")
                 }
             }
+            .listRowBackground(AppRowBackground())
         }
         .appScreen()
         .navigationTitle("Gyms")

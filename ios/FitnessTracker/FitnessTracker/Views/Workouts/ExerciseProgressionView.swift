@@ -48,6 +48,7 @@ struct ExerciseProgressionView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Session History") {
                     ForEach(points.reversed()) { point in
@@ -64,6 +65,7 @@ struct ExerciseProgressionView: View {
                         .font(.caption)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
         }
         .appScreen()

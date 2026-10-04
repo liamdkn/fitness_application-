@@ -48,6 +48,7 @@ struct FoodGroupsView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .appToolbarTint()
             }
         }
         .task { await load() }
@@ -142,6 +143,7 @@ struct FoodGroupDetailView: View {
                     Text(takeaway)
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             Section("Brands") {
                 ForEach(Array(ranked.enumerated()), id: \.element.food.id) { index, item in
@@ -169,6 +171,7 @@ struct FoodGroupDetailView: View {
                     Label("Add Brand", systemImage: "plus.circle.fill")
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             Section {
                 Button("Rename") {
@@ -179,6 +182,7 @@ struct FoodGroupDetailView: View {
                     confirmingDelete = true
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             if let errorMessage {
                 Text(errorMessage).foregroundStyle(AppColor.error)

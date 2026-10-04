@@ -60,6 +60,7 @@ struct RoutineDayEditorView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             EditButton()
+            .appToolbarTint()
         }
         ToolbarItem(placement: .topBarLeading) {
             Button {
@@ -68,6 +69,7 @@ struct RoutineDayEditorView: View {
             } label: {
                 Image(systemName: isLinking ? "link.circle.fill" : "link")
             }
+            .appToolbarTint()
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
@@ -84,6 +86,7 @@ struct RoutineDayEditorView: View {
                 }
             }
             .disabled(isLinking && selectedForLink.count != 2)
+            .appToolbarTint()
         }
     }
 

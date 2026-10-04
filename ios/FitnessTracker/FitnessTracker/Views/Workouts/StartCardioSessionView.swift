@@ -39,6 +39,7 @@ struct StartCardioSessionView: View {
                     showingManageTypes = true
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             if cardioType.involvesSteps {
                 Section("Before You Start") {
@@ -51,6 +52,7 @@ struct StartCardioSessionView: View {
                             .frame(width: 80)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if let errorMessage {
@@ -69,6 +71,7 @@ struct StartCardioSessionView: View {
                 }
                 .disabled(!isValid || isStarting)
             }
+            .listRowBackground(AppRowBackground())
         }
         .appScreen()
         .navigationTitle("Start Cardio")

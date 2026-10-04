@@ -39,6 +39,7 @@ struct MealPrepPickerView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
             }
             .task { await load() }
@@ -136,6 +137,7 @@ struct LogPrepPortionView: View {
                 } footer: {
                     Text("\(MealPrepCalculator.label(summary.remainingPortions)) of \(MealPrepCalculator.label(summary.prep.portions)) portions left.")
                 }
+                .listRowBackground(AppRowBackground())
 
                 if let quantity {
                     Section {
@@ -147,12 +149,14 @@ struct LogPrepPortionView: View {
                         )
                         .padding(.vertical, 8)
                     }
+                    .listRowBackground(AppRowBackground())
                     Section("Adds") {
                         LabeledContent("Calories", value: "\(Int(summary.recipe.calories(at: quantity))) kcal")
                         LabeledContent("Protein", value: "\(Int(summary.recipe.proteinG(at: quantity)))g")
                         LabeledContent("Carbs", value: "\(Int(summary.recipe.carbsG(at: quantity)))g")
                         LabeledContent("Fat", value: "\(Int(summary.recipe.fatG(at: quantity)))g")
                     }
+                    .listRowBackground(AppRowBackground())
                 }
             }
             .appScreen()
@@ -162,6 +166,7 @@ struct LogPrepPortionView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Log") {
@@ -171,6 +176,7 @@ struct LogPrepPortionView: View {
                         }
                     }
                     .disabled(quantity == nil || chosenSlot == nil)
+                    .appToolbarTint()
                 }
             }
             .task {

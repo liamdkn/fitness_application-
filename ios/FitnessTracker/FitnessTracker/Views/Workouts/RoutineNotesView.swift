@@ -28,6 +28,7 @@ struct RoutineNotesView: View {
             } footer: {
                 Text("Reference only - the app doesn't track pain or act on any of this.")
             }
+            .listRowBackground(AppRowBackground())
             if let errorMessage {
                 Text(errorMessage).foregroundStyle(AppColor.error)
             }
@@ -39,6 +40,7 @@ struct RoutineNotesView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Save") { Task { await save() } }
                     .disabled(isSaving || text == (routine.notes ?? ""))
+                .appToolbarTint()
             }
         }
     }

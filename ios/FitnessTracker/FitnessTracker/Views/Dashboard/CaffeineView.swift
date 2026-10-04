@@ -61,6 +61,7 @@ struct CaffeineView: View {
             } footer: {
                 Text("The curve assumes a caffeine half-life of \(String(format: "%g", halfLife)) hours. It's the biggest unknown - it ranges from roughly 3 to 9 hours between people - so adjust it if you find caffeine lingers or fades faster than the curve says.")
             }
+            .listRowBackground(AppRowBackground())
 
             if let errorMessage {
                 Text(errorMessage).foregroundStyle(AppColor.error)
@@ -173,6 +174,7 @@ struct CaffeineView: View {
         } footer: {
             Text("Based on a typical cup of about \(Int(typicalDoseMg.rounded())) mg (your median from the last 30 days) and aiming for under \(Int(targetMg)) mg when you go to bed.")
         }
+        .listRowBackground(AppRowBackground())
     }
 
     /// The one-line recommendation: the latest a typical cup can be had and
@@ -299,12 +301,14 @@ struct CaffeineSettingsView: View {
                     Text("The 'when to stop' advice works backwards from bedtime so that little caffeine is left when you go to bed. With Health sleep on, it's the time you usually fall asleep over the last two weeks.")
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             Section {
                 Toggle("Caffeine & wind-down reminders", isOn: $remindersEnabled)
             } footer: {
                 Text("A 'last call' about half an hour before your last good cup, and a wind-down an hour before bed that says how much caffeine will be left. They're based on the drinks you've logged.")
             }
+            .listRowBackground(AppRowBackground())
 
             Section {
                 Stepper(value: $halfLife, in: 2...12, step: 0.5) {
@@ -318,12 +322,14 @@ struct CaffeineSettingsView: View {
             } footer: {
                 Text("About 400 mg a day is the commonly cited ceiling for healthy adults, and 5 hours a typical half-life - but both vary a lot, and this isn't medical advice.")
             }
+            .listRowBackground(AppRowBackground())
 
             Section("Sodium") {
                 Stepper(value: $sodiumLimit, in: 1000...4000, step: 100) {
                     LabeledContent("Daily limit", value: "\(sodiumLimit) mg")
                 }
             }
+            .listRowBackground(AppRowBackground())
         }
         .appScreen()
         .navigationTitle("Caffeine & Sodium")

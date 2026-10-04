@@ -24,18 +24,21 @@ struct SettingsView: View {
                         MyGoalsView()
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Health") {
                     NavigationLink("Injuries") {
                         InjuriesView()
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Training") {
                     NavigationLink("Gyms") {
                         GymsSettingsView()
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Weekly Check-In") {
                     Picker("Check-In Day", selection: $weeklyCheckinWeekday) {
@@ -53,6 +56,7 @@ struct SettingsView: View {
                         WeeklyCheckinHistoryView()
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Cardio Step Exclusion") {
                     Toggle("Exclude Machine-Counted Cardio Steps", isOn: $cardioStepExclusionEnabled)
@@ -63,6 +67,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Step Source") {
                     Picker("Step Source", selection: $stepSource) {
@@ -79,6 +84,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Step Reminders") {
                     Toggle("Remind Me To Hit My Step Goal", isOn: $stepRemindersEnabled)
@@ -89,6 +95,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .listRowBackground(AppRowBackground())
                 .onChange(of: stepRemindersEnabled) { saveStepReminders() }
                 .onChange(of: stepReminderTime) { saveStepReminders() }
 
@@ -97,6 +104,7 @@ struct SettingsView: View {
                         MealSlotsSettingsView()
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Apple Health") {
                     healthStatusRow
@@ -104,12 +112,14 @@ struct SettingsView: View {
                         Task { await healthSync.requestAuthorizationAndSync() }
                     }
                 }
+                .listRowBackground(AppRowBackground())
 
                 Section("Account") {
                     Button("Sign Out", role: .destructive) {
                         Task { try? await SupabaseService.shared.signOut() }
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
             .appScreen()
             .navigationTitle("Settings")

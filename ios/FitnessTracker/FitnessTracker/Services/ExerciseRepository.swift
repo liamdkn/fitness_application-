@@ -22,6 +22,16 @@ struct ExerciseRepository {
             .value
     }
 
+    /// Ids of exercises the user has logged at least one set for - the ones
+    /// with history (see migration 0064).
+    func fetchTriedIds() async throws -> Set<UUID> {
+        let ids: [UUID] = try await client
+            .rpc("tried_exercise_ids")
+            .execute()
+            .value
+        return Set(ids)
+    }
+
     func createCustom(
         name: String,
         category: String,

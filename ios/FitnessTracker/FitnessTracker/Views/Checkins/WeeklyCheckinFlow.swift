@@ -83,9 +83,11 @@ struct WeeklyCheckinFlow: View {
                             page = 2
                             Task { await loadRecap() }
                         }
+                        .appToolbarTint()
                     }
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Back") { page -= 1 }
+                        .appToolbarTint()
                     }
                 }
                 if page == 2 {
@@ -94,6 +96,7 @@ struct WeeklyCheckinFlow: View {
                             Task { await saveRatingsAndFinish() }
                         }
                         .disabled(isSaving)
+                        .appToolbarTint()
                     }
                 }
             }
@@ -111,6 +114,7 @@ struct WeeklyCheckinFlow: View {
                 Text(weightSummaryText)
                     .foregroundStyle(.secondary)
             }
+            .listRowBackground(AppRowBackground())
         }
         Section("This Week") {
             HStack {
@@ -131,6 +135,7 @@ struct WeeklyCheckinFlow: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .listRowBackground(AppRowBackground())
     }
 
     /// "Your average weight this week was 80.9 kg, 0.4 kg down from last
@@ -181,6 +186,7 @@ struct WeeklyCheckinFlow: View {
                     }
                 )
             }
+            .listRowBackground(AppRowBackground())
         } else {
             ProgressView()
         }
@@ -196,6 +202,7 @@ struct WeeklyCheckinFlow: View {
                     Spacer()
                 }
             }
+            .listRowBackground(AppRowBackground())
         } else if let recap {
             Section("Nutrition") {
                 recapRow(label: "Avg calories", actual: recap.avgCalories.map { Int($0) }, target: recap.calorieTarget.map { Int($0) }, unit: "kcal")
@@ -204,6 +211,7 @@ struct WeeklyCheckinFlow: View {
                 TextField("What could we do better next week?", text: $nutritionNotes, axis: .vertical)
                     .lineLimit(2...4)
             }
+            .listRowBackground(AppRowBackground())
             Section("Activity") {
                 recapRow(label: "Avg steps", actual: recap.avgSteps, target: recap.stepTarget, unit: nil)
                 recapCountRow(label: "Training sessions", completed: recap.sessionsCompleted, target: recap.sessionsTarget)
@@ -214,6 +222,7 @@ struct WeeklyCheckinFlow: View {
                 TextField("What could we do better next week?", text: $trainingNotes, axis: .vertical)
                     .lineLimit(2...4)
             }
+            .listRowBackground(AppRowBackground())
             Section("Weight") {
                 HStack {
                     Text("Change this week")
@@ -233,18 +242,21 @@ struct WeeklyCheckinFlow: View {
                     }
                 }
             }
+            .listRowBackground(AppRowBackground())
             if recap.daysLogged < 4 {
                 Section {
                     Text("Only \(recap.daysLogged) day\(recap.daysLogged == 1 ? "" : "s") logged this week - these averages are thin.")
                         .font(.caption)
                         .foregroundStyle(AppColor.warning)
                 }
+                .listRowBackground(AppRowBackground())
             }
         } else {
             Section {
                 Text("Not enough logged data this week to build a recap.")
                     .foregroundStyle(.secondary)
             }
+            .listRowBackground(AppRowBackground())
         }
     }
 

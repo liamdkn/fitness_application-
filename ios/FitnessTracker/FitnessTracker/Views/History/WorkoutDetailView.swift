@@ -31,6 +31,7 @@ struct WorkoutDetailView: View {
                     }
                 }
             }
+            .listRowBackground(AppRowBackground())
 
             if let errorMessage {
                 Text(errorMessage).foregroundStyle(AppColor.error)
@@ -47,6 +48,7 @@ struct WorkoutDetailView: View {
                         .foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
         }
         .appScreen()

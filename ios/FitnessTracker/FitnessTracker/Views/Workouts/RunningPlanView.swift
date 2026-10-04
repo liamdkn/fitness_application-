@@ -195,12 +195,14 @@ struct RunningPlanView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if let plan = viewModel.plan {
                 Section {
                     header(plan)
                 }
+                .listRowBackground(AppRowBackground())
                 ForEach(viewModel.weeks) { week in
                     Section {
                         ForEach(week.runs) { run in
@@ -209,6 +211,7 @@ struct RunningPlanView: View {
                     } header: {
                         Text("Week \(week.number) \u{00b7} \(weekRange(week.monday))")
                     }
+                    .listRowBackground(AppRowBackground())
                 }
             } else if !viewModel.isLoading {
                 Section {
@@ -222,6 +225,7 @@ struct RunningPlanView: View {
                     }
                     .listRowBackground(Color.clear)
                 }
+                .listRowBackground(AppRowBackground())
             }
 
             if !viewModel.otherRuns.isEmpty {
@@ -230,6 +234,7 @@ struct RunningPlanView: View {
                         otherRunRow(session)
                     }
                 }
+                .listRowBackground(AppRowBackground())
             }
         }
         .appScreen()
@@ -243,6 +248,7 @@ struct RunningPlanView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
+                    .appToolbarTint()
                 }
             }
         }
@@ -428,6 +434,7 @@ private struct PlannedRunEditSheet: View {
                         }
                     }
                 }
+                .listRowBackground(AppRowBackground())
                 if runType != .rest {
                     Section("Target (either or both)") {
                         HStack {
@@ -449,10 +456,12 @@ private struct PlannedRunEditSheet: View {
                             Text("min").foregroundStyle(.secondary)
                         }
                     }
+                    .listRowBackground(AppRowBackground())
                 }
                 Section("Notes") {
                     TextField("e.g. 6 x 1 km, easy effort", text: $notes, axis: .vertical)
                 }
+                .listRowBackground(AppRowBackground())
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(AppColor.error)
                 }
@@ -463,9 +472,11 @@ private struct PlannedRunEditSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }
+                    .appToolbarTint()
                 }
             }
         }
@@ -525,6 +536,7 @@ private struct NewRunningPlanSheet: View {
                     DatePicker("Starts", selection: $startDate, displayedComponents: .date)
                     Stepper("First week is week \(firstWeek)", value: $firstWeek, in: 1...52)
                 }
+                .listRowBackground(AppRowBackground())
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(AppColor.error)
                 }
@@ -535,10 +547,12 @@ private struct NewRunningPlanSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
+                    .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Create") { Task { await create() } }
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .appToolbarTint()
                 }
             }
         }
