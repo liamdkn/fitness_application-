@@ -28,7 +28,7 @@ struct RootView: View {
     /// The launch screen stays up until the stored login has been checked, and
     /// at least this long so it doesn't just flicker.
     @State private var launchHoldElapsed = false
-    private static let minimumLaunchHold: TimeInterval = 0.8
+    private static let minimumLaunchHold: TimeInterval = 1.2
 
     private var isStarting: Bool {
         supabase.configurationError == nil && !(supabase.hasResolvedInitialSession && launchHoldElapsed)
