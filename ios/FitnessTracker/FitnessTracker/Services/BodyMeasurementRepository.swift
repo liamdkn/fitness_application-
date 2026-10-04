@@ -37,6 +37,10 @@ struct BodyMeasurementRepository {
             .value
     }
 
+    func delete(id: UUID) async throws {
+        try await client.from("body_measurements").delete().eq("id", value: id).execute()
+    }
+
     @discardableResult
     func log(
         waistCm: Double?,
@@ -44,14 +48,15 @@ struct BodyMeasurementRepository {
         rightBicepCm: Double?,
         goalId: UUID?,
         weeklyCheckinId: UUID? = nil,
-        source: String
+        source: String,
+        date: Date = Date()
     ) async throws -> BodyMeasurement {
         let userId = try await client.auth.session.user.id
         let inserted: [BodyMeasurement] = try await client
             .from("body_measurements")
             .insert(NewBodyMeasurement(
                 user_id: userId,
-                measured_at: DateFormatting.isoDate(Date()),
+                measured_at: DateFormatting.isoDate(date),
                 waist_cm: waistCm,
                 left_bicep_cm: leftBicepCm,
                 right_bicep_cm: rightBicepCm,

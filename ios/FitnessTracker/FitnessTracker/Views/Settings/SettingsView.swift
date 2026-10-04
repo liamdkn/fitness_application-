@@ -32,6 +32,9 @@ struct SettingsView: View {
                     NavigationLink("Injuries") {
                         InjuriesView()
                     }
+                    NavigationLink("Body Measurements") {
+                        MeasurementsView()
+                    }
                 }
                 .listRowBackground(AppRowBackground())
 
