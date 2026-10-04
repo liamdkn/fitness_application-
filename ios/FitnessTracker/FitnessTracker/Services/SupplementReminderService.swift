@@ -11,6 +11,10 @@ final class SupplementReminderService {
     static let shared = SupplementReminderService()
 
     private static let prefix = "supplement-"
+    /// Whether the Live Activity may show at all. Off unless switched on in Supplements.
+    static let liveActivityKey = "supplement-live-activity-enabled"
+    static var liveActivityEnabled: Bool { UserDefaults.standard.bool(forKey: liveActivityKey) }
+
     private let repository = SupplementRepository()
     private var activity: Activity<SupplementActivityAttributes>?
     private var isRefreshing = false
@@ -103,6 +107,14 @@ final class SupplementReminderService {
     /// Shown while anything with a reminder is still to take; gone once the day's
     /// doses are done. Started only from the foreground, which ActivityKit requires.
     private func updateActivity(_ days: [SupplementDay]) async {
+        // Opt-in: with it off, anything already showing is removed.
+        guard Self.liveActivityEnabled else {
+            for current in Activity<SupplementActivityAttributes>.activities {
+                await current.end(nil, dismissalPolicy: .immediate)
+            }
+            activity = nil
+            return
+        }
         let tracked = days.filter { !$0.supplement.reminderTimes.isEmpty || $0.taken > 0 }
         let items = tracked.map {
             SupplementActivityAttributes.Item(

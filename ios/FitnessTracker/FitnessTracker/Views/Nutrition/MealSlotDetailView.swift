@@ -296,6 +296,9 @@ struct MealSlotDetailView: View {
         .appCard(cornerRadius: 14)
         .contentShape(RoundedRectangle(cornerRadius: 14))
         .onTapGesture { editingEntry = slotEntry }
+        .swipeToDelete(cornerRadius: 14) {
+            Task { await viewModel.deleteEntry(slotEntry.entry) }
+        }
         .contextMenu {
             Button {
                 editingEntry = slotEntry

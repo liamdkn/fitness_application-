@@ -9,6 +9,8 @@ struct SupplementsView: View {
     @State private var overriding: SupplementDay?
     @State private var errorMessage: String?
     @State private var loaded = false
+    @State private var deleting: Supplement?
+    @AppStorage(SupplementReminderService.liveActivityKey) private var liveActivityOn = false
     private let repository = SupplementRepository()
 
     var body: some View {
@@ -24,12 +26,29 @@ struct SupplementsView: View {
                 row(day)
             }
             .listRowBackground(AppRowBackground())
+            Section {
+                Toggle("Live Activity", isOn: $liveActivityOn)
+            } footer: {
+                Text("Shows today's supplements on the Lock Screen and in the Dynamic Island, with a button to tick each one off. Off by default.")
+            }
+            .listRowBackground(AppRowBackground())
             if let errorMessage {
                 Text(errorMessage).foregroundStyle(AppColor.error)
                     .listRowBackground(Color.clear)
             }
         }
         .appScreen()
+        .onChange(of: liveActivityOn) { Task { await SupplementReminderService.shared.refresh() } }
+        .confirmationDialog(
+            "Delete \(deleting?.name ?? "this supplement")? Its history is deleted too.",
+            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let supplement = deleting { Task { await delete(supplement) } }
+                deleting = nil
+            }
+        }
         .navigationTitle("Supplements")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -62,25 +81,34 @@ struct SupplementsView: View {
             }
             .buttonStyle(.plain)
             .sensoryFeedback(.success, trigger: day.taken)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(day.supplement.name).font(.body.weight(.medium))
-                Text(detail(day))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(day.supplement.name).font(.body.weight(.medium))
+                    Text(detail(day))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(day.taken) of \(day.servingsGoal)")
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(day.isDone ? AppColor.success : .primary)
             }
-            Spacer()
-            Text("\(day.taken) of \(day.servingsGoal)")
-                .font(.subheadline.weight(.semibold).monospacedDigit())
-                .foregroundStyle(day.isDone ? AppColor.success : .primary)
+            .contentShape(Rectangle())
+            .onTapGesture { editing = day.supplement }
         }
         .padding(.vertical, 4)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) { deleting = day.supplement } label: { Label("Delete", systemImage: "trash") }
+            Button { editing = day.supplement } label: { Label("Edit", systemImage: "pencil") }
+                .tint(AppColor.accent)
+        }
         .contextMenu {
             Button { overriding = day } label: { Label("Change Today", systemImage: "calendar.badge.clock") }
             if day.taken > 0 {
                 Button { Task { await undo(day) } } label: { Label("Undo Last Dose", systemImage: "arrow.uturn.backward") }
             }
             Button { editing = day.supplement } label: { Label("Edit", systemImage: "pencil") }
-            Button(role: .destructive) { Task { await delete(day.supplement) } } label: { Label("Delete", systemImage: "trash") }
+            Button(role: .destructive) { deleting = day.supplement } label: { Label("Delete", systemImage: "trash") }
         }
     }
 

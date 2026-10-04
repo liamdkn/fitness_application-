@@ -211,6 +211,9 @@ struct TrainingHistoryView: View {
     /// this type actually tracks them) count toward missing.
     private func isMissingDetails(_ session: CardioTrackingSession) -> Bool {
         guard session.endedAt != nil else { return false }
+        // A session imported from the Watch has what the Watch recorded; it has
+        // no steps-now to type in and shouldn't nag for them.
+        guard session.source == "app" else { return false }
         let missingSteps = session.cardioType.involvesSteps && session.stepsAfter == nil
         return missingSteps || session.avgHeartRate == nil
     }
