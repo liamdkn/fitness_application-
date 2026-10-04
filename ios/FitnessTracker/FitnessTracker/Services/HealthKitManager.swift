@@ -51,6 +51,13 @@ struct DetectedWatchWorkout: Identifiable {
 
 final class HealthKitManager {
     private let store = HKHealthStore()
+
+    /// Midnight `daysBack` days ago. (Falls back to today's midnight rather
+    /// than crashing in the unreachable case that the calendar can't subtract.)
+    private static func windowStart(daysBack: Int, calendar: Calendar) -> Date {
+        let today = calendar.startOfDay(for: Date())
+        return calendar.date(byAdding: .day, value: -daysBack, to: today) ?? today
+    }
     private var stepObserver: HKObserverQuery?
 
     private var stepType: HKQuantityType { HKQuantityType(.stepCount) }
@@ -80,7 +87,7 @@ final class HealthKitManager {
     /// the user confirms it (`WatchActivityViewModel`), never automatically.
     func fetchRecentWorkouts(daysBack: Int) async throws -> [DetectedWatchWorkout] {
         let calendar = Calendar.current
-        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
+        let startDate = Self.windowStart(daysBack: daysBack, calendar: calendar)
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
         let descriptor = HKSampleQueryDescriptor(
             predicates: [.workout(predicate)],
@@ -220,7 +227,7 @@ final class HealthKitManager {
     // a raw sum of every sample which double-counts them.
     private func fetchMergedDailySteps(daysBack: Int) async throws -> [Date: Int] {
         let calendar = Calendar.current
-        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
+        let startDate = Self.windowStart(daysBack: daysBack, calendar: calendar)
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
         let anchorDate = calendar.startOfDay(for: startDate)
         let descriptor = HKStatisticsCollectionQueryDescriptor(
@@ -246,7 +253,7 @@ final class HealthKitManager {
     // overlap itself the way cross-source samples do.
     private func fetchAppleWatchDailySteps(daysBack: Int) async throws -> [Date: Int] {
         let calendar = Calendar.current
-        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
+        let startDate = Self.windowStart(daysBack: daysBack, calendar: calendar)
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
         let descriptor = HKSampleQueryDescriptor(
             predicates: [.quantitySample(type: stepType, predicate: predicate)],
@@ -306,7 +313,7 @@ final class HealthKitManager {
     /// three hours asleep is treated as a nap and ignored.
     func fetchSleepOnsets(daysBack: Int) async throws -> [Int] {
         let calendar = Calendar.current
-        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
+        let startDate = Self.windowStart(daysBack: daysBack, calendar: calendar)
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
         let descriptor = HKSampleQueryDescriptor(
             predicates: [.categorySample(type: sleepType, predicate: predicate)],
@@ -347,7 +354,7 @@ final class HealthKitManager {
 
     func fetchDailySleep(daysBack: Int) async throws -> [Date: DailySleep] {
         let calendar = Calendar.current
-        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: calendar.startOfDay(for: Date()))!
+        let startDate = Self.windowStart(daysBack: daysBack, calendar: calendar)
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: Date())
         let descriptor = HKSampleQueryDescriptor(
             predicates: [.categorySample(type: sleepType, predicate: predicate)],

@@ -314,7 +314,12 @@ struct WeeklyInsightsView: View {
 
                 if viewModel.isCurrentWeek {
                     Section {
-                        MaintenanceCaloriesCard(insight: viewModel.maintenanceInsight, goal: viewModel.goal)
+                        MaintenanceCaloriesCard(
+                            insight: viewModel.maintenanceInsight,
+                            goal: viewModel.goal,
+                            completedNutritionDays: viewModel.completedNutritionDays,
+                            completedDays: viewModel.completedDaysInSelectedWeek
+                        )
                     } header: {
                         Text("Maintenance Calories")
                     }
@@ -397,6 +402,8 @@ private struct WeekPickerList: View {
 private struct MaintenanceCaloriesCard: View {
     let insight: MaintenanceInsight?
     let goal: UserGoal?
+    let completedNutritionDays: Int
+    let completedDays: Int
 
     var body: some View {
         if let insight {
@@ -415,9 +422,16 @@ private struct MaintenanceCaloriesCard: View {
             }
             .padding(.vertical, 4)
         } else {
-            Text("Log your weight and nutrition daily for a couple of weeks to unlock a maintenance calorie estimate.")
+            Text(missingDataMessage)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var missingDataMessage: String {
+        if completedDays > 0 && completedNutritionDays < max(3, Int(ceil(Double(completedDays) * 0.8))) {
+            return "Food is logged on \(completedNutritionDays) of \(completedDays) completed days. Missing days could change this estimate, so a weekly pace isn't shown."
+        }
+        return "Log food on at least 5 days each week for 3 weeks, and weigh in regularly, to see your maintenance calorie estimate."
     }
 
     private func balanceSentence(_ insight: MaintenanceInsight) -> String {
@@ -483,7 +497,10 @@ private struct WeeklyAdherenceCard: View {
                         }
                     }
                 }
-                Text("\(weeklyScore.scoredCount) of \(weeklyScore.totalCount) tracked this week")
+                Text("Nutrition logged on \(weeklyScore.nutritionDaysLoggedCount) of \(weeklyScore.elapsedDaysCount) elapsed days")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text("The score uses available data from \(weeklyScore.scoredDaysCount) days; missing days are unknown.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Divider()
@@ -583,7 +600,7 @@ private struct DayAdherenceInlineDetail: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Text("\(dayScore.scoredCount) of \(dayScore.totalCount) tracked")
+                Text("\(dayScore.scoredCount) of \(dayScore.totalCount) metrics scored")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -954,7 +971,8 @@ private struct InteractiveWeeklyWeightChart: View {
     }
 
     private func selectNearestLog(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
-        let origin = geometry[proxy.plotFrame!].origin
+        guard let plotFrame = proxy.plotFrame else { return }
+        let origin = geometry[plotFrame].origin
         let xPosition = location.x - origin.x
         guard let date: Date = proxy.value(atX: xPosition) else { return }
         selectedLog = weights.min { abs($0.loggedAt.timeIntervalSince(date)) < abs($1.loggedAt.timeIntervalSince(date)) }

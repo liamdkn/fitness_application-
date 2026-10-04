@@ -118,7 +118,8 @@ enum AdherenceScoreEngine {
     static func weeklyScore(
         dailyScores: [DailyAdherenceScore],
         sessionsCompleted: Int,
-        requiredSessionsPerWeek: Int?
+        requiredSessionsPerWeek: Int?,
+        elapsedDaysCount: Int
     ) -> WeeklyAdherenceScore {
         func averaged(_ component: AdherenceComponent) -> AdherenceComponentScore {
             let scores = dailyScores.compactMap { day in
@@ -153,7 +154,8 @@ enum AdherenceScoreEngine {
                 averaged(.protein),
                 averaged(.steps),
                 trainingComponent
-            ]
+            ],
+            elapsedDaysCount: max(0, min(dailyScores.count, elapsedDaysCount))
         )
     }
 }

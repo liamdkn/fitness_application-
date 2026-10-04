@@ -138,6 +138,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
     /// "what do I need today" reasoning as `stepsDebt`.
     @Published var nutritionDebt: NutritionDebtSummary?
     @Published var maintenanceInsight: MaintenanceInsight?
+    @Published var completedNutritionDays = 0
+    @Published var completedDaysInSelectedWeek = 0
     @Published var weeklyAdherence: WeeklyAdherenceScore?
     /// Last `historyWeeksCount` weeks' overall scores, oldest first, ending
     /// at `selectedWeekStart` - see `loadScoreHistory`.
@@ -412,6 +414,10 @@ final class WeeklyInsightsViewModel: ObservableObject {
         // only) - the avg-calories-this-week display itself moved to
         // Weekly Log, so this no longer needs to be part of `summary`.
         let avgCalories = average(nutritionLogs.map(\.calories))
+        let todayISO = DateFormatting.isoDate(today)
+        let completedNutritionLogs = nutritionLogs.filter { $0.date < todayISO }
+        let loggedCompletedNutritionDays = Set(completedNutritionLogs.map(\.date)).count
+        let minimumNutritionDays = max(3, Int(ceil(Double(completedDays) * 0.8)))
         let avgProtein = average(nutritionLogs.map(\.proteinG))
         let avgCarbs = average(nutritionLogs.map(\.carbsG))
         let avgFat = average(nutritionLogs.map(\.fatG))
@@ -455,11 +461,17 @@ final class WeeklyInsightsViewModel: ObservableObject {
         // which could have already moved on to a different week by the
         // time this resolves.
         let resolvedMaintenanceInsight: MaintenanceInsight? = {
-            guard isThisWeekCurrent, let estimatedTDEE = latestEstimate?.estimatedTDEE, let avgCalories else { return nil }
-            let impliedWeeklyChangeKg = (avgCalories - estimatedTDEE) * 7 / AdaptiveTDEEEngine.kcalPerKg
+            guard isThisWeekCurrent,
+                  completedDays >= 3,
+                  loggedCompletedNutritionDays >= minimumNutritionDays,
+                  let estimate = latestEstimate,
+                  estimate.loggedDaysInWindow >= Int(ceil(Double(estimate.windowDays) * 5.0 / 7.0)),
+                  let completedDayAverage = average(completedNutritionLogs.map(\.calories))
+            else { return nil }
+            let impliedWeeklyChangeKg = (completedDayAverage - estimate.estimatedTDEE) * 7 / AdaptiveTDEEEngine.kcalPerKg
             return MaintenanceInsight(
-                estimatedTDEE: estimatedTDEE,
-                avgCaloriesPerDay: avgCalories,
+                estimatedTDEE: estimate.estimatedTDEE,
+                avgCaloriesPerDay: completedDayAverage,
                 impliedWeeklyChangeKg: impliedWeeklyChangeKg
             )
         }()
@@ -493,6 +505,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
             cardioSessionsCompleted: cardioSessionsCompleted
         )
         maintenanceInsight = resolvedMaintenanceInsight
+        completedNutritionDays = loggedCompletedNutritionDays
+        completedDaysInSelectedWeek = completedDays
         weeklyAdherence = buildWeeklyAdherence(
             weekStart: weekStart,
             nutritionLogs: nutritionLogs,
@@ -501,7 +515,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
             checkins: weekCheckins,
             cardioExclusionEnabled: cardioExclusionEnabled,
             excludedStepsByDate: excludedStepsByDate,
-            allGoals: allGoals
+            allGoals: allGoals,
+            elapsedDaysCount: isThisWeekCurrent ? min(7, completedDays + 1) : 7
         )
         weeklyCheckin = resolvedWeeklyCheckin
 
@@ -521,7 +536,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
         checkins: [DailyCheckin],
         cardioExclusionEnabled: Bool,
         excludedStepsByDate: [String: Int],
-        allGoals: [UserGoal]
+        allGoals: [UserGoal],
+        elapsedDaysCount: Int
     ) -> WeeklyAdherenceScore? {
         let calendar = Calendar.current
         let weekEnd = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
@@ -557,7 +573,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
         return AdherenceScoreEngine.weeklyScore(
             dailyScores: dailyScores,
             sessionsCompleted: sessionsCompleted,
-            requiredSessionsPerWeek: requiredSessions
+            requiredSessionsPerWeek: requiredSessions,
+            elapsedDaysCount: elapsedDaysCount
         )
     }
 
@@ -625,7 +642,8 @@ final class WeeklyInsightsViewModel: ObservableObject {
                 checkins: weekCheckins,
                 cardioExclusionEnabled: cardioExclusionEnabled,
                 excludedStepsByDate: excludedStepsByDate,
-                allGoals: allGoals
+                allGoals: allGoals,
+                elapsedDaysCount: 7
             )
             points.append(WeeklyScorePoint(weekStart: weekStart, overall: weeklyScore?.overall))
         }

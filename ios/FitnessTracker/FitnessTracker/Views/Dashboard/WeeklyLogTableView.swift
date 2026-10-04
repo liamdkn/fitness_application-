@@ -244,7 +244,8 @@ struct WeeklyLogTableView: View {
     }
 
     private func selectNearestWeightPoint(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
-        let origin = geometry[proxy.plotFrame!].origin
+        guard let plotFrame = proxy.plotFrame else { return }
+        let origin = geometry[plotFrame].origin
         let xPosition = location.x - origin.x
         guard let date: Date = proxy.value(atX: xPosition) else { return }
         selectedWeightPoint = weightPoints.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }

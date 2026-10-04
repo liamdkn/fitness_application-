@@ -32,6 +32,12 @@ enum OfflineReferenceCache {
         }
     }
 
+    /// Deletes every cached file - at sign-out or when a different account
+    /// signs in (see `LocalData`).
+    static func removeAll() {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     static func load<T: Decodable>(_ type: T.Type, key: String) -> T? {
         guard let data = try? Data(contentsOf: url(for: key)) else { return nil }
         return try? JSONDecoder().decode(T.self, from: data)

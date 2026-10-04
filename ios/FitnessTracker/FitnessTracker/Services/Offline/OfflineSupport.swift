@@ -31,6 +31,38 @@ enum OfflineError {
     }
 }
 
+import SwiftData
+
+/// Opens an on-disk SwiftData store. If it can't be opened (a corrupt or
+/// incompatible file), that file is moved aside - kept, not deleted, so it
+/// can be recovered by hand - and a fresh store is created; if even that
+/// fails the queue runs in memory for this launch. The app never crashes
+/// over its offline store: the worst case is that unsynced offline changes
+/// from before the failure aren't shown.
+@MainActor
+func makeResilientContainer(name: String, models: [any PersistentModel.Type]) -> ModelContainer {
+    let schema = Schema(models)
+    let url = URL.applicationSupportDirectory.appending(path: "\(name).store")
+    func open(inMemory: Bool = false) throws -> ModelContainer {
+        let configuration = inMemory
+            ? ModelConfiguration(name, schema: schema, isStoredInMemoryOnly: true)
+            : ModelConfiguration(name, schema: schema, url: url)
+        return try ModelContainer(for: schema, configurations: configuration)
+    }
+    if let container = try? open() { return container }
+    NSLog("Offline store \(name) could not be opened - moving it aside and starting a fresh one")
+    let stamp = ISO8601DateFormatter().string(from: Date())
+    for suffix in ["", "-shm", "-wal"] {
+        let file = URL(fileURLWithPath: url.path + suffix)
+        try? FileManager.default.moveItem(at: file, to: URL(fileURLWithPath: file.path + ".corrupt-\(stamp)"))
+    }
+    if let container = try? open() { return container }
+    NSLog("Offline store \(name) still failing - running in memory this launch")
+    if let container = try? open(inMemory: true) { return container }
+    // An in-memory store failing means SwiftData itself is broken.
+    preconditionFailure("SwiftData is unavailable")
+}
+
 /// Runs `fetch`; on success stashes the result under `key`, and if it fails
 /// for lack of a connection returns the last stashed copy instead (any other
 /// failure still throws). For reference lists - meal slots, saved meals, the
@@ -68,6 +100,10 @@ final class IdCache<Item: Codable & Identifiable & Hashable> where Item.ID == UU
 
     var all: [Item] { Array(store.values) }
 
+    /// Forgets the in-memory copy so the next read goes back to disk (empty,
+    /// after `OfflineReferenceCache.removeAll()`).
+    func reset() { memory = nil }
+
     func items(ids: [UUID]) -> [Item] {
         let current = store
         return ids.compactMap { current[$0] }
@@ -91,6 +127,11 @@ final class IdCache<Item: Codable & Identifiable & Hashable> where Item.ID == UU
 enum Caches {
     static let foods = IdCache<Food>(key: "food-cache")
     static let recipes = IdCache<Recipe>(key: "recipe-cache")
+
+    static func resetAll() {
+        foods.reset()
+        recipes.reset()
+    }
 
     /// The same word-by-word, starts-with ranking the online search uses,
     /// run over the foods already on the phone.

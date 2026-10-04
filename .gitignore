@@ -20,3 +20,9 @@ supabase/.temp/
 
 # Node (scripts/)
 node_modules/
+
+# Saved/backup copies of env files
+.env.*
+*.env.save
+supabase/.env.save
+!.env.example

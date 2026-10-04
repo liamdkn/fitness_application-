@@ -60,16 +60,10 @@ final class OfflineWorkoutQueue {
     init(workoutRepository: WorkoutRepository? = nil, networkMonitor: NetworkMonitor? = nil) {
         self.workoutRepository = workoutRepository ?? WorkoutRepository()
         self.networkMonitor = networkMonitor ?? .shared
-        do {
-            let configuration = ModelConfiguration(
-                "workout-queue",
-                schema: Schema([QueuedWorkout.self, QueuedWorkoutSet.self, QueuedWorkoutExercise.self]),
-                url: URL.applicationSupportDirectory.appending(path: "workout-queue.store")
-            )
-            container = try ModelContainer(for: QueuedWorkout.self, QueuedWorkoutSet.self, QueuedWorkoutExercise.self, configurations: configuration)
-        } catch {
-            fatalError("Failed to create offline workout store: \(error)")
-        }
+        container = makeResilientContainer(
+            name: "workout-queue",
+            models: [QueuedWorkout.self, QueuedWorkoutSet.self, QueuedWorkoutExercise.self]
+        )
         self.networkMonitor.onReconnected { [weak self] in
             self?.scheduleFlush()
         }
@@ -274,6 +268,26 @@ final class OfflineWorkoutQueue {
     }
 
     // MARK: - Local lookups
+
+    // MARK: - Account switching
+
+    /// Workouts, sets and exercise rows not yet confirmed on the server.
+    var unsyncedCount: Int {
+        let workouts = ((try? context.fetch(FetchDescriptor<QueuedWorkout>())) ?? [])
+            .filter { $0.syncState == .pending || $0.pendingDeletion }.count
+        let sets = ((try? context.fetch(FetchDescriptor<QueuedWorkoutSet>())) ?? [])
+            .filter { $0.syncState == .pending || $0.pendingDeletion }.count
+        return workouts + sets
+    }
+
+    /// Removes everything held locally - at sign-out or when a different
+    /// account signs in (see `LocalData`).
+    func wipeAll() {
+        for set in (try? context.fetch(FetchDescriptor<QueuedWorkoutSet>())) ?? [] { context.delete(set) }
+        for exercise in (try? context.fetch(FetchDescriptor<QueuedWorkoutExercise>())) ?? [] { context.delete(exercise) }
+        for workout in (try? context.fetch(FetchDescriptor<QueuedWorkout>())) ?? [] { context.delete(workout) }
+        try? context.save()
+    }
 
     private func removeOrTombstone(_ set: QueuedWorkoutSet) {
         if set.syncState == .pending {

@@ -19,9 +19,15 @@ enum SupersetLabeling {
         let qualifyingGroups = order.filter { (counts[$0] ?? 0) >= 2 }
         var labels: [UUID: String] = [:]
         for (index, groupId) in qualifyingGroups.enumerated() {
-            let letter = Character(UnicodeScalar(65 + index % 26)!)
+            let letter = letter(at: index)
             labels[groupId] = "Superset \(letter)"
         }
         return labels
+    }
+
+    /// A, B, C ... then round again after Z. Safe for any index (a negative
+    /// one used to be a crash).
+    static func letter(at index: Int) -> Character {
+        Character(UnicodeScalar(UInt8(65 + (abs(index) % 26))))
     }
 }

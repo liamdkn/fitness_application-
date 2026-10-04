@@ -421,7 +421,7 @@ struct ActiveWorkoutView: View {
     }
 
     private func movementLetter(at index: Int) -> String {
-        String(Character(UnicodeScalar(65 + index % 26)!))
+        String(SupersetLabeling.letter(at: index))
     }
 
     private func logSet(exerciseId: UUID, reps: Int, weight: Double, rpe: Double?, isDropSet: Bool) {

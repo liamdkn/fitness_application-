@@ -100,9 +100,18 @@ struct DailyAdherenceScore: Hashable {
 struct WeeklyAdherenceScore {
     let dailyScores: [DailyAdherenceScore]
     let components: [AdherenceComponentScore]
+    /// Number of calendar days in the selected week that have elapsed,
+    /// including today when this is the current week.
+    let elapsedDaysCount: Int
 
     var scoredCount: Int { components.scoredCount }
     var totalCount: Int { components.count }
+    var scoredDaysCount: Int { dailyScores.prefix(elapsedDaysCount).filter { $0.overall != nil }.count }
+    var nutritionDaysLoggedCount: Int {
+        dailyScores.prefix(elapsedDaysCount).filter { day in
+            day.components.first { $0.component == .calories }?.score != nil
+        }.count
+    }
 
     var overall: Double? { components.weightedOverall }
 }

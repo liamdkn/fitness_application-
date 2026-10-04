@@ -39,6 +39,11 @@ nonisolated struct WidgetSnapshot: Codable, Equatable {
         return try? JSONDecoder().decode(WidgetSnapshot.self, from: data)
     }
 
+    /// Removes the saved numbers (sign-out / account switch).
+    static func clear() {
+        UserDefaults(suiteName: appGroup)?.removeObject(forKey: key)
+    }
+
     func save() {
         guard let data = try? JSONEncoder().encode(self) else { return }
         UserDefaults(suiteName: Self.appGroup)?.set(data, forKey: Self.key)

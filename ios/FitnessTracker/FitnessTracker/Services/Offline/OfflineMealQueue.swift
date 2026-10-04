@@ -45,16 +45,7 @@ final class OfflineMealQueue {
     init(mealEntryRepository: MealEntryRepository? = nil, networkMonitor: NetworkMonitor? = nil) {
         self.mealEntryRepository = mealEntryRepository ?? MealEntryRepository()
         self.networkMonitor = networkMonitor ?? .shared
-        do {
-            let configuration = ModelConfiguration(
-                "meal-queue",
-                schema: Schema([QueuedMealEntry.self]),
-                url: URL.applicationSupportDirectory.appending(path: "meal-queue.store")
-            )
-            container = try ModelContainer(for: QueuedMealEntry.self, configurations: configuration)
-        } catch {
-            fatalError("Failed to create offline meal queue store: \(error)")
-        }
+        container = makeResilientContainer(name: "meal-queue", models: [QueuedMealEntry.self])
         self.networkMonitor.onReconnected { [weak self] in
             self?.scheduleFlush()
         }
@@ -209,6 +200,22 @@ final class OfflineMealQueue {
             // operations.
             try await mealEntryRepository.deleteEntry(id: id)
         }
+    }
+
+    // MARK: - Account switching
+
+    /// Entries not yet confirmed on the server (new, edited or deleted here).
+    var unsyncedCount: Int {
+        ((try? context.fetch(FetchDescriptor<QueuedMealEntry>())) ?? [])
+            .filter { $0.syncState == .pending || $0.pendingDeletion }
+            .count
+    }
+
+    /// Removes everything held locally - at sign-out or when a different
+    /// account signs in (see `LocalData`).
+    func wipeAll() {
+        for row in (try? context.fetch(FetchDescriptor<QueuedMealEntry>())) ?? [] { context.delete(row) }
+        try? context.save()
     }
 
     // MARK: - Local lookups

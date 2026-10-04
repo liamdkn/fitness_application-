@@ -62,11 +62,21 @@ struct PlannedRun: Codable, Identifiable, Hashable {
 
     var day: Date { DateFormatting.date(fromISODate: date) ?? Date() }
 
+    /// The plan's implied average pace when both distance and duration have
+    /// been entered. The watch workout uses this as its target pace alert.
+    var targetPaceLabel: String? {
+        guard let targetDistanceKm, targetDistanceKm > 0,
+              let targetDurationMin, targetDurationMin > 0
+        else { return nil }
+        return RunFormat.pace(seconds: Double(targetDurationMin * 60), meters: targetDistanceKm * 1000)
+    }
+
     /// "9 km", "35 min", "10 km \u{00b7} 60 min" - whichever targets exist.
     var targetLabel: String {
         var parts: [String] = []
         if let targetDistanceKm { parts.append(RunFormat.km(targetDistanceKm)) }
         if let targetDurationMin { parts.append("\(targetDurationMin) min") }
+        if let targetPaceLabel { parts.append(targetPaceLabel) }
         return parts.isEmpty ? (runType == .rest ? "Rest" : "No target") : parts.joined(separator: " \u{00b7} ")
     }
 }

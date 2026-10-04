@@ -7,16 +7,24 @@ final class SupabaseService: ObservableObject {
     static let shared = SupabaseService()
 
     let client: SupabaseClient
+    /// Set when the build is missing its Supabase URL or key (a bad or absent
+    /// `Config.xcconfig`); `RootView` shows it instead of the app.
+    let configurationError: String?
     @Published private(set) var session: Session?
 
     private init() {
-        guard
-            let urlString = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String,
-            let url = URL(string: urlString),
-            let anonKey = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String
-        else {
-            fatalError("Missing SUPABASE_URL / SUPABASE_ANON_KEY - check Config.xcconfig")
+        let urlString = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String
+        let configuredAnonKey = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String
+        let configuredURL = urlString.flatMap { $0.hasPrefix("http") ? URL(string: $0) : nil }
+        if configuredURL == nil || (configuredAnonKey ?? "").isEmpty {
+            configurationError = "This build is missing its Supabase settings. Add SUPABASE_URL and SUPABASE_ANON_KEY to Config.xcconfig (see Config.xcconfig.example) and rebuild."
+        } else {
+            configurationError = nil
         }
+        // A harmless placeholder keeps the client constructible; nothing is
+        // ever sent to it because the app shows the error instead.
+        let url = configuredURL ?? URL(string: "https://invalid.example")!
+        let anonKey = configuredAnonKey ?? ""
 
         // `emitLocalSessionAsInitialSession: true` opts into the library's
         // upcoming default now, rather than leaving it on the deprecated
@@ -46,6 +54,9 @@ final class SupabaseService: ObservableObject {
 
     private func observeAuthChanges() async {
         for await (_, session) in client.auth.authStateChanges {
+            // Before the app sees a signed-in user: make sure the data on the
+            // phone is theirs (see `LocalData`).
+            if let userId = session?.user.id { LocalData.claim(userId) }
             self.session = session
         }
     }
@@ -56,6 +67,7 @@ final class SupabaseService: ObservableObject {
 
     func signOut() async throws {
         try await client.auth.signOut()
+        LocalData.wipe()
     }
 }
 

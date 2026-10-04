@@ -36,8 +36,12 @@ final class RunningPlanViewModel: ObservableObject {
     /// clear where new rows came from.
     @Published var importedCount = 0
     @Published var isSyncing = false
+    @Published var isSendingToWatch = false
+    @Published var watchSyncMessage: String?
+    @Published var watchSyncError: String?
 
     private let repository = RunningPlanRepository()
+    private let watchWorkoutSync = RunWorkoutSyncService()
     private let calendar = Calendar.current
 
     /// Pulls any Watch runs not yet in the app straight in, no per-run
@@ -153,6 +157,28 @@ final class RunningPlanViewModel: ObservableObject {
         guard let plan else { return }
         let from = calendar.date(byAdding: .day, value: -90, to: plan.start) ?? plan.start
         if let fresh = try? await repository.fetchRuns(from: from) { sessions = fresh }
+    }
+
+    func sendUpcomingRunsToWatch() async {
+        isSendingToWatch = true
+        watchSyncMessage = nil
+        watchSyncError = nil
+        defer { isSendingToWatch = false }
+
+        do {
+            let result = try await watchWorkoutSync.syncUpcomingRuns(runs)
+            if result.requestedCount == 0 {
+                watchSyncMessage = "There are no upcoming runs in this plan to send."
+            } else if result.limitReached {
+                watchSyncMessage = "Sent \(result.scheduledCount) of \(result.requestedCount) upcoming runs. Apple Watch has reached its scheduled-workout limit."
+            } else if result.scheduledCount < result.requestedCount {
+                watchSyncError = "Apple Watch couldn't confirm every scheduled run. Try syncing again."
+            } else {
+                watchSyncMessage = "Sent \(result.scheduledCount) upcoming runs to Apple Watch. Find them in the Workout app under Scheduled."
+            }
+        } catch {
+            watchSyncError = error.localizedDescription
+        }
     }
 
     func delete(_ run: PlannedRun) async {
@@ -301,6 +327,30 @@ struct RunningPlanView: View {
             }
             if let notes = plan.notes, !notes.isEmpty {
                 Text(notes).font(.caption).foregroundStyle(.secondary)
+            }
+            Button {
+                Task { await viewModel.sendUpcomingRunsToWatch() }
+            } label: {
+                if viewModel.isSendingToWatch {
+                    Label("Sending to Apple Watch...", systemImage: "applewatch")
+                } else {
+                    Label("Send upcoming runs to Apple Watch", systemImage: "applewatch")
+                }
+            }
+            .disabled(viewModel.isSendingToWatch)
+            .appToolbarTint()
+            Text("Each workout has a 10-minute warm-up and cool-down. Pace is calculated when both distance and time are set.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            if let watchSyncMessage = viewModel.watchSyncMessage {
+                Text(watchSyncMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let watchSyncError = viewModel.watchSyncError {
+                Text(watchSyncError)
+                    .font(.caption)
+                    .foregroundStyle(AppColor.error)
             }
         }
         .padding(.vertical, 2)

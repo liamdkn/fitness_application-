@@ -27,7 +27,13 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if isSignedIn {
+            if let problem = supabase.configurationError {
+                ContentUnavailableView {
+                    Label("Setup needed", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(problem)
+                }
+            } else if isSignedIn {
                 MainTabView()
             } else {
                 SignInView()

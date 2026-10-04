@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var stepRemindersEnabled = true
     @State private var stepReminderTime = Date()
     @State private var stepRemindersLoaded = false
+    @State private var showingUnsentWarning = false
+    @State private var unsentChanges = 0
     @State private var preferencesError: String?
     private let preferencesRepository = UserPreferencesRepository()
 
@@ -116,7 +118,27 @@ struct SettingsView: View {
 
                 Section("Account") {
                     Button("Sign Out", role: .destructive) {
-                        Task { try? await SupabaseService.shared.signOut() }
+                        Task {
+                            // Send anything waiting first; only warn if some
+                            // of it couldn't be (no connection).
+                            await LocalData.flushAll()
+                            unsentChanges = LocalData.unsentCount
+                            if unsentChanges > 0 {
+                                showingUnsentWarning = true
+                            } else {
+                                try? await SupabaseService.shared.signOut()
+                            }
+                        }
+                    }
+                    .confirmationDialog(
+                        "\(unsentChanges) change\(unsentChanges == 1 ? "" : "s") haven't synced yet. Signing out now will lose them.",
+                        isPresented: $showingUnsentWarning,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Sign Out and Discard", role: .destructive) {
+                            Task { try? await SupabaseService.shared.signOut() }
+                        }
+                        Button("Stay Signed In", role: .cancel) {}
                     }
                 }
                 .listRowBackground(AppRowBackground())

@@ -38,7 +38,7 @@ enum AdaptiveTDEEEngine {
 
     /// Minimum data before an estimate is trustworthy enough to show.
     private static let minWeighIns = 8
-    private static let minNutritionLogs = 8
+    private static let minimumNutritionDaysPerWeek = 5
 
     /// Cap on how far a single recommendation can move the target from the
     /// current one, so one noisy window can't whipsaw the user's calories.
@@ -53,7 +53,8 @@ enum AdaptiveTDEEEngine {
         asOf: Date = Date()
     ) -> TDEERecommendation? {
         let calendar = Calendar.current
-        guard let windowStart = calendar.date(byAdding: .day, value: -windowDays, to: asOf) else { return nil }
+        let windowEnd = calendar.startOfDay(for: asOf)
+        guard let windowStart = calendar.date(byAdding: .day, value: -windowDays, to: windowEnd) else { return nil }
 
         // Trend weight via EWMA (`TrendWeightCalculator`, shared with the
         // Dashboard's weight chart) - only updates on days with an actual
@@ -61,15 +62,17 @@ enum AdaptiveTDEEEngine {
         // week without a weigh-in doesn't mute the next reading. Bump-day
         // weigh-ins are dropped first so a temporary off-plan spike can't
         // pose as real weight change.
-        let weightLogsInWindow = weightLogs.filter { $0.loggedAt >= windowStart && $0.loggedAt <= asOf }
+        let weightLogsInWindow = weightLogs.filter { $0.loggedAt >= windowStart && $0.loggedAt < windowEnd }
         let (cleanedWeightLogsInWindow, excludedBumpDays) = OffPlanWeightAdvisor.excludingBumpDates(from: weightLogsInWindow, checkins: recentCheckins)
         let trendPoints = TrendWeightCalculator.compute(from: cleanedWeightLogsInWindow)
         let nutritionInWindow = nutritionLogs.filter { log in
             guard let date = DateFormatting.date(fromISODate: log.date) else { return false }
-            return date >= windowStart && date <= asOf
+            return date >= windowStart && date < windowEnd
         }
 
-        guard trendPoints.count >= minWeighIns, nutritionInWindow.count >= minNutritionLogs else { return nil }
+        guard trendPoints.count >= minWeighIns,
+              hasAdequateNutritionCoverage(nutritionInWindow, windowStart: windowStart, windowDays: windowDays, calendar: calendar)
+        else { return nil }
         guard let first = trendPoints.first, let last = trendPoints.last, last.date > first.date else { return nil }
 
         let totalDays = Double(calendar.dateComponents([.day], from: first.date, to: last.date).day ?? 0)
@@ -98,5 +101,36 @@ enum AdaptiveTDEEEngine {
             recommendedCalorieTarget: recommended,
             excludedBumpDays: excludedBumpDays
         )
+    }
+
+    /// Averages over only logged days can look dramatically better when
+    /// missed days include untracked overeating. Require broad coverage and
+    /// coverage in each week-sized segment before using that average to
+    /// estimate expenditure. Missing days stay unknown; they are never
+    /// imputed as zero calories.
+    private static func hasAdequateNutritionCoverage(
+        _ logs: [NutritionLog],
+        windowStart: Date,
+        windowDays: Int,
+        calendar: Calendar
+    ) -> Bool {
+        guard windowDays > 0 else { return false }
+        let loggedDates = Set(logs.compactMap { log -> Date? in
+            guard let date = DateFormatting.date(fromISODate: log.date) else { return nil }
+            return calendar.startOfDay(for: date)
+        })
+
+        var offset = 0
+        while offset < windowDays {
+            let segmentLength = min(7, windowDays - offset)
+            guard let segmentStart = calendar.date(byAdding: .day, value: offset, to: windowStart),
+                  let segmentEnd = calendar.date(byAdding: .day, value: segmentLength, to: segmentStart)
+            else { return false }
+            let count = loggedDates.filter { $0 >= segmentStart && $0 < segmentEnd }.count
+            let required = Int(ceil(Double(segmentLength) * Double(minimumNutritionDaysPerWeek) / 7.0))
+            guard count >= required else { return false }
+            offset += segmentLength
+        }
+        return true
     }
 }

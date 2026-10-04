@@ -94,6 +94,9 @@ final class OfflineOutbox {
         let id: UUID
         let operation: Operation
         var attempts: Int
+        /// Who queued it. Never sent under anyone else's session. `nil` only
+        /// for entries saved before owners were recorded (see `adoptUnowned`).
+        var ownerId: UUID?
     }
 
     private(set) var entries: [Entry] = []
@@ -118,7 +121,7 @@ final class OfflineOutbox {
     var hasPending: Bool { !entries.isEmpty }
 
     func enqueue(_ operation: Operation) {
-        entries.append(Entry(id: UUID(), operation: operation, attempts: 0))
+        entries.append(Entry(id: UUID(), operation: operation, attempts: 0, ownerId: SupabaseService.shared.session?.user.id))
         persist()
         scheduleRetry()
     }
@@ -127,6 +130,26 @@ final class OfflineOutbox {
 
     /// A water log that hasn't reached the server yet is dropped outright if
     /// it's deleted - it never needs to. Returns true when that happened.
+    /// Entries from before owners were recorded belong to the one person who
+    /// has been using this phone: give them to the account that's signed in now.
+    func adoptUnowned(by userId: UUID) {
+        var changed = false
+        for index in entries.indices where entries[index].ownerId == nil {
+            entries[index].ownerId = userId
+            changed = true
+        }
+        if changed { persist() }
+    }
+
+    /// Removes everything queued - at sign-out or when a different account
+    /// signs in (see `LocalData`).
+    func wipeAll() {
+        entries = []
+        retryTask?.cancel()
+        retryTask = nil
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
     func cancelPendingAddWater(id: UUID) -> Bool {
         guard let index = entries.firstIndex(where: {
             if case .addWater(let log) = $0.operation { return log.id == id }
@@ -161,7 +184,20 @@ final class OfflineOutbox {
         isFlushing = true
         defer { isFlushing = false }
 
+        // Entries queued by someone else can never be sent as the current user:
+            // drop them rather than write another person's data into this account.
+        guard let currentUser = SupabaseService.shared.session?.user.id else { return }
+        let before = entries.count
+        entries.removeAll { $0.ownerId != nil && $0.ownerId != currentUser }
+        if entries.count != before { persist() }
+
         while let first = entries.first {
+            guard first.ownerId == currentUser else {
+                // No recorded owner: can't be vouched for, so it isn't sent.
+                entries.removeFirst()
+                persist()
+                continue
+            }
             do {
                 try await perform(first.operation)
                 entries.removeFirst()
