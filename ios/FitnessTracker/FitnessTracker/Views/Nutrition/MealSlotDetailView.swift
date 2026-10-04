@@ -9,6 +9,8 @@ struct MealSlotDetailView: View {
     @ObservedObject var viewModel: MealLogViewModel
     let slot: MealSlot
     let date: Date
+    /// Carbs to aim for in this meal - set for the Preworkout slot only.
+    var preworkoutCarbTargetG: Double?
 
     @State private var addingFood = false
     @State private var addingMealPrep = false
@@ -70,6 +72,11 @@ struct MealSlotDetailView: View {
         ScrollView {
             VStack(spacing: 16) {
                 headerCard
+                if let target = preworkoutCarbTargetG, slot.isPreworkout {
+                    PreworkoutCarbCard(carbsG: group?.totalCarbsG ?? 0, targetG: target, slotName: slot.name) { food, servings in
+                        Task { await viewModel.logFood(food, quantity: servings, mealSlotId: slot.id, date: date) }
+                    }
+                }
                 optionsRow
 
                 if entries.isEmpty {
@@ -100,9 +107,13 @@ struct MealSlotDetailView: View {
         .navigationTitle(slot.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $addingFood) {
-            FoodPickerView(mealSlotName: slot.name) { food, quantity in
-                Task { await viewModel.logFood(food, quantity: quantity, mealSlotId: slot.id, date: date) }
-            }
+            FoodPickerView(
+                mealSlotName: slot.name,
+                onLog: { food, quantity in
+                    Task { await viewModel.logFood(food, quantity: quantity, mealSlotId: slot.id, date: date) }
+                },
+                carbsRemainingG: preworkoutCarbTargetG.flatMap { slot.isPreworkout ? max($0 - (group?.totalCarbsG ?? 0), 0) : nil }
+            )
         }
         .sheet(isPresented: $addingMealPrep) {
             MealPrepPickerView(slot: slot, date: date) { summary, quantity in
@@ -130,6 +141,9 @@ struct MealSlotDetailView: View {
                 },
                 onRemove: {
                     Task { await viewModel.deleteEntry(slotEntry.entry) }
+                },
+                onSetEatenAt: { time in
+                    Task { await viewModel.updateEatenAt(slotEntry.entry, eatenAt: time) }
                 },
                 onAddSalt: { grams in
                     Task {
@@ -298,8 +312,12 @@ struct MealSlotDetailView: View {
 
     /// "80g" or "80g · Brand".
     private func subtitle(for slotEntry: MealSlotEntry) -> String {
-        guard let brand = slotEntry.brand, !brand.isEmpty else { return slotEntry.amountLabel }
-        return "\(slotEntry.amountLabel) \u{00b7} \(brand)"
+        var parts = [slotEntry.amountLabel]
+        if let brand = slotEntry.brand, !brand.isEmpty { parts.append(brand) }
+        if let eatenAt = slotEntry.entry.eatenAt {
+            parts.append(eatenAt.formatted(date: .omitted, time: .shortened))
+        }
+        return parts.joined(separator: " \u{00b7} ")
     }
 }
 
@@ -398,9 +416,12 @@ private struct EditMealEntryQuantityView: View {
     let entry: MealSlotEntry
     let onConfirm: (Double) -> Void
     let onRemove: () -> Void
+    let onSetEatenAt: (Date?) -> Void
     let onAddSalt: (Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var hasEatenTime: Bool
+    @State private var eatenTime: Date
     @State private var saltText = ""
     @State private var quantityText: String
     @State private var inputMode: QuantityInputMode = .servings
@@ -410,11 +431,15 @@ private struct EditMealEntryQuantityView: View {
         entry: MealSlotEntry,
         onConfirm: @escaping (Double) -> Void,
         onRemove: @escaping () -> Void,
+        onSetEatenAt: @escaping (Date?) -> Void,
         onAddSalt: @escaping (Double) -> Void
     ) {
         self.entry = entry
         self.onConfirm = onConfirm
         self.onRemove = onRemove
+        self.onSetEatenAt = onSetEatenAt
+        _hasEatenTime = State(initialValue: entry.entry.eatenAt != nil)
+        _eatenTime = State(initialValue: entry.entry.displayTime)
         self.onAddSalt = onAddSalt
         self.info = EditableFoodInfo(entry)
         _quantityText = State(initialValue: Self.formattedQuantity(entry.entry.quantity))
@@ -477,6 +502,17 @@ private struct EditMealEntryQuantityView: View {
                     }
                 }
                 Section {
+                    Toggle("Time eaten recorded", isOn: $hasEatenTime)
+                    if hasEatenTime {
+                        DatePicker("Eaten at", selection: $eatenTime, displayedComponents: .hourAndMinute)
+                    }
+                } header: {
+                    Text("When")
+                } footer: {
+                    Text("The time you actually ate it, for lining meals up against other readings. Foods logged as you eat them get the time automatically.")
+                }
+                .listRowBackground(AppRowBackground())
+                Section {
                     HStack {
                         Text("Salt added")
                         Spacer()
@@ -518,6 +554,7 @@ private struct EditMealEntryQuantityView: View {
                     Button("Save") {
                         if let quantity {
                             onConfirm(quantity)
+                            saveEatenTime()
                             dismiss()
                         }
                     }
@@ -525,6 +562,22 @@ private struct EditMealEntryQuantityView: View {
                     .appToolbarTint()
                 }
             }
+        }
+    }
+
+    /// The picker's hour and minute, put on the entry's own day.
+    private func saveEatenTime() {
+        let original = entry.entry.eatenAt
+        if !hasEatenTime {
+            if original != nil { onSetEatenAt(nil) }
+            return
+        }
+        let calendar = Calendar.current
+        let day = DateFormatting.date(fromISODate: entry.entry.date) ?? entry.entry.displayTime
+        let time = calendar.dateComponents([.hour, .minute], from: eatenTime)
+        guard let combined = calendar.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: 0, of: day) else { return }
+        if original == nil || abs(combined.timeIntervalSince(original ?? combined)) >= 60 {
+            onSetEatenAt(combined)
         }
     }
 

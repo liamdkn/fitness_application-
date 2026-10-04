@@ -13,6 +13,9 @@ struct FoodPickerView: View {
     /// offered - recents, search results and online hits - and a new food
     /// starts out in ml.
     var drinksOnly = false
+    /// Carbs still to eat before training (the Preworkout meal), so the
+    /// quantity step can say how much of a food gets there.
+    var carbsRemainingG: Double?
 
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
@@ -133,7 +136,7 @@ struct FoodPickerView: View {
                 }
             }
             .sheet(item: $pendingFood) { food in
-                LogFoodQuantityView(food: food, mealSlotName: mealSlotName) { confirmedFood, quantity in
+                LogFoodQuantityView(food: food, mealSlotName: mealSlotName, carbsRemainingG: carbsRemainingG) { confirmedFood, quantity in
                     onLog(confirmedFood, quantity)
                     dismiss()
                 }
@@ -361,6 +364,7 @@ struct LogFoodQuantityView: View {
     /// fixed by which slot's card was tapped to get here, so this is a
     /// read-only label rather than a reassignment control.
     let mealSlotName: String
+    let carbsRemainingG: Double?
     let onConfirm: (Food, Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -369,9 +373,10 @@ struct LogFoodQuantityView: View {
     @State private var inputMode: QuantityInputMode = .servings
     private let mealEntryRepository = MealEntryRepository()
 
-    init(food: Food, mealSlotName: String, onConfirm: @escaping (Food, Double) -> Void) {
+    init(food: Food, mealSlotName: String, carbsRemainingG: Double? = nil, onConfirm: @escaping (Food, Double) -> Void) {
         _food = State(initialValue: food)
         self.mealSlotName = mealSlotName
+        self.carbsRemainingG = carbsRemainingG
         self.onConfirm = onConfirm
     }
 
@@ -421,6 +426,21 @@ struct LogFoodQuantityView: View {
                     }
                 }
                 .listRowBackground(AppRowBackground())
+                if let remaining = carbsRemainingG, remaining >= 1,
+                   let needed = PreworkoutCarbs.servings(of: food, forCarbsG: remaining) {
+                    Section {
+                        Button {
+                            quantityText = formattedQuantity(inputMode == .amount ? needed * food.servingSize : needed)
+                        } label: {
+                            LabeledContent("\(food.amountLabel(at: needed)) of this", value: "about \(Int(food.carbsG(at: needed).rounded())) g carbs")
+                        }
+                    } header: {
+                        Text("Preworkout carbs")
+                    } footer: {
+                        Text("\(Int(remaining.rounded())) g of carbs still to eat before training. Tap to use this amount.")
+                    }
+                    .listRowBackground(AppRowBackground())
+                }
                 if let quantity, quantity > 0 {
                     Section {
                         MacroBreakdownRing(

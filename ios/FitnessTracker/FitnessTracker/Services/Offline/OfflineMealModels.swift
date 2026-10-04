@@ -13,6 +13,8 @@ final class QueuedMealEntry {
     var recipeId: UUID?
     var quantity: Double
     var loggedAt: Date
+    /// Optional, so stores from before it existed open unchanged.
+    var eatenAt: Date?
     var syncState: SyncState
     var pendingDeletion: Bool
 
@@ -24,6 +26,7 @@ final class QueuedMealEntry {
         recipeId: UUID?,
         quantity: Double,
         loggedAt: Date,
+        eatenAt: Date? = nil,
         syncState: SyncState
     ) {
         self.id = id
@@ -33,11 +36,12 @@ final class QueuedMealEntry {
         self.recipeId = recipeId
         self.quantity = quantity
         self.loggedAt = loggedAt
+        self.eatenAt = eatenAt
         self.syncState = syncState
         self.pendingDeletion = false
     }
 
     func asMealEntry() -> MealEntry {
-        MealEntry(id: id, date: date, mealSlotId: mealSlotId, foodId: foodId, recipeId: recipeId, quantity: quantity, loggedAt: loggedAt)
+        MealEntry(id: id, date: date, mealSlotId: mealSlotId, foodId: foodId, recipeId: recipeId, quantity: quantity, loggedAt: loggedAt, eatenAt: eatenAt)
     }
 }

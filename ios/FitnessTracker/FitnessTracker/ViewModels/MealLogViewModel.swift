@@ -184,6 +184,17 @@ final class MealLogViewModel: ObservableObject {
         }
     }
 
+    func updateEatenAt(_ entry: MealEntry, eatenAt: Date?) async {
+        do {
+            let updated = try await offlineQueue.updateEatenAt(id: entry.id, eatenAt: eatenAt)
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                entries[index] = updated
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Copies a day's entries onto another day. Goes through the offline
     /// queue like any single log, so it works with no connection (the source
     /// day is read local-first too).
@@ -217,10 +228,10 @@ final class MealLogViewModel: ObservableObject {
     /// One food or recipe entry added through the offline queue.
     private func queueEntry(date: Date, mealSlotId: UUID, foodId: UUID?, recipeId: UUID?, quantity: Double) throws -> MealEntry {
         if let foodId {
-            return try offlineQueue.addFoodEntry(date: date, mealSlotId: mealSlotId, foodId: foodId, quantity: quantity)
+            return try offlineQueue.addFoodEntry(date: date, mealSlotId: mealSlotId, foodId: foodId, quantity: quantity, stampEatenTime: false)
         }
         if let recipeId {
-            return try offlineQueue.addRecipeEntry(date: date, mealSlotId: mealSlotId, recipeId: recipeId, quantity: quantity)
+            return try offlineQueue.addRecipeEntry(date: date, mealSlotId: mealSlotId, recipeId: recipeId, quantity: quantity, stampEatenTime: false)
         }
         throw RepositoryError.insertFailed
     }

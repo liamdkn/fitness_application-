@@ -70,6 +70,7 @@ nonisolated enum AppColor {
     static let fat = Color.yellow
     static let calories = accent
     static let sodium = Color.orange
+    static let fibre = Color.mint
     static let caffeine = Color.brown
     static let water = Color.cyan
     /// Calories banked toward a planned treat.

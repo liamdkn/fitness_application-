@@ -30,6 +30,10 @@ struct UserPreferences: Codable {
     var milkFoodId: UUID?
     /// "yyyy-MM-dd" of the last day the allowance was added.
     var milkAppliedDate: String?
+    /// Daily fibre target in grams.
+    var fibreGoalG: Int = 30
+    /// Carbs to aim for before a workout, per kg of bodyweight. 0 = off.
+    var preworkoutCarbsGPerKg: Double = 1.0
 
     enum CodingKeys: String, CodingKey {
         case weeklyCheckinWeekday = "weekly_checkin_weekday"
@@ -52,6 +56,8 @@ struct UserPreferences: Codable {
         case milkAllowanceMl = "milk_allowance_ml"
         case milkFoodId = "milk_food_id"
         case milkAppliedDate = "milk_applied_date"
+        case fibreGoalG = "fibre_goal_g"
+        case preworkoutCarbsGPerKg = "preworkout_carbs_g_per_kg"
     }
 
     /// Older rows (and a missing row) simply lack the new columns -
@@ -78,6 +84,8 @@ struct UserPreferences: Codable {
         milkAllowanceMl = try c.decodeIfPresent(Int.self, forKey: .milkAllowanceMl) ?? 100
         milkFoodId = try c.decodeIfPresent(UUID.self, forKey: .milkFoodId)
         milkAppliedDate = try c.decodeIfPresent(String.self, forKey: .milkAppliedDate)
+        fibreGoalG = try c.decodeIfPresent(Int.self, forKey: .fibreGoalG) ?? 30
+        preworkoutCarbsGPerKg = try c.decodeIfPresent(Double.self, forKey: .preworkoutCarbsGPerKg) ?? 1.0
     }
 
     init(

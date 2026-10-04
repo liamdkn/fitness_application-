@@ -43,6 +43,12 @@ struct UserPreferencesRepository {
         let milk_applied_date: String
     }
 
+    private struct UpsertNutritionTargets: Encodable {
+        let user_id: UUID
+        let fibre_goal_g: Int
+        let preworkout_carbs_g_per_kg: Double
+    }
+
     private struct UpsertStepReminders: Encodable {
         let user_id: UUID
         let step_reminders_enabled: Bool
@@ -101,6 +107,14 @@ struct UserPreferencesRepository {
         try await client
             .from("user_preferences")
             .upsert(UpsertMilkAllowance(user_id: userId, milk_allowance_enabled: enabled, milk_allowance_ml: ml, milk_food_id: foodId), onConflict: "user_id")
+            .execute()
+    }
+
+    func setNutritionTargets(fibreGoalG: Int, preworkoutCarbsGPerKg: Double) async throws {
+        let userId = try await client.auth.session.user.id
+        try await client
+            .from("user_preferences")
+            .upsert(UpsertNutritionTargets(user_id: userId, fibre_goal_g: fibreGoalG, preworkout_carbs_g_per_kg: preworkoutCarbsGPerKg), onConflict: "user_id")
             .execute()
     }
 

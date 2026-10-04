@@ -48,6 +48,22 @@ struct BodyWeightRepository {
             .value
     }
 
+    /// Latest logged weight, remembered for offline use - what per-kg targets
+    /// (the preworkout carb goal) are worked out from.
+    func latestWeightKg() async throws -> Double? {
+        let cached: [Double] = try await cachedRead(key: "latest-weight-kg") {
+            let rows: [BodyWeightLog] = try await client
+                .from("body_weight_logs")
+                .select()
+                .order("logged_at", ascending: false)
+                .limit(1)
+                .execute()
+                .value
+            return rows.map(\.weightKg)
+        }
+        return cached.first
+    }
+
     func deleteLog(id: UUID) async throws {
         try await client
             .from("body_weight_logs")

@@ -66,16 +66,20 @@ final class OfflineMealQueue {
     // MARK: - Entries
 
     @discardableResult
-    func addFoodEntry(date: Date, mealSlotId: UUID, foodId: UUID, quantity: Double) throws -> MealEntry {
-        try add(date: date, mealSlotId: mealSlotId, foodId: foodId, recipeId: nil, quantity: quantity)
+    func addFoodEntry(date: Date, mealSlotId: UUID, foodId: UUID, quantity: Double, stampEatenTime: Bool = true) throws -> MealEntry {
+        try add(date: date, mealSlotId: mealSlotId, foodId: foodId, recipeId: nil, quantity: quantity, stampEatenTime: stampEatenTime)
     }
 
     @discardableResult
-    func addRecipeEntry(date: Date, mealSlotId: UUID, recipeId: UUID, quantity: Double) throws -> MealEntry {
-        try add(date: date, mealSlotId: mealSlotId, foodId: nil, recipeId: recipeId, quantity: quantity)
+    func addRecipeEntry(date: Date, mealSlotId: UUID, recipeId: UUID, quantity: Double, stampEatenTime: Bool = true) throws -> MealEntry {
+        try add(date: date, mealSlotId: mealSlotId, foodId: nil, recipeId: recipeId, quantity: quantity, stampEatenTime: stampEatenTime)
     }
 
-    private func add(date: Date, mealSlotId: UUID, foodId: UUID?, recipeId: UUID?, quantity: Double) throws -> MealEntry {
+    private func add(date: Date, mealSlotId: UUID, foodId: UUID?, recipeId: UUID?, quantity: Double, stampEatenTime: Bool) throws -> MealEntry {
+        // Logging as you eat records the real time. A past or future day, or
+        // a bulk copy of earlier meals, isn't being eaten now, so its time is
+        // left unknown until set by hand.
+        let now = Date()
         let local = QueuedMealEntry(
             id: UUID(),
             date: DateFormatting.isoDate(date),
@@ -83,7 +87,8 @@ final class OfflineMealQueue {
             foodId: foodId,
             recipeId: recipeId,
             quantity: quantity,
-            loggedAt: Date(),
+            loggedAt: now,
+            eatenAt: stampEatenTime && Calendar.current.isDateInToday(date) ? now : nil,
             syncState: .pending
         )
         context.insert(local)
@@ -184,6 +189,23 @@ final class OfflineMealQueue {
         }
     }
 
+    /// Sets (or clears, with nil) when an entry was eaten. Works on the local
+    /// copy like `updateQuantity`; an entry no longer held locally is edited
+    /// on the server directly.
+    func updateEatenAt(id: UUID, eatenAt: Date?) async throws -> MealEntry {
+        if let local = try fetchLocalEntry(id: id) {
+            local.eatenAt = eatenAt
+            if local.syncState == .synced {
+                local.syncState = .pending
+            }
+            try context.save()
+            scheduleFlush()
+            return local.asMealEntry()
+        } else {
+            return try await mealEntryRepository.updateEatenAt(id: id, eatenAt: eatenAt)
+        }
+    }
+
     func deleteEntry(id: UUID) async throws {
         if let local = try fetchLocalEntry(id: id) {
             if local.syncState == .pending {
@@ -280,7 +302,8 @@ final class OfflineMealQueue {
                     foodId: entry.foodId,
                     recipeId: entry.recipeId,
                     quantity: entry.quantity,
-                    loggedAt: entry.loggedAt
+                    loggedAt: entry.loggedAt,
+                    eatenAt: entry.eatenAt
                 )
                 entry.syncState = .synced
             } catch {

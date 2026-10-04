@@ -105,6 +105,9 @@ struct SettingsView: View {
                     NavigationLink("Meal Slots") {
                         MealSlotsSettingsView()
                     }
+                    NavigationLink("Fibre & Preworkout Targets") {
+                        NutritionTargetsView()
+                    }
                 }
                 .listRowBackground(AppRowBackground())
 

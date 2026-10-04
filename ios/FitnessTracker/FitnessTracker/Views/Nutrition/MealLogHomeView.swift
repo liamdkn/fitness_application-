@@ -28,6 +28,11 @@ struct MealLogHomeView: View {
     @StateObject private var viewModel = MealLogViewModel()
     /// Sodium and caffeine limits for the bars under the macro cards.
     @State private var preferences: UserPreferences?
+    /// Weekday types from the active split, and the latest weight (for the
+    /// per-kg preworkout carb target).
+    @State private var weekdayTypes: [Int: ScheduledDayType] = [:]
+    @State private var latestWeightKg: Double?
+    private let trainingDays = TrainingDayService()
     private let preferencesRepository = UserPreferencesRepository()
     private let goalsRepository = GoalsRepository()
     private let mealEntryRepository = MealEntryRepository()
@@ -74,6 +79,24 @@ struct MealLogHomeView: View {
         goal?.fatGTarget.map { $0 + bankAdjustment.fatDelta }
     }
 
+    private var isRestDay: Bool {
+        trainingDays.isRestDay(selectedDate, in: weekdayTypes)
+    }
+
+    /// Carbs to eat before training on the selected day.
+    private var preworkoutCarbTargetG: Double? {
+        PreworkoutCarbs.targetG(weightKg: latestWeightKg, gramsPerKg: preferences?.preworkoutCarbsGPerKg ?? 1.0)
+    }
+
+    /// The meal cards for the day. On a rest day the Preworkout meal is
+    /// dropped (unless something's already logged in it): the day's calories
+    /// don't change, they're simply eaten across the other meals.
+    private var visibleSlotGroups: [MealSlotGroup] {
+        viewModel.slotGroups.filter { group in
+            !(isRestDay && group.slot.isPreworkout && group.entries.isEmpty)
+        }
+    }
+
     var body: some View {
         AppNavigationStack {
             ScrollView {
@@ -93,6 +116,11 @@ struct MealLogHomeView: View {
                         sodiumLimitMg: preferences?.sodiumLimitMg ?? 2300,
                         caffeineMg: totals.caffeineMg,
                         caffeineLimitMg: preferences?.caffeineLimitMg ?? 400
+                    )
+
+                    FibreRow(
+                        fibreG: totals.fiberG,
+                        goalG: preferences?.fibreGoalG ?? 30
                     )
 
                     if !bankAdjustment.treatsToday.isEmpty || !bankAdjustment.fundedTreats.isEmpty {
@@ -122,12 +150,18 @@ struct MealLogHomeView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        ForEach(viewModel.slotGroups) { group in
+                        if isRestDay, visibleSlotGroups.count < viewModel.slotGroups.count {
+                            Label("Rest day: no preworkout meal. Your calories stay the same and get eaten across the other meals.", systemImage: "bed.double")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(visibleSlotGroups) { group in
                             MealSlotCard(
                                 zoom: zoomNamespace,
                                 group: group,
                                 date: selectedDate,
                                 viewModel: viewModel,
+                                preworkoutCarbTargetG: preworkoutCarbTargetG,
                                 plannedTreats: bankAdjustment.treatsToday.filter { $0.mealSlotId == group.slot.id },
                                 onLogTapped: { addingFoodToSlot = group.slot }
                             )
@@ -148,6 +182,8 @@ struct MealLogHomeView: View {
                 await loadWeekLogStatus()
                 await loadWeekTreats()
                 preferences = try? await preferencesRepository.fetch()
+                weekdayTypes = await trainingDays.weekdayTypes()
+                latestWeightKg = try? await BodyWeightRepository().latestWeightKg()
             }
             .sheet(isPresented: $showingRepeatDay) {
                 RepeatDaySheet(targetDate: selectedDate) { sourceDate in
@@ -341,6 +377,7 @@ private struct MealSlotCard: View {
     let group: MealSlotGroup
     let date: Date
     @ObservedObject var viewModel: MealLogViewModel
+    let preworkoutCarbTargetG: Double?
     /// Treats banked onto *this* slot today, if any - see `CalorieBankCalculator`.
     let plannedTreats: [PlannedTreat]
     let onLogTapped: () -> Void
@@ -348,7 +385,7 @@ private struct MealSlotCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             NavigationLink {
-                MealSlotDetailView(viewModel: viewModel, slot: group.slot, date: date)
+                MealSlotDetailView(viewModel: viewModel, slot: group.slot, date: date, preworkoutCarbTargetG: preworkoutCarbTargetG)
                     .zoomDestination(id: group.slot.id, in: zoom)
             } label: {
                 MealSlotSummaryContent(group: group)
@@ -445,6 +482,31 @@ private struct MealSlotSummaryContent: View {
 
 /// Sodium against its daily limit, and today's caffeine. (Sodium only counts
 /// foods that have a figure on record.)
+private struct FibreRow: View {
+    let fibreG: Double
+    let goalG: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Fibre")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(Int(fibreG.rounded())) / \(goalG) g")
+                    .font(.subheadline.bold())
+                    .monospacedDigit()
+                    .rolling(fibreG)
+            }
+            AppProgressBar(value: min(fibreG / Double(max(goalG, 1)), 1))
+                .tint(AppColor.fibre)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .appCard(cornerRadius: 12)
+    }
+}
+
 private struct SodiumCaffeineRow: View {
     let sodiumMg: Double
     let sodiumLimitMg: Int

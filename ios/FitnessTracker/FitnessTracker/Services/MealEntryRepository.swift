@@ -30,6 +30,25 @@ struct MealEntryRepository {
         let recipe_id: UUID?
         let quantity: Double
         let logged_at: Date
+        let eaten_at: Date?
+
+        enum CodingKeys: String, CodingKey {
+            case id, user_id, date, meal_slot_id, food_id, recipe_id, quantity, logged_at, eaten_at
+        }
+
+        // `eaten_at` goes as an explicit null so an upsert can clear it.
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(id, forKey: .id)
+            try c.encode(user_id, forKey: .user_id)
+            try c.encode(date, forKey: .date)
+            try c.encode(meal_slot_id, forKey: .meal_slot_id)
+            try c.encode(food_id, forKey: .food_id)
+            try c.encode(recipe_id, forKey: .recipe_id)
+            try c.encode(quantity, forKey: .quantity)
+            try c.encode(logged_at, forKey: .logged_at)
+            try c.encode(eaten_at, forKey: .eaten_at)
+        }
     }
 
     private struct QuantityUpdate: Encodable {
@@ -160,6 +179,32 @@ struct MealEntryRepository {
         return entry
     }
 
+    private struct EatenAtUpdate: Encodable {
+        let eaten_at: Date?
+
+        enum CodingKeys: String, CodingKey { case eaten_at }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(eaten_at, forKey: .eaten_at)
+        }
+    }
+
+    @discardableResult
+    func updateEatenAt(id: UUID, eatenAt: Date?) async throws -> MealEntry {
+        let updated: [MealEntry] = try await client
+            .from("meal_entries")
+            .update(EatenAtUpdate(eaten_at: eatenAt))
+            .eq("id", value: id)
+            .select()
+            .execute()
+            .value
+        guard let entry = updated.first else {
+            throw RepositoryError.insertFailed
+        }
+        return entry
+    }
+
     func deleteEntry(id: UUID) async throws {
         try await client
             .from("meal_entries")
@@ -243,7 +288,8 @@ struct MealEntryRepository {
         foodId: UUID?,
         recipeId: UUID?,
         quantity: Double,
-        loggedAt: Date
+        loggedAt: Date,
+        eatenAt: Date?
     ) async throws {
         let userId = try await client.auth.session.user.id
         try await client
@@ -257,7 +303,8 @@ struct MealEntryRepository {
                     food_id: foodId,
                     recipe_id: recipeId,
                     quantity: quantity,
-                    logged_at: loggedAt
+                    logged_at: loggedAt,
+                    eaten_at: eatenAt
                 ),
                 onConflict: "id"
             )
