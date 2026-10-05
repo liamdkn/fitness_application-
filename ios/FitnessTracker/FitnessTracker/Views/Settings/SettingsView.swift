@@ -108,6 +108,9 @@ struct SettingsView: View {
                     NavigationLink("Meal Slots") {
                         MealSlotsSettingsView()
                     }
+                    NavigationLink("Kitchen Scale") {
+                        ScaleSetupView()
+                    }
                     NavigationLink("Fibre & Preworkout Targets") {
                         NutritionTargetsView()
                     }

@@ -20,10 +20,12 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Fitness Tracker connects to your kitchen scale over Bluetooth to log ingredients as you weigh them.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Fitness Tracker uses the camera to scan a food's barcode or nutrition label so you can log it without typing.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Fitness Tracker reads your steps, sleep and workouts from Health to show them alongside your training, and to work out when you usually go to bed.</string>
+	<string>Fitness Tracker reads your steps, sleep, weight and workouts from Health to show them alongside your training, and to work out when you usually go to bed.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>SUPABASE_ANON_KEY</key>

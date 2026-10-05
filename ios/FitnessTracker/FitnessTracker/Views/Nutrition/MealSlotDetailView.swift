@@ -16,6 +16,7 @@ struct MealSlotDetailView: View {
     @State private var addingMealPrep = false
     @State private var addingSavedMeal = false
     @State private var copyingMeal = false
+    @State private var weighing = false
     @State private var isSavingMeal = false
     @State private var editingEntry: MealSlotEntry?
 
@@ -125,6 +126,11 @@ struct MealSlotDetailView: View {
                 Task { await viewModel.applySavedMeal(items, mealSlotId: slot.id, date: date) }
             }
         }
+        .sheet(isPresented: $weighing) {
+            LiveWeighView(mealSlotName: slot.name) { food, servings in
+                Task { await viewModel.logFood(food, quantity: servings, mealSlotId: slot.id, date: date) }
+            }
+        }
         .sheet(isPresented: $copyingMeal) {
             CopyMealView(slot: slot, slots: viewModel.mealSlots) { source in
                 Task { await viewModel.copyEntries(source, mealSlotId: slot.id, date: date) }
@@ -221,6 +227,7 @@ struct MealSlotDetailView: View {
             optionButton("Recipes", icon: "takeoutbag.and.cup.and.straw") { addingMealPrep = true }
             optionButton("Saved", icon: "list.bullet.rectangle") { addingSavedMeal = true }
             optionButton("Copy", icon: "doc.on.doc") { copyingMeal = true }
+            optionButton("Scale", icon: "scalemass") { weighing = true }
             if !entries.isEmpty {
                 optionButton("Save Meal", icon: "bookmark") { isSavingMeal = true }
             }

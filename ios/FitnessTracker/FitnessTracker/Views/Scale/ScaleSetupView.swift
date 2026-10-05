@@ -1,0 +1,75 @@
+import SwiftUI
+import CoreBluetooth
+
+/// Connect a Bluetooth kitchen scale and see what it sends. Weigh something
+/// and the readings appear below; if the scale uses the standard format the
+/// grams are shown, otherwise the raw bytes are, which is what's needed to
+/// teach the app a scale's own format.
+struct ScaleSetupView: View {
+    @State private var scale = BluetoothScale.shared
+
+    var body: some View {
+        List {
+            Section {
+                if scale.connectedName == nil {
+                    Button {
+                        scale.isScanning ? scale.stopScan() : scale.startScan()
+                    } label: {
+                        Label(scale.isScanning ? "Stop Looking" : "Look for Scales", systemImage: "dot.radiowaves.left.and.right")
+                    }
+                    ForEach(scale.found.sorted { $0.rssi > $1.rssi }) { device in
+                        Button {
+                            scale.connect(device)
+                        } label: {
+                            HStack {
+                                Text(device.name)
+                                Spacer()
+                                Text("\(device.rssi) dBm").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } else if let name = scale.connectedName {
+                    LabeledContent("Connected to", value: name)
+                    if let grams = scale.grams {
+                        LabeledContent("Reading", value: "\(AmountLabel.trimmed(grams)) g")
+                            .font(.title3.bold())
+                    }
+                    Button("Disconnect", role: .destructive) { scale.disconnect() }
+                }
+            } header: {
+                Text("Scale")
+            } footer: {
+                Text(scale.status.isEmpty
+                     ? "Turn the scale on first. If it isn't listed, check it isn't already connected to its own app."
+                     : scale.status)
+            }
+            .listRowBackground(AppRowBackground())
+
+            if !scale.services.isEmpty {
+                Section("What it offers") {
+                    ForEach(scale.services, id: \.self) { line in
+                        Text(line).font(.caption.monospaced())
+                    }
+                }
+                .listRowBackground(AppRowBackground())
+            }
+
+            if !scale.log.isEmpty {
+                Section {
+                    ForEach(scale.log.suffix(40).reversed()) { line in
+                        Text(line.text).font(.caption.monospaced())
+                    }
+                } header: {
+                    Text("Live data")
+                } footer: {
+                    Text("Put something on the scale and watch these change. If the numbers don't turn into grams above, copy a few lines and send them over so the app can be taught this scale's format.")
+                }
+                .listRowBackground(AppRowBackground())
+            }
+        }
+        .appScreen()
+        .navigationTitle("Kitchen Scale")
+        .navigationBarTitleDisplayMode(.inline)
+        .onDisappear { scale.stopScan() }
+    }
+}
