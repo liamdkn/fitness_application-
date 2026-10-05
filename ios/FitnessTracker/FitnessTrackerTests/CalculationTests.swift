@@ -222,3 +222,29 @@ struct LiveWeighEngineTests {
         #expect(ScaleDecoding.standardWeightScale(Data([0x00])) == nil)
     }
 }
+
+struct FitdaysFrameTests {
+    @Test func checksumMatchesTheDocumentedStartCommands() {
+        // B0 30 00 -> (0xB0 + 0x30 + 0x00) & 0x1F | 0x20 = 0x20
+        #expect(ScaleDecoding.fitdaysChecksum(type: 0xB0, payload: [0x30, 0x00]) == 0x20)
+        #expect(ScaleDecoding.fitdaysChecksum(type: 0xB0, payload: [0x31, 0x00]) == 0x21)
+        #expect(ScaleDecoding.fitdaysChecksum(type: 0xB0, payload: [0x39, 0x00]) == 0x29)
+    }
+
+    @Test func everyStartCommandIsAWellFormedFrame() {
+        for hex in BluetoothScale.fitdaysStartCommands {
+            let bytes = hex.split(separator: " ").compactMap { UInt8($0, radix: 16) }
+            let frame = ScaleDecoding.fitdaysFrame(Data(bytes))
+            #expect(frame?.checksumOK == true)
+        }
+    }
+
+    @Test func weightIsA24BitNumberAtByteSeven() {
+        // seq, 00, len, 00, type A2, two filler bytes, then 00 03 E8 (= 1000), checksum
+        let payload: [UInt8] = [0x01, 0x02, 0x00, 0x03, 0xE8]
+        let checksum = ScaleDecoding.fitdaysChecksum(type: 0xA2, payload: payload)
+        let frame = ScaleDecoding.fitdaysFrame(Data([0x05, 0x00, 0x05, 0x00, 0xA2] + payload + [checksum]))
+        #expect(frame?.rawWeight == 1000)
+        #expect(frame?.checksumOK == true)
+    }
+}

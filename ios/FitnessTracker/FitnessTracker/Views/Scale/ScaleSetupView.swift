@@ -61,6 +61,7 @@ struct ScaleSetupView: View {
                     Picker("Send to", selection: $commandId) {
                         ForEach(scale.writableIds, id: \.self) { Text(String($0.prefix(8))).tag($0) }
                     }
+                    Button("Try the Fitdays start commands") { scale.sendFitdaysStart() }
                     TextField("Bytes, e.g. A5 01", text: $commandHex)
                         .font(.body.monospaced())
                         .textInputAutocapitalization(.characters)
@@ -91,6 +92,7 @@ struct ScaleSetupView: View {
         .appScreen()
         .navigationTitle("Kitchen Scale")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: scale.writableIds) { if commandId.isEmpty { commandId = scale.writableIds.first ?? "" } }
         .onDisappear { scale.stopScan() }
     }
 }

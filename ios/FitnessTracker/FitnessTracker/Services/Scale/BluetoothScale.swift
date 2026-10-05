@@ -107,6 +107,20 @@ final class BluetoothScale: NSObject {
         append("Sent to \(id): \(ScaleDecoding.hex(Data(bytes)))")
     }
 
+    /// The start-up commands the Fitdays app is documented to send a scale of
+    /// its family: "hello" (B0 30), then B0 31 and B0 39 - each a framed
+    /// `[seq][00][len][00][type][payload][checksum]` message to FFB1.
+    static let fitdaysStartCommands = ["00 00 03 00 B0 30 00 20", "08 00 03 00 B0 31 00 21", "09 00 03 00 B0 39 00 29"]
+
+    func sendFitdaysStart() {
+        Task {
+            for command in Self.fitdaysStartCommands {
+                send(hex: command, to: "0000FFB1-0000-1000-8000-00805F9B34FB")
+                try? await Task.sleep(nanoseconds: 400_000_000)
+            }
+        }
+    }
+
     /// Characteristics of the firmware-update service must never be written to.
     fileprivate nonisolated static func isFirmwareUpdate(_ uuid: CBUUID) -> Bool {
         uuid.uuidString.uppercased().hasPrefix("0000153")
@@ -201,13 +215,21 @@ extension BluetoothScale: CBPeripheralDelegate {
         guard let data = characteristic.value else { return }
         let uuid = characteristic.uuid
         let line = "\(uuid.uuidString): \(ScaleDecoding.hex(data))"
-        let decoded = uuid == CBUUID(string: "2A9D") ? ScaleDecoding.standardWeightScale(data) : nil
-        Task { @MainActor in
-            self.append(line + (decoded.map { "  = \($0) g" } ?? ""))
-            if let decoded {
-                self.grams = decoded
-                self.onReading?(decoded)
+        var decoded = uuid == CBUUID(string: "2A9D") ? ScaleDecoding.standardWeightScale(data) : nil
+        var note = ""
+        if uuid == CBUUID(string: "FFB2"), let frame = ScaleDecoding.fitdaysFrame(data) {
+            note = "  [type \(String(format: "%02X", frame.type)), checksum \(frame.checksumOK ? "ok" : "BAD")"
+            if let raw = frame.rawWeight {
+                note += ", weight field \(raw)"
+                decoded = Double(raw)
             }
+            note += "]"
+        }
+        let finalDecoded = decoded
+        Task { @MainActor in
+            self.append(line + note + (finalDecoded.map { "  = \($0) g?" } ?? ""))
+            if let decoded = finalDecoded { self.grams = decoded; self.onReading?(decoded) }
+            guard finalDecoded == nil else { return }
         }
     }
 }
