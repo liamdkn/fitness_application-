@@ -69,13 +69,14 @@ final class HealthKitManager {
     private var distanceType: HKQuantityType { HKQuantityType(.distanceWalkingRunning) }
     private var runningPowerType: HKQuantityType { HKQuantityType(.runningPower) }
     private var basalEnergyType: HKQuantityType { HKQuantityType(.basalEnergyBurned) }
+    private var bodyMassType: HKQuantityType { HKQuantityType(.bodyMass) }
 
     func requestAuthorization() async throws {
         guard HKHealthStore.isHealthDataAvailable() else { throw HealthKitError.notAvailable }
         try await store.requestAuthorization(
             toShare: [],
             read: [
-                stepType, sleepType,
+                stepType, sleepType, bodyMassType,
                 heartRateType, activeEnergyType, distanceType, runningPowerType, basalEnergyType,
                 HKObjectType.workoutType(), HKSeriesType.workoutRoute()
             ]
@@ -214,6 +215,20 @@ final class HealthKitManager {
                 // HealthKit stops waking the app if this isn't called.
                 completion()
             }
+        }
+    }
+
+    /// Weigh-ins in Health (from a smart scale's own app, or typed into Health)
+    /// over the last `daysBack` days, oldest first.
+    func fetchWeights(daysBack: Int) async throws -> [(date: Date, kg: Double)] {
+        let start = Self.windowStart(daysBack: daysBack, calendar: Calendar.current)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: Date())
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.quantitySample(type: bodyMassType, predicate: predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate)]
+        )
+        return try await descriptor.result(for: store).map {
+            ($0.startDate, ($0.quantity.doubleValue(for: .gramUnit(with: .kilo)) * 10).rounded() / 10)
         }
     }
 

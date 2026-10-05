@@ -71,5 +71,12 @@ final class HealthSyncService: ObservableObject {
         }
         try await repository.upsertSteps(stepLogs)
         try await repository.upsertSleep(sleepLogs)
+
+        // Weigh-ins from a smart scale that writes to Health. Best effort: a
+        // problem here must not stop steps and sleep syncing.
+        if let weights = try? await healthKit.fetchWeights(daysBack: daysBack),
+           let added = try? await BodyWeightRepository().importHealthWeights(weights, daysBack: daysBack), added > 0 {
+            await WidgetSnapshotService.shared.refresh(force: true)
+        }
     }
 }

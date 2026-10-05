@@ -10,6 +10,39 @@ struct BodyWeightRepository {
         let source: String
     }
 
+    private struct ImportedBodyWeightLog: Encodable {
+        let user_id: UUID
+        let weight_kg: Double
+        let source: String
+        let logged_at: Date
+    }
+
+    /// Adds weigh-ins found in Apple Health that aren't logged yet - the scale
+    /// writes to Health through its own app, and they land here as
+    /// `healthkit` entries stamped with when the scale took them. A reading
+    /// already present (any source) at the same weight within two minutes is
+    /// the same weigh-in and is skipped, so syncing again never duplicates.
+    /// Returns how many were added.
+    @discardableResult
+    func importHealthWeights(_ samples: [(date: Date, kg: Double)], daysBack: Int) async throws -> Int {
+        guard !samples.isEmpty else { return 0 }
+        let existing = try await fetchRecent(days: daysBack + 1)
+        let userId = try await client.auth.session.user.id
+        var added: [ImportedBodyWeightLog] = []
+        for sample in samples where sample.kg > 20 && sample.kg < 400 {
+            let alreadyThere = existing.contains {
+                abs($0.loggedAt.timeIntervalSince(sample.date)) < 120 && abs($0.weightKg - sample.kg) < 0.05
+            } || added.contains {
+                abs($0.logged_at.timeIntervalSince(sample.date)) < 120 && abs($0.weight_kg - sample.kg) < 0.05
+            }
+            guard !alreadyThere else { continue }
+            added.append(ImportedBodyWeightLog(user_id: userId, weight_kg: sample.kg, source: "healthkit", logged_at: sample.date))
+        }
+        guard !added.isEmpty else { return 0 }
+        try await client.from("body_weight_logs").insert(added).execute()
+        return added.count
+    }
+
     func fetchRecent(days: Int) async throws -> [BodyWeightLog] {
         let calendar = Calendar.current
         let since = calendar.date(byAdding: .day, value: -days, to: Date()) ?? Date()

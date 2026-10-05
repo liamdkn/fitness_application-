@@ -188,6 +188,12 @@ struct DailyCheckinSheet: View {
                     selectedWorkoutChoice = .rest
                 }
             }
+            // No weight typed in yet: use this morning's scale reading if there is one.
+            if weightText.isEmpty,
+               let todays = try? await BodyWeightRepository().fetchRecent(days: 1)
+                   .last(where: { Calendar.current.isDateInToday($0.loggedAt) }) {
+                weightText = String(format: "%.1f", todays.weightKg)
+            }
             if let sleepLog = try await healthRepository.fetchSleepLog(date: Date()) {
                 existingSleepLog = sleepLog
                 hasExistingSleepLog = true
