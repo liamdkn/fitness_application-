@@ -35,6 +35,9 @@ final class BluetoothScale: NSObject {
     var grams: Double?
     var isScanning = false
     var status = ""
+    /// Characteristics that can be written to, by UUID - offered in the advanced
+    /// panel. Firmware-update characteristics are left out on purpose.
+    var writableIds: [String] = []
 
     /// Called with each decoded reading (grams).
     var onReading: ((Double) -> Void)?
@@ -42,6 +45,7 @@ final class BluetoothScale: NSObject {
     private var central: CBCentralManager!
     private var peripherals: [UUID: CBPeripheral] = [:]
     private var connected: CBPeripheral?
+    private var writables: [String: CBCharacteristic] = [:]
 
     private static let weightScaleMeasurement = CBUUID(string: "2A9D")
 
@@ -78,6 +82,34 @@ final class BluetoothScale: NSObject {
         connected = nil
         connectedName = nil
         grams = nil
+        writables.removeAll()
+        writableIds.removeAll()
+        services.removeAll()
+    }
+
+    /// Sends bytes (as hex, "A5 01 FF") to one of the writable characteristics.
+    /// Some scales only start sending weight after a command from their own app.
+    func send(hex: String, to id: String) {
+        let cleaned = hex.filter { $0.isHexDigit }
+        guard let characteristic = writables[id], let connected, cleaned.count >= 2, cleaned.count % 2 == 0 else {
+            append("Not sent: needs whole bytes, e.g. A5 01")
+            return
+        }
+        var bytes: [UInt8] = []
+        var index = cleaned.startIndex
+        while index < cleaned.endIndex {
+            let next = cleaned.index(index, offsetBy: 2)
+            if let byte = UInt8(cleaned[index..<next], radix: 16) { bytes.append(byte) }
+            index = next
+        }
+        let type: CBCharacteristicWriteType = characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
+        connected.writeValue(Data(bytes), for: characteristic, type: type)
+        append("Sent to \(id): \(ScaleDecoding.hex(Data(bytes)))")
+    }
+
+    /// Characteristics of the firmware-update service must never be written to.
+    fileprivate nonisolated static func isFirmwareUpdate(_ uuid: CBUUID) -> Bool {
+        uuid.uuidString.uppercased().hasPrefix("0000153")
     }
 
     private func append(_ text: String) {
@@ -144,9 +176,16 @@ extension BluetoothScale: CBPeripheralDelegate {
             if characteristic.properties.contains(.write) || characteristic.properties.contains(.writeWithoutResponse) { properties.append("write") }
             return "\(characteristic.uuid.uuidString) (\(properties.joined(separator: ", ")))"
         }
+        let writable = (service.characteristics ?? []).filter {
+            ($0.properties.contains(.write) || $0.properties.contains(.writeWithoutResponse)) && !Self.isFirmwareUpdate($0.uuid)
+        }
         Task { @MainActor in
             self.services.append("Service \(serviceId): " + (lines.isEmpty ? "no characteristics" : lines.joined(separator: "; ")))
             self.status = "Listening. Put something on the scale."
+            for characteristic in writable {
+                self.writables[characteristic.uuid.uuidString] = characteristic
+                if !self.writableIds.contains(characteristic.uuid.uuidString) { self.writableIds.append(characteristic.uuid.uuidString) }
+            }
         }
         for characteristic in service.characteristics ?? [] {
             if characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate) {

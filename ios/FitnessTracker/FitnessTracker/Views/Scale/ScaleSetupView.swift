@@ -7,6 +7,8 @@ import CoreBluetooth
 /// teach the app a scale's own format.
 struct ScaleSetupView: View {
     @State private var scale = BluetoothScale.shared
+    @State private var commandId = ""
+    @State private var commandHex = ""
 
     var body: some View {
         List {
@@ -50,6 +52,25 @@ struct ScaleSetupView: View {
                     ForEach(scale.services, id: \.self) { line in
                         Text(line).font(.caption.monospaced())
                     }
+                }
+                .listRowBackground(AppRowBackground())
+            }
+
+            if !scale.writableIds.isEmpty {
+                Section {
+                    Picker("Send to", selection: $commandId) {
+                        ForEach(scale.writableIds, id: \.self) { Text(String($0.prefix(8))).tag($0) }
+                    }
+                    TextField("Bytes, e.g. A5 01", text: $commandHex)
+                        .font(.body.monospaced())
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                    Button("Send") { scale.send(hex: commandHex, to: commandId.isEmpty ? (scale.writableIds.first ?? "") : commandId) }
+                        .disabled(commandHex.filter(\.isHexDigit).count < 2)
+                } header: {
+                    Text("Advanced")
+                } footer: {
+                    Text("Some scales only start sending weight after a command from their own app. This sends bytes you type to the scale. The firmware-update channel is never offered.")
                 }
                 .listRowBackground(AppRowBackground())
             }
