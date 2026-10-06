@@ -127,11 +127,11 @@ def split(data: bytes) -> bytes:
 # user info is command 0xDB (newer firmware, includes a user id) or 0xD0 (older).
 # A command the scale understands is acknowledged with an A1 message.
 CANDIDATES = [
+    # Worked on a KN2432LB: the scale acknowledges it and starts streaming weight.
     ("user info DB: id 1", frame(split(bytes.fromhex("00000001")), 0xDB)),
     ("user info DB: id 1 + 8 zero bytes", frame(split(bytes.fromhex("00000001") + bytes(8)), 0xDB)),
     ("user info D0: index 1", frame(split(bytes.fromhex("01")), 0xD0)),
     ("user info D0: id 1", frame(split(bytes.fromhex("00000001")), 0xD0)),
-    ("confirm D2 type 10", frame(split(bytes.fromhex("0a00")), 0xD2)),
 ]
 
 

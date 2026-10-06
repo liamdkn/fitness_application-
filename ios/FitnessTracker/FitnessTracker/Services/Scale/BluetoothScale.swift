@@ -144,8 +144,14 @@ final class BluetoothScale: NSObject {
     }
 
     func sendIcomonHandshake() {
-        send(hex: ScaleDecoding.hex(ScaleDecoding.icomonHandshake), to: "0000FFB1-0000-1000-8000-00805F9B34FB")
         handshakeSent = true
+        let channel = "0000FFB1-0000-1000-8000-00805F9B34FB"
+        send(hex: ScaleDecoding.hex(ScaleDecoding.icomonHandshake), to: channel)
+        // Then say who is weighing: the weight only starts streaming after this.
+        Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            send(hex: ScaleDecoding.hex(ScaleDecoding.icomonUserInfo), to: channel)
+        }
     }
 
     /// The whole ten-message start-up the Fitdays app is documented to send.
@@ -301,7 +307,11 @@ extension BluetoothScale: CBPeripheralDelegate {
             if icomon.type == 0xA0 { announced = true; note += ", capabilities - replying" }
             if let weight = ScaleDecoding.icomonWeight(icomon) {
                 note += ", \(weight.stable ? "steady" : "moving")\(weight.isTare ? ", tare" : "")"
-                if weight.stable { decoded = weight.grams }
+                if !weight.isMetric {
+                    note += ", unit not grams - press UNIT on the scale"
+                } else if weight.stable {
+                    decoded = weight.grams
+                }
             }
             note += "]"
         } else if uuid == CBUUID(string: "FFB2"), let frame = ScaleDecoding.fitdaysFrame(data) {

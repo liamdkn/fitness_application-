@@ -115,9 +115,19 @@ nonisolated enum ScaleDecoding {
     /// It is `AC 42 00 02 00 A0 00 D1 73`.
     static let icomonHandshake = icomonCommand(payload: [0x00, 0x02, 0x00, 0xA0, 0x00], command: 0xD1)
 
+    /// Tells the scale who is weighing (user 1). Weight only starts streaming
+    /// after this - found by trying it against a real KN2432LB: the scale
+    /// acknowledges it and then sends a weight message about every 0.13 s.
+    /// It is `AC 42 00 04 00 00 00 00 01 DB E0`.
+    static let icomonUserInfo = icomonCommand(payload: [0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x01], command: 0xDB)
+
     struct IcomonWeight: Equatable {
         /// Grams (the scale reports milligrams).
         let grams: Double
+        /// The unit the scale is set to (0 grams, 1 millilitres, 2 pounds, 3 ounces, ...).
+        let unit: UInt8
+        /// Grams or millilitres (1 ml of water is 1 g): the units the app can use.
+        var isMetric: Bool { unit == 0 || unit == 1 }
         /// False while the reading is still moving.
         let stable: Bool
         let isTare: Bool
@@ -136,6 +146,7 @@ nonisolated enum ScaleDecoding {
         let milligrams = Int(data[2]) << 16 | Int(data[3]) << 8 | Int(data[4])
         return IcomonWeight(
             grams: (Double(milligrams) / 1000 * 10).rounded() / 10,
+            unit: data[1] >> 4,
             stable: flags & 0x80 == 0, isTare: flags & 0x40 != 0, isIdle: flags & 0x01 != 0
         )
     }

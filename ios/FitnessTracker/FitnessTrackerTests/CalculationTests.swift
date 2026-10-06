@@ -282,6 +282,26 @@ struct IcomonKitchenScaleTests {
         #expect(ScaleDecoding.hex(ScaleDecoding.icomonCommand(payload: [0x00, 0x00], command: 0xD4)) == "AC 42 00 00 D4 D4")
     }
 
+    @Test func userInfoMatchesTheFrameThatStartedTheWeightStream() {
+        #expect(ScaleDecoding.hex(ScaleDecoding.icomonUserInfo) == "AC 42 00 04 00 00 00 00 01 DB E0")
+    }
+
+    @Test func decodesFramesCapturedFromARealScale() {
+        // From a KN2432LB with a 55 g weight on it, then a heavier one.
+        func parse(_ hex: String) -> ScaleDecoding.IcomonWeight? {
+            let bytes = hex.split(separator: " ").compactMap { UInt8($0, radix: 16) }
+            return ScaleDecoding.icomonFrame(Data(bytes)).flatMap(ScaleDecoding.icomonWeight)
+        }
+        let settled55 = parse("ac 42 00 0e 00 01 00 00 d6 d8 00 00 00 00 00 00 00 00 00 a6 63")
+        #expect(settled55?.grams == 55.0)
+        #expect(settled55?.isMetric == true)
+        #expect(parse("ac 42 00 0e 00 00 00 04 da 30 00 00 00 00 00 00 00 00 00 a6 c2")?.grams == 318.0)
+        #expect(parse("ac 42 00 0e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 a6 b4")?.grams == 0.0)
+        // The scale switched to millilitres: still usable. A negative/unstable flag is not.
+        #expect(parse("ac 42 00 0e 00 00 10 00 00 00 00 00 00 00 00 00 00 00 00 a6 c4")?.unit == 1)
+        #expect(parse("ac 42 00 0e 00 80 10 03 9d c8 00 00 00 00 00 00 00 00 00 a6 ac")?.stable == false)
+    }
+
     @Test func decodesALiveWeightFrame() {
         // Header (length 14, seq 0), flags 0 (steady), unit 0, 99000 mg = 99 g, then the rest.
         let payload: [UInt8] = [0x00, 0x0E, 0x00, 0x00, 0x00, 0x01, 0x82, 0xB8,
