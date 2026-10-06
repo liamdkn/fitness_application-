@@ -46,6 +46,8 @@ final class BluetoothScale: NSObject {
     private var peripherals: [UUID: CBPeripheral] = [:]
     private var connected: CBPeripheral?
     private var writables: [String: CBCharacteristic] = [:]
+    /// Last broadcast bytes seen per device, so only changes are logged.
+    private var lastBroadcast: [UUID: Data] = [:]
 
     private static let weightScaleMeasurement = CBUUID(string: "2A9D")
 
@@ -60,7 +62,7 @@ final class BluetoothScale: NSObject {
         peripherals.removeAll()
         isScanning = true
         status = "Looking for scales... A scale only talks to one app at a time: close the Fitdays+ app completely first, or it won't be listed. Look for MY_SCALE."
-        central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
     }
 
     func stopScan() {
@@ -160,7 +162,14 @@ extension BluetoothScale: CBCentralManagerDelegate {
         guard let name, !name.isEmpty else { return }
         let id = peripheral.identifier
         let rssi = RSSI.intValue
+        let manufacturer = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
         Task { @MainActor in
+            // Some scales put the weight in what they broadcast, with no connection
+            // needed. Log changes to that for anything that looks like a scale.
+            if let manufacturer, name.localizedCaseInsensitiveContains("scale"), self.lastBroadcast[id] != manufacturer {
+                self.lastBroadcast[id] = manufacturer
+                self.append("\(name) broadcast: \(ScaleDecoding.hex(manufacturer))")
+            }
             self.peripherals[id] = peripheral
             if let index = self.found.firstIndex(where: { $0.id == id }) {
                 self.found[index].rssi = rssi
