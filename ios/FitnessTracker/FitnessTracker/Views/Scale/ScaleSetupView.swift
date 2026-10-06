@@ -32,6 +32,7 @@ struct ScaleSetupView: View {
                     }
                 } else if let name = scale.connectedName {
                     LabeledContent("Connected to", value: name)
+                    LabeledContent("Weight messages received", value: "\(scale.weightChannelPackets)")
                     if let grams = scale.grams {
                         LabeledContent("Reading", value: "\(AmountLabel.trimmed(grams)) g")
                             .font(.title3.bold())
@@ -65,6 +66,7 @@ struct ScaleSetupView: View {
                         ForEach(scale.writableIds, id: \.self) { Text(String($0.prefix(8))).tag($0) }
                     }
                     Button("Send the kitchen-scale handshake") { scale.sendIcomonHandshake() }
+                    Button("Ask the scale for its stored weights") { scale.sendIcomonHistoryRequest() }
                     Button("Try the full Fitdays start-up (10 messages)") { scale.sendFitdaysHandshake() }
                     Button("Try just the 3 short commands") { scale.sendFitdaysStart() }
                     TextField("Bytes, e.g. A5 01", text: $commandHex)

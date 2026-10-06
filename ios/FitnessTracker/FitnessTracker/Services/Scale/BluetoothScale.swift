@@ -34,6 +34,8 @@ final class BluetoothScale: NSObject {
     /// Latest weight in grams, when the scale uses the standard format.
     var grams: Double?
     var isScanning = false
+    /// Messages received on the scale's weight channel since connecting.
+    var weightChannelPackets = 0
     var status = ""
     /// Characteristics that can be written to, by UUID - offered in the advanced
     /// panel. Firmware-update characteristics are left out on purpose.
@@ -135,6 +137,12 @@ final class BluetoothScale: NSObject {
 
     /// The handshake this family of kitchen scale expects after you subscribe to
     /// its weight channel; without it the scale stays silent.
+    /// Asks for the weights the scale has stored (the documented read-history
+    /// command). A reply proves the weight channel works end to end.
+    func sendIcomonHistoryRequest() {
+        send(hex: ScaleDecoding.hex(ScaleDecoding.icomonCommand(payload: [0x00, 0x00], command: 0xD4)), to: "0000FFB1-0000-1000-8000-00805F9B34FB")
+    }
+
     func sendIcomonHandshake() {
         send(hex: ScaleDecoding.hex(ScaleDecoding.icomonHandshake), to: "0000FFB1-0000-1000-8000-00805F9B34FB")
         handshakeSent = true
@@ -191,6 +199,7 @@ extension BluetoothScale: CBCentralManagerDelegate {
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Task { @MainActor in
             self.handshakeSent = false
+            self.weightChannelPackets = 0
             self.handshakeTask?.cancel()
             self.connectedName = peripheral.name ?? "Scale"
             self.status = "Connected. Looking at what it offers..."
@@ -305,7 +314,9 @@ extension BluetoothScale: CBPeripheralDelegate {
         }
         let finalDecoded = decoded
         let didAnnounce = announced
+        let onWeightChannel = uuid == CBUUID(string: "FFB2")
         Task { @MainActor in
+            if onWeightChannel { self.weightChannelPackets += 1 }
             if didAnnounce, !self.handshakeSent { self.sendIcomonHandshake() }
             self.append(line + note + (finalDecoded.map { "  = \($0) g" } ?? ""))
             if let decoded = finalDecoded { self.grams = decoded; self.onReading?(decoded) }
