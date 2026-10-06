@@ -210,6 +210,8 @@ extension BluetoothScale: CBPeripheralDelegate {
             }
         }
         for characteristic in service.characteristics ?? [] {
+            // Leave the firmware-update service completely alone.
+            if Self.isFirmwareUpdate(characteristic.uuid) { continue }
             if characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate) {
                 peripheral.setNotifyValue(true, for: characteristic)
             }
