@@ -219,7 +219,24 @@ extension BluetoothScale: CBPeripheralDelegate {
         }
     }
 
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        let id = String(characteristic.uuid.uuidString.prefix(8))
+        let text = error.map { "Listening to \(id) FAILED: \($0.localizedDescription)" }
+            ?? "Listening to \(id): \(characteristic.isNotifying ? "on" : "off")"
+        Task { @MainActor in self.append(text) }
+    }
+
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        let id = String(characteristic.uuid.uuidString.prefix(8))
+        let text = error.map { "Write to \(id) FAILED: \($0.localizedDescription)" } ?? "Write to \(id) accepted"
+        Task { @MainActor in self.append(text) }
+    }
+
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let error {
+            Task { @MainActor in self.append("Read of \(characteristic.uuid.uuidString.prefix(8)) failed: \(error.localizedDescription)") }
+            return
+        }
         guard let data = characteristic.value else { return }
         let uuid = characteristic.uuid
         let line = "\(uuid.uuidString): \(ScaleDecoding.hex(data))"
