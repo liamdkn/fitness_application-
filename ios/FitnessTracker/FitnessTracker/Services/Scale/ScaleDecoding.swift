@@ -50,6 +50,38 @@ nonisolated enum ScaleDecoding {
         return type == 0xA2 ? low : (low | 0x20)
     }
 
+    /// A framed message: `[seq][00][len][00][type][payload][checksum]`, where
+    /// len counts the type byte and the payload.
+    static func fitdaysMessage(sequence: UInt8, type: UInt8, payload: [UInt8]) -> Data {
+        var bytes: [UInt8] = [sequence, 0x00, UInt8(payload.count + 1), 0x00, type]
+        bytes += payload
+        bytes.append(fitdaysChecksum(type: type, payload: payload))
+        return Data(bytes)
+    }
+
+    /// The ten messages the Fitdays app writes when it connects, as documented
+    /// for a scale of the same family: a hello, a profile with the current time
+    /// pushed several times, then two status requests. The profile bytes are
+    /// the documented example's (body details for a made-up user).
+    static func fitdaysHandshake(now: Date = Date(), timeZone: TimeZone = .current, name: [UInt8] = Array("Usr".utf8)) -> [Data] {
+        let stamp = UInt32(now.timeIntervalSince1970)
+        let zone = UInt16(truncatingIfNeeded: timeZone.secondsFromGMT(for: now) / 60)
+        let tail: [UInt8] = [0xB9, 0x1C, 0x16, 0xA6, 0x1C, 0x25, 0x1D, 0x6A, 0x0F,
+                             0x12, 0x4D, 0xE8, 0xBF, 0x01, 0x01, 0x03] + name
+        let full: [UInt8] = [UInt8(stamp >> 24 & 0xFF), UInt8(stamp >> 16 & 0xFF), UInt8(stamp >> 8 & 0xFF), UInt8(stamp & 0xFF),
+                             UInt8(zone >> 8), UInt8(zone & 0xFF), 0x01] + tail
+        let compact: [UInt8] = [0x01, 0x01] + tail
+        var messages: [Data] = [fitdaysMessage(sequence: 0, type: 0xB0, payload: [0x30, 0x00])]
+        for index in 1...7 {
+            messages.append(index % 2 == 1
+                ? fitdaysMessage(sequence: UInt8(index), type: 0xC0, payload: full)
+                : fitdaysMessage(sequence: UInt8(index), type: 0xC1, payload: compact))
+        }
+        messages.append(fitdaysMessage(sequence: 8, type: 0xB0, payload: [0x31, 0x00]))
+        messages.append(fitdaysMessage(sequence: 9, type: 0xB0, payload: [0x39, 0x00]))
+        return messages
+    }
+
     /// Hex dump for the setup screen: "0A 1F 00".
     static func hex(_ data: Data) -> String {
         data.map { String(format: "%02X", $0) }.joined(separator: " ")

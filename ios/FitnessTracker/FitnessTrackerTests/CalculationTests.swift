@@ -248,3 +248,27 @@ struct FitdaysFrameTests {
         #expect(frame?.checksumOK == true)
     }
 }
+
+struct FitdaysHandshakeTests {
+    @Test func buildsTheDocumentedHelloAndStatusMessagesExactly() {
+        let messages = ScaleDecoding.fitdaysHandshake()
+        #expect(messages.count == 10)
+        #expect(ScaleDecoding.hex(messages[0]) == "00 00 03 00 B0 30 00 20")
+        #expect(ScaleDecoding.hex(messages[8]) == "08 00 03 00 B0 31 00 21")
+        #expect(ScaleDecoding.hex(messages[9]) == "09 00 03 00 B0 39 00 29")
+    }
+
+    @Test func compactProfileMatchesTheDocumentedExample() {
+        // Documented write #2 with the user name "Dan": checksum 0x29.
+        let messages = ScaleDecoding.fitdaysHandshake(name: Array("Dan".utf8))
+        #expect(ScaleDecoding.hex(messages[2]) == "02 00 16 00 C1 01 01 B9 1C 16 A6 1C 25 1D 6A 0F 12 4D E8 BF 01 01 03 44 61 6E 29")
+    }
+
+    @Test func everyMessageHasAValidChecksumAndLength() {
+        for message in ScaleDecoding.fitdaysHandshake() {
+            let frame = ScaleDecoding.fitdaysFrame(message)
+            #expect(frame?.checksumOK == true)
+            #expect(Int(message[2]) + 5 == message.count)
+        }
+    }
+}

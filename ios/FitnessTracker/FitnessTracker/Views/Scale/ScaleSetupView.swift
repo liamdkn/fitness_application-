@@ -64,7 +64,8 @@ struct ScaleSetupView: View {
                     Picker("Send to", selection: $commandId) {
                         ForEach(scale.writableIds, id: \.self) { Text(String($0.prefix(8))).tag($0) }
                     }
-                    Button("Try the Fitdays start commands") { scale.sendFitdaysStart() }
+                    Button("Try the full Fitdays start-up (10 messages)") { scale.sendFitdaysHandshake() }
+                    Button("Try just the 3 short commands") { scale.sendFitdaysStart() }
                     TextField("Bytes, e.g. A5 01", text: $commandHex)
                         .font(.body.monospaced())
                         .textInputAutocapitalization(.characters)

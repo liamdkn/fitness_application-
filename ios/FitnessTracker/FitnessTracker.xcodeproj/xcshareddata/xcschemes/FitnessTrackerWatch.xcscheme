@@ -65,14 +65,6 @@
             ReferencedContainer = "container:FitnessTracker.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <MacroExpansion>
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "B0B0E093CFE431208B32B8DC"
-            BuildableName = "FitnessTrackerWatch.app"
-            ReferencedContainer = "container:FitnessTracker.xcodeproj">
-         </BuildableReference>
-      </MacroExpansion>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">

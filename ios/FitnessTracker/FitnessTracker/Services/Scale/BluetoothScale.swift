@@ -129,6 +129,16 @@ final class BluetoothScale: NSObject {
         }
     }
 
+    /// The whole ten-message start-up the Fitdays app is documented to send.
+    func sendFitdaysHandshake() {
+        Task {
+            for message in ScaleDecoding.fitdaysHandshake() {
+                send(hex: ScaleDecoding.hex(message), to: "0000FFB1-0000-1000-8000-00805F9B34FB")
+                try? await Task.sleep(nanoseconds: 350_000_000)
+            }
+        }
+    }
+
     /// Characteristics of the firmware-update service must never be written to.
     fileprivate nonisolated static func isFirmwareUpdate(_ uuid: CBUUID) -> Bool {
         uuid.uuidString.uppercased().hasPrefix("0000153")
