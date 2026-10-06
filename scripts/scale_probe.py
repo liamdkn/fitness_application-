@@ -6,19 +6,22 @@ library as the reference.
 
 Setup (once):
     cd scripts
-    python3 -m venv .scale-venv
+    /opt/homebrew/bin/python3.12 -m venv .scale-venv
     source .scale-venv/bin/activate
     pip install pyfitdaysplus bleak
 
 Run (close Fitdays+ and nRF Connect first - the scale talks to one app at a time,
-and allow Bluetooth for Terminal when macOS asks):
-    python scale_probe.py           # the library: connect and read weight for 20 s
-    python scale_probe.py --raw     # plain Bluetooth: subscribe, handshake, print every message
+and allow Bluetooth for Terminal when macOS asks). Keep a weight (a tin, 100 g or
+more) next to the scale and follow the on-screen prompts:
 
-Put a weight on the scale while it runs, then send back everything it prints.
+    python scale_probe.py           # the library: connect, listen for weight
+    python scale_probe.py --food    # the same, but first start a food-weigh session
+                                    # (what Fitdays+ does when you pick a food)
+    python scale_probe.py --raw     # plain Bluetooth: print every message
+
+Send back everything it prints.
 """
 import asyncio
-import logging
 import sys
 import time
 
@@ -30,6 +33,22 @@ NOTIFY = "0000ffb2-0000-1000-8000-00805f9b34fb"
 HANDSHAKE = bytes.fromhex("ac42000200a000d173")
 HISTORY = bytes.fromhex("ac42000000d4d4")
 
+# (seconds from the start, what to tell the person)
+PROMPTS = [
+    (0, "Scale empty - leave it alone for a few seconds"),
+    (6, ">>> PUT THE WEIGHT ON THE SCALE NOW <<<"),
+    (16, ">>> TAKE IT OFF <<<"),
+    (22, ">>> PUT IT BACK ON <<<"),
+    (32, ">>> PRESS TARE ON THE SCALE <<<"),
+    (40, "Finishing ..."),
+]
+
+
+async def prompts(started):
+    for at, text in PROMPTS:
+        await asyncio.sleep(max(0, started + at - time.time()))
+        print(f"\n[{time.time() - started:5.1f}s] {text}\n", flush=True)
+
 
 async def find():
     print(f"Looking for {NAME} ...")
@@ -40,43 +59,59 @@ async def find():
     return device
 
 
-async def with_library():
+async def with_library(food: bool):
     from pyfitdaysplus import Device
+    from pyfitdaysplus.events import Event
+    from pyfitdaysplus.models import CommonFood
 
-    logging.basicConfig(level=logging.DEBUG)
     device = await find()
     scale = Device(device)
+    started = time.time()
+    count = 0
+
+    def on_weight(reading):
+        nonlocal count
+        count += 1
+        print(f"[{time.time() - started:5.1f}s] WEIGHT {reading.grams:.1f} g stable={reading.stable} "
+              f"tare={reading.is_tare} unit={reading.unit.name} raw={reading.raw_payload.hex(' ')}", flush=True)
+
     async with scale:
-        print("Connected. Put something on the scale.")
-        end = time.time() + 20
-        while time.time() < end:
-            try:
-                reading = await asyncio.wait_for(scale.async_get_weight(), timeout=3)
-                print(f"weight: {reading}")
-            except asyncio.TimeoutError:
-                print("(no weight message in 3 s)")
+        scale.subscribe(Event.WEIGHT, on_weight)
+        print("Connected.", flush=True)
+        if food:
+            print("Starting a food-weigh session for 'oats' ...", flush=True)
+            await scale.start_food_weigh(CommonFood(food_id=42, name="oats", weight=100, facts=()))
+        started = time.time()
+        await asyncio.gather(prompts(started), asyncio.sleep(42))
+        print(f"\nDone. Weight messages received: {count}")
 
 
 async def raw():
     device = await find()
     started = time.time()
+    count = 0
 
     def show(_, data: bytearray):
-        print(f"[{time.time() - started:6.2f}s] FFB2: {data.hex(' ')}")
+        nonlocal count
+        count += 1
+        print(f"[{time.time() - started:5.1f}s] FFB2: {data.hex(' ')}", flush=True)
 
     async with BleakClient(device) as client:
         print("Connected. Subscribing to FFB2 ...")
         await client.start_notify(NOTIFY, show)
-        print("Waiting 3 s for the scale to announce itself ...")
         await asyncio.sleep(3)
         print("Sending the handshake:", HANDSHAKE.hex(" "))
         await client.write_gatt_char(WRITE, HANDSHAKE, response=True)
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
         print("Asking for stored weights:", HISTORY.hex(" "))
         await client.write_gatt_char(WRITE, HISTORY, response=True)
-        print("Listening for 20 s - put a weight on the scale ...")
-        await asyncio.sleep(20)
+        started = time.time()
+        await asyncio.gather(prompts(started), asyncio.sleep(42))
+        print(f"\nDone. Messages received on FFB2: {count}")
 
 
 if __name__ == "__main__":
-    asyncio.run(raw() if "--raw" in sys.argv else with_library())
+    if "--raw" in sys.argv:
+        asyncio.run(raw())
+    else:
+        asyncio.run(with_library("--food" in sys.argv))
