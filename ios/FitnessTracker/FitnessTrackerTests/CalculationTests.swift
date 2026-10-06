@@ -272,3 +272,30 @@ struct FitdaysHandshakeTests {
         }
     }
 }
+
+struct IcomonKitchenScaleTests {
+    @Test func handshakeMatchesTheDocumentedFrame() {
+        #expect(ScaleDecoding.hex(ScaleDecoding.icomonHandshake) == "AC 42 00 02 00 A0 00 D1 73")
+    }
+
+    @Test func readHistoryCommandMatchesTheDocumentedFrame() {
+        #expect(ScaleDecoding.hex(ScaleDecoding.icomonCommand(payload: [0x00, 0x00], command: 0xD4)) == "AC 42 00 00 D4 D4")
+    }
+
+    @Test func decodesALiveWeightFrame() {
+        // Header (length 14, seq 0), flags 0 (steady), unit 0, 99000 mg = 99 g, then the rest.
+        let payload: [UInt8] = [0x00, 0x0E, 0x00, 0x00, 0x00, 0x01, 0x82, 0xB8,
+                                0, 0, 0, 0, 0, 0, 0, 0, 0x01]
+        let frame = ScaleDecoding.icomonCommand(payload: payload, command: 0xA6)
+        let parsed = ScaleDecoding.icomonFrame(frame)
+        #expect(parsed?.checksumOK == true)
+        #expect(parsed.flatMap(ScaleDecoding.icomonWeight)?.grams == 99.0)
+        #expect(parsed.flatMap(ScaleDecoding.icomonWeight)?.stable == true)
+    }
+
+    @Test func aMovingReadingIsNotStable() {
+        let payload: [UInt8] = [0x00, 0x0E, 0x00, 0x80, 0x00, 0x00, 0x27, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        let parsed = ScaleDecoding.icomonFrame(ScaleDecoding.icomonCommand(payload: payload, command: 0xA6))
+        #expect(parsed.flatMap(ScaleDecoding.icomonWeight)?.stable == false)
+    }
+}

@@ -46,6 +46,8 @@ final class BluetoothScale: NSObject {
     private var peripherals: [UUID: CBPeripheral] = [:]
     private var connected: CBPeripheral?
     private var writables: [String: CBCharacteristic] = [:]
+    private var handshakeSent = false
+    private var handshakeTask: Task<Void, Never>?
     /// Last broadcast bytes seen per device, so only changes are logged.
     private var lastBroadcast: [UUID: Data] = [:]
 
@@ -131,6 +133,13 @@ final class BluetoothScale: NSObject {
         }
     }
 
+    /// The handshake this family of kitchen scale expects after you subscribe to
+    /// its weight channel; without it the scale stays silent.
+    func sendIcomonHandshake() {
+        send(hex: ScaleDecoding.hex(ScaleDecoding.icomonHandshake), to: "0000FFB1-0000-1000-8000-00805F9B34FB")
+        handshakeSent = true
+    }
+
     /// The whole ten-message start-up the Fitdays app is documented to send.
     func sendFitdaysHandshake() {
         Task {
@@ -181,6 +190,8 @@ extension BluetoothScale: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Task { @MainActor in
+            self.handshakeSent = false
+            self.handshakeTask?.cancel()
             self.connectedName = peripheral.name ?? "Scale"
             self.status = "Connected. Looking at what it offers..."
             self.append("Connected to \(peripheral.name ?? "scale")")
@@ -244,7 +255,19 @@ extension BluetoothScale: CBPeripheralDelegate {
         let id = String(characteristic.uuid.uuidString.prefix(8))
         let text = error.map { "Listening to \(id) FAILED: \($0.localizedDescription)" }
             ?? "Listening to \(id): \(characteristic.isNotifying ? "on" : "off")"
-        Task { @MainActor in self.append(text) }
+        let isWeightChannel = characteristic.uuid == CBUUID(string: "FFB2") && characteristic.isNotifying
+        Task { @MainActor in
+            self.append(text)
+            // The scale normally announces itself once we listen; if it doesn't
+            // within a few seconds, send the handshake anyway.
+            if isWeightChannel, !self.handshakeSent {
+                self.handshakeTask?.cancel()
+                self.handshakeTask = Task {
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    if !Task.isCancelled, !self.handshakeSent { self.sendIcomonHandshake() }
+                }
+            }
+        }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
@@ -263,7 +286,16 @@ extension BluetoothScale: CBPeripheralDelegate {
         let line = "\(uuid.uuidString): \(ScaleDecoding.hex(data))"
         var decoded = uuid == CBUUID(string: "2A9D") ? ScaleDecoding.standardWeightScale(data) : nil
         var note = ""
-        if uuid == CBUUID(string: "FFB2"), let frame = ScaleDecoding.fitdaysFrame(data) {
+        var announced = false
+        if uuid == CBUUID(string: "FFB2"), let icomon = ScaleDecoding.icomonFrame(data) {
+            note = "  [type \(String(format: "%02X", icomon.type)), checksum \(icomon.checksumOK ? "ok" : "BAD")"
+            if icomon.type == 0xA0 { announced = true; note += ", capabilities - replying" }
+            if let weight = ScaleDecoding.icomonWeight(icomon) {
+                note += ", \(weight.stable ? "steady" : "moving")\(weight.isTare ? ", tare" : "")"
+                if weight.stable { decoded = weight.grams }
+            }
+            note += "]"
+        } else if uuid == CBUUID(string: "FFB2"), let frame = ScaleDecoding.fitdaysFrame(data) {
             note = "  [type \(String(format: "%02X", frame.type)), checksum \(frame.checksumOK ? "ok" : "BAD")"
             if let raw = frame.rawWeight {
                 note += ", weight field \(raw)"
@@ -272,8 +304,10 @@ extension BluetoothScale: CBPeripheralDelegate {
             note += "]"
         }
         let finalDecoded = decoded
+        let didAnnounce = announced
         Task { @MainActor in
-            self.append(line + note + (finalDecoded.map { "  = \($0) g?" } ?? ""))
+            if didAnnounce, !self.handshakeSent { self.sendIcomonHandshake() }
+            self.append(line + note + (finalDecoded.map { "  = \($0) g" } ?? ""))
             if let decoded = finalDecoded { self.grams = decoded; self.onReading?(decoded) }
             guard finalDecoded == nil else { return }
         }
