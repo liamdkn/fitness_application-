@@ -47,15 +47,18 @@ struct ScaleSetupView: View {
             }
             .listRowBackground(AppRowBackground())
 
-            if !scale.services.isEmpty {
-                Section("What it offers") {
-                    ForEach(scale.services, id: \.self) { line in
-                        Text(line).font(.caption.monospaced())
+            if !scale.log.isEmpty {
+                Section {
+                    ForEach(scale.log.suffix(60).reversed()) { line in
+                        Text(line.text).font(.caption.monospaced())
                     }
+                } header: {
+                    Text("Live data")
+                } footer: {
+                    Text("Put something on the scale and watch these change. If the numbers don't turn into grams above, copy a few lines and send them over so the app can be taught this scale's format.")
                 }
                 .listRowBackground(AppRowBackground())
             }
-
             if !scale.writableIds.isEmpty {
                 Section {
                     Picker("Send to", selection: $commandId) {
@@ -76,18 +79,15 @@ struct ScaleSetupView: View {
                 .listRowBackground(AppRowBackground())
             }
 
-            if !scale.log.isEmpty {
-                Section {
-                    ForEach(scale.log.suffix(40).reversed()) { line in
-                        Text(line.text).font(.caption.monospaced())
+            if !scale.services.isEmpty {
+                Section("What it offers") {
+                    ForEach(scale.services, id: \.self) { line in
+                        Text(line).font(.caption.monospaced())
                     }
-                } header: {
-                    Text("Live data")
-                } footer: {
-                    Text("Put something on the scale and watch these change. If the numbers don't turn into grams above, copy a few lines and send them over so the app can be taught this scale's format.")
                 }
                 .listRowBackground(AppRowBackground())
             }
+
         }
         .appScreen()
         .navigationTitle("Kitchen Scale")
