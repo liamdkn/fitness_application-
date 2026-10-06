@@ -59,7 +59,7 @@ final class BluetoothScale: NSObject {
         found.removeAll()
         peripherals.removeAll()
         isScanning = true
-        status = "Looking for scales... step on or put weight on yours so it wakes up."
+        status = "Looking for scales... A scale only talks to one app at a time: close the Fitdays+ app completely first, or it won't be listed. Look for MY_SCALE."
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
     }
 
@@ -91,7 +91,15 @@ final class BluetoothScale: NSObject {
     /// Some scales only start sending weight after a command from their own app.
     func send(hex: String, to id: String) {
         let cleaned = hex.filter { $0.isHexDigit }
-        guard let characteristic = writables[id], let connected, cleaned.count >= 2, cleaned.count % 2 == 0 else {
+        guard let connected else {
+            append("Not sent: not connected to a scale.")
+            return
+        }
+        guard let characteristic = writables[id] else {
+            append("Not sent: \(connectedName ?? "this device") has no \(String(id.prefix(8))) channel. It isn't the scale - disconnect and pick MY_SCALE.")
+            return
+        }
+        guard cleaned.count >= 2, cleaned.count % 2 == 0 else {
             append("Not sent: needs whole bytes, e.g. A5 01")
             return
         }
