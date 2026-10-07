@@ -9,6 +9,7 @@
  *   node migrate.js up          apply everything waiting (each file in its own transaction)
  *   node migrate.js baseline    record every file as already applied, WITHOUT running it
  *                               (for a database that was set up by hand up to now)
+ *   node migrate.js baseline --to=0075   the same, but only up to and including that migration
  *   node migrate.js up --to=0070  stop after that migration
  *
  * DATABASE_URL comes from supabase/.env (or the environment). A migration that
@@ -62,10 +63,11 @@ async function main() {
       for (const file of all) console.log(`${applied.has(file) ? 'applied' : 'WAITING'}  ${file}`);
       console.log(`\n${applied.size} applied, ${waiting.length} waiting`);
     } else if (command === 'baseline') {
-      for (const file of waiting) {
+      const recorded = waiting.filter((f) => !to || f.slice(0, to.length) <= to);
+      for (const file of recorded) {
         await client.query('insert into schema_migrations (version, checksum) values ($1, $2)', [file, checksum(file)]);
       }
-      console.log(`Recorded ${waiting.length} migrations as applied (not run).`);
+      console.log(`Recorded ${recorded.length} migrations as applied (not run).`);
     } else if (command === 'up') {
       let count = 0;
       for (const file of waiting) {
