@@ -17,8 +17,8 @@ struct DailyCheckinSheet: View {
     @State private var existingYesterdayWaterMl: Int?
     @State private var yesterdayOffPlan = false
     @State private var yesterdayOffPlanNotes = ""
+    @State private var yesterdayHungerLevel: Int?
     @State private var yesterdaySleepHoursText = ""
-    @State private var hasExistingSleepLog = false
     @State private var existingSleepLog: SleepLogRecord?
     @State private var errorMessage: String?
     @State private var isSaving = false
@@ -76,15 +76,28 @@ struct DailyCheckinSheet: View {
                             }
                         Text("hrs").foregroundStyle(.secondary).font(.caption)
                     }
-                    if hasExistingSleepLog {
-                        Text("Synced from Apple Health - edit if it's wrong.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
                 .listRowBackground(AppRowBackground())
 
                 Section("Yesterday") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Hunger Levels")
+                            .font(.subheadline)
+                        Picker("Hunger Levels", selection: $yesterdayHungerLevel) {
+                            ForEach(1...5, id: \.self) { value in
+                                Text("\(value)").tag(Optional(value))
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        HStack {
+                            Text("1 - not hungry")
+                            Spacer()
+                            Text("5 - starving")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
                     Toggle("Alcohol or off-plan meal?", isOn: $yesterdayOffPlan)
 
                     if yesterdayOffPlan {
@@ -182,6 +195,7 @@ struct DailyCheckinSheet: View {
                 existingYesterdayWaterMl = existing.yesterdayWaterMl
                 yesterdayOffPlan = existing.yesterdayOffPlan ?? false
                 yesterdayOffPlanNotes = existing.yesterdayOffPlanNotes ?? ""
+                yesterdayHungerLevel = existing.yesterdayHungerLevel
                 if let routineDayId = existing.routineDayId {
                     selectedWorkoutChoice = .day(routineDayId)
                 } else {
@@ -196,11 +210,9 @@ struct DailyCheckinSheet: View {
             }
             if let sleepLog = try await healthRepository.fetchSleepLog(date: Date()) {
                 existingSleepLog = sleepLog
-                hasExistingSleepLog = true
                 yesterdaySleepHoursText = String(format: "%.2f", Double(sleepLog.totalSleepMinutes) / 60.0)
             } else {
                 existingSleepLog = nil
-                hasExistingSleepLog = false
                 yesterdaySleepHoursText = ""
             }
         } catch {
@@ -245,6 +257,7 @@ struct DailyCheckinSheet: View {
             yesterdayWaterMl: existingYesterdayWaterMl,
             yesterdayOffPlan: yesterdayOffPlan,
             yesterdayOffPlanNotes: yesterdayOffPlan ? yesterdayOffPlanNotes : nil,
+            yesterdayHungerLevel: yesterdayHungerLevel,
             sleepMinutes: sleepMinutes
         )
 

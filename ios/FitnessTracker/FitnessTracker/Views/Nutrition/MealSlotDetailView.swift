@@ -74,7 +74,7 @@ struct MealSlotDetailView: View {
             VStack(spacing: 16) {
                 headerCard
                 if let target = preworkoutCarbTargetG, slot.isPreworkout {
-                    PreworkoutCarbCard(carbsG: group?.totalCarbsG ?? 0, targetG: target, slotName: slot.name) { food, servings in
+                    PreworkoutCarbCard(carbsG: group?.totalCarbsG ?? 0, targetG: target, slotName: slot.name, mealSlotId: slot.id, date: date) { food, servings in
                         Task { await viewModel.logFood(food, quantity: servings, mealSlotId: slot.id, date: date) }
                     }
                 }

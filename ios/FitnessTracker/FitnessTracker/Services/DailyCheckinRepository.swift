@@ -22,11 +22,12 @@ struct DailyCheckinRepository {
         let yesterday_water_ml: Int?
         let yesterday_off_plan: Bool?
         let yesterday_off_plan_notes: String?
+        let yesterday_hunger_level: Int?
 
         enum CodingKeys: String, CodingKey {
             case user_id, checkin_date, weight_kg, routine_day_id, workout_choice_label,
                  is_rest_day, energy_level, soreness_level, yesterday_water_ml,
-                 yesterday_off_plan, yesterday_off_plan_notes
+                 yesterday_off_plan, yesterday_off_plan_notes, yesterday_hunger_level
         }
 
         func encode(to encoder: Encoder) throws {
@@ -42,6 +43,7 @@ struct DailyCheckinRepository {
             try container.encode(yesterday_water_ml, forKey: .yesterday_water_ml)
             try container.encode(yesterday_off_plan, forKey: .yesterday_off_plan)
             try container.encode(yesterday_off_plan_notes, forKey: .yesterday_off_plan_notes)
+            try container.encode(yesterday_hunger_level, forKey: .yesterday_hunger_level)
         }
     }
 
@@ -111,7 +113,8 @@ struct DailyCheckinRepository {
         sorenessLevel: Int?,
         yesterdayWaterMl: Int?,
         yesterdayOffPlan: Bool?,
-        yesterdayOffPlanNotes: String?
+        yesterdayOffPlanNotes: String?,
+        yesterdayHungerLevel: Int? = nil
     ) async throws -> DailyCheckin {
         let userId = try await client.auth.session.user.id
         let payload = NewDailyCheckin(
@@ -125,7 +128,8 @@ struct DailyCheckinRepository {
             soreness_level: sorenessLevel,
             yesterday_water_ml: yesterdayWaterMl,
             yesterday_off_plan: yesterdayOffPlan,
-            yesterday_off_plan_notes: yesterdayOffPlanNotes
+            yesterday_off_plan_notes: yesterdayOffPlanNotes,
+            yesterday_hunger_level: yesterdayHungerLevel
         )
         let saved: [DailyCheckin] = try await client
             .from("daily_checkins")

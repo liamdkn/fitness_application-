@@ -14,6 +14,8 @@ struct QueuedDailyCheckin: Codable {
     let yesterdayWaterMl: Int?
     let yesterdayOffPlan: Bool
     let yesterdayOffPlanNotes: String?
+    /// 1-5, nil when not rated (and for check-ins queued by older builds).
+    let yesterdayHungerLevel: Int?
     /// Only set when the user changed it - an unchanged Health-synced value
     /// isn't written back.
     let sleepMinutes: Int?
@@ -36,7 +38,8 @@ enum DailyCheckinSubmitter {
             sorenessLevel: checkin.sorenessLevel,
             yesterdayWaterMl: checkin.yesterdayWaterMl,
             yesterdayOffPlan: checkin.yesterdayOffPlan,
-            yesterdayOffPlanNotes: checkin.yesterdayOffPlanNotes
+            yesterdayOffPlanNotes: checkin.yesterdayOffPlanNotes,
+            yesterdayHungerLevel: checkin.yesterdayHungerLevel
         )
 
         if let weightKg = checkin.weightKg {

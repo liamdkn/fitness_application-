@@ -12,6 +12,7 @@ struct DailyCheckin: Codable, Identifiable {
     let yesterdayWaterMl: Int?
     let yesterdayOffPlan: Bool?
     let yesterdayOffPlanNotes: String?
+    let yesterdayHungerLevel: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -25,5 +26,6 @@ struct DailyCheckin: Codable, Identifiable {
         case yesterdayWaterMl = "yesterday_water_ml"
         case yesterdayOffPlan = "yesterday_off_plan"
         case yesterdayOffPlanNotes = "yesterday_off_plan_notes"
+        case yesterdayHungerLevel = "yesterday_hunger_level"
     }
 }
