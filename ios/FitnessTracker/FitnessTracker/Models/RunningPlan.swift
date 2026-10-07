@@ -117,6 +117,9 @@ struct PlannedRun: Codable, Identifiable, Hashable {
     var warmupPaceSec: Int? = nil
     var cooldownMin: Int? = nil
     var cooldownPaceSec: Int? = nil
+    /// Warm-up and cool-down set by distance instead; when present they win over the minutes.
+    var warmupKm: Double? = nil
+    var cooldownKm: Double? = nil
     /// The pace to hold for a plain run; nil works it out from distance and time.
     var mainPaceSec: Int? = nil
     /// Repeated pieces (intervals, tempo blocks); when present they replace
@@ -129,6 +132,8 @@ struct PlannedRun: Codable, Identifiable, Hashable {
         case warmupPaceSec = "warmup_pace_sec"
         case cooldownMin = "cooldown_min"
         case cooldownPaceSec = "cooldown_pace_sec"
+        case warmupKm = "warmup_km"
+        case cooldownKm = "cooldown_km"
         case mainPaceSec = "main_pace_sec"
         case runningPlanId = "running_plan_id"
         case runType = "run_type"
@@ -152,14 +157,19 @@ struct PlannedRun: Codable, Identifiable, Hashable {
     /// the run spells out more than the plain target.
     var structureLine: String? {
         var parts: [String] = []
-        if let warmupMin, warmupMin > 0 {
+        if let warmupKm {
+            if warmupKm > 0 { parts.append("Warm-up \(RunFormat.km(warmupKm))" + (warmupPaceSec.map { " @ " + PaceText.format($0) } ?? "")) }
+        } else if let warmupMin, warmupMin > 0 {
             parts.append("Warm-up \(warmupMin) min" + (warmupPaceSec.map { " @ " + PaceText.format($0) } ?? ""))
         }
         if let blocks, !blocks.isEmpty { parts.append(contentsOf: blocks.map(\.label)) }
-        if let cooldownMin, cooldownMin > 0 {
+        if let cooldownKm {
+            if cooldownKm > 0 { parts.append("Cool-down \(RunFormat.km(cooldownKm))" + (cooldownPaceSec.map { " @ " + PaceText.format($0) } ?? "")) }
+        } else if let cooldownMin, cooldownMin > 0 {
             parts.append("Cool-down \(cooldownMin) min" + (cooldownPaceSec.map { " @ " + PaceText.format($0) } ?? ""))
         }
         let hasDetail = (blocks?.isEmpty == false) || warmupPaceSec != nil || cooldownPaceSec != nil
+            || warmupKm != nil || cooldownKm != nil
             || (warmupMin != nil && warmupMin != 10) || (cooldownMin != nil && cooldownMin != 10)
         return hasDetail ? parts.joined(separator: " \u{00b7} ") : nil
     }

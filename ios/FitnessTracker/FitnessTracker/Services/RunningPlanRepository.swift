@@ -11,6 +11,8 @@ struct RunningPlanRepository {
         var warmupPaceSec: Int?
         var cooldownMin: Int?
         var cooldownPaceSec: Int?
+        var warmupKm: Double?
+        var cooldownKm: Double?
         var mainPaceSec: Int?
         var blocks: [RunBlock]?
         static let none = Segments()
@@ -28,7 +30,7 @@ struct RunningPlanRepository {
 
         enum CodingKeys: String, CodingKey {
             case running_plan_id, user_id, date, run_type, target_distance_km, target_duration_min, notes
-            case warmup_min, warmup_pace_sec, cooldown_min, cooldown_pace_sec, main_pace_sec, blocks
+            case warmup_min, warmup_pace_sec, cooldown_min, cooldown_pace_sec, warmup_km, cooldown_km, main_pace_sec, blocks
         }
 
         func encode(to encoder: Encoder) throws {
@@ -44,6 +46,8 @@ struct RunningPlanRepository {
             try c.encode(segments.warmupPaceSec, forKey: .warmup_pace_sec)
             try c.encode(segments.cooldownMin, forKey: .cooldown_min)
             try c.encode(segments.cooldownPaceSec, forKey: .cooldown_pace_sec)
+            try c.encode(segments.warmupKm, forKey: .warmup_km)
+            try c.encode(segments.cooldownKm, forKey: .cooldown_km)
             try c.encode(segments.mainPaceSec, forKey: .main_pace_sec)
             try c.encode(segments.blocks, forKey: .blocks)
         }
@@ -61,7 +65,7 @@ struct RunningPlanRepository {
 
         enum CodingKeys: String, CodingKey {
             case date, run_type, target_distance_km, target_duration_min, notes
-            case warmup_min, warmup_pace_sec, cooldown_min, cooldown_pace_sec, main_pace_sec, blocks
+            case warmup_min, warmup_pace_sec, cooldown_min, cooldown_pace_sec, warmup_km, cooldown_km, main_pace_sec, blocks
         }
 
         func encode(to encoder: Encoder) throws {
@@ -75,6 +79,8 @@ struct RunningPlanRepository {
             try c.encode(segments.warmupPaceSec, forKey: .warmup_pace_sec)
             try c.encode(segments.cooldownMin, forKey: .cooldown_min)
             try c.encode(segments.cooldownPaceSec, forKey: .cooldown_pace_sec)
+            try c.encode(segments.warmupKm, forKey: .warmup_km)
+            try c.encode(segments.cooldownKm, forKey: .cooldown_km)
             try c.encode(segments.mainPaceSec, forKey: .main_pace_sec)
             try c.encode(segments.blocks, forKey: .blocks)
         }

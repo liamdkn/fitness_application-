@@ -152,16 +152,10 @@ struct RunWorkoutSyncService {
 
         let warmupMin = run.warmupMin ?? warmupMinutes
         let cooldownMin = run.cooldownMin ?? cooldownMinutes
-        let warmup: WorkoutStep? = warmupMin > 0 ? WorkoutStep(
-            goal: .time(Double(warmupMin * 60), .seconds),
-            alert: paceAlert(secPerKm: run.warmupPaceSec.map(Double.init)),
-            displayName: "Warm Up \u{00b7} \(warmupMin) min" + (run.warmupPaceSec.map { " \u{00b7} \(PaceText.format($0))" } ?? "")
-        ) : nil
-        let cooldown: WorkoutStep? = cooldownMin > 0 ? WorkoutStep(
-            goal: .time(Double(cooldownMin * 60), .seconds),
-            alert: paceAlert(secPerKm: run.cooldownPaceSec.map(Double.init)),
-            displayName: "Cool Down \u{00b7} \(cooldownMin) min" + (run.cooldownPaceSec.map { " \u{00b7} \(PaceText.format($0))" } ?? "")
-        ) : nil
+        let warmup = easyStep(
+            name: "Warm Up", km: run.warmupKm, minutes: warmupMin, paceSec: run.warmupPaceSec)
+        let cooldown = easyStep(
+            name: "Cool Down", km: run.cooldownKm, minutes: cooldownMin, paceSec: run.cooldownPaceSec)
 
         let workout = CustomWorkout(
             activity: .running,
@@ -173,5 +167,25 @@ struct RunWorkoutSyncService {
         )
 
         return WorkoutPlan(.custom(workout), id: run.id)
+    }
+
+    /// A warm-up or cool-down: by distance when a distance is set (0 means none),
+    /// otherwise by minutes (0 means none).
+    private func easyStep(name: String, km: Double?, minutes: Int, paceSec: Int?) -> WorkoutStep? {
+        let paceText = paceSec.map { " \u{00b7} \(PaceText.format($0))" } ?? ""
+        if let km {
+            guard km > 0 else { return nil }
+            return WorkoutStep(
+                goal: .distance(km * 1000, .meters),
+                alert: paceAlert(secPerKm: paceSec.map(Double.init)),
+                displayName: "\(name) \u{00b7} \(RunFormat.km(km))" + paceText
+            )
+        }
+        guard minutes > 0 else { return nil }
+        return WorkoutStep(
+            goal: .time(Double(minutes * 60), .seconds),
+            alert: paceAlert(secPerKm: paceSec.map(Double.init)),
+            displayName: "\(name) \u{00b7} \(minutes) min" + paceText
+        )
     }
 }

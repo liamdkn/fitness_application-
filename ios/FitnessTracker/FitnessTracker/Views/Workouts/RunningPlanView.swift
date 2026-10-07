@@ -464,6 +464,10 @@ private struct PlannedRunEditSheet: View {
     @State private var warmupPaceText = ""
     @State private var cooldownText = "10"
     @State private var cooldownPaceText = ""
+    @State private var warmupByDistance = false
+    @State private var warmupKmText = ""
+    @State private var cooldownByDistance = false
+    @State private var cooldownKmText = ""
     @State private var mainPaceText = ""
     @State private var blocks: [BlockDraft] = []
     @State private var errorMessage: String?
@@ -519,6 +523,10 @@ private struct PlannedRunEditSheet: View {
             _warmupPaceText = State(initialValue: PaceText.field(existing.warmupPaceSec))
             _cooldownText = State(initialValue: String(existing.cooldownMin ?? 10))
             _cooldownPaceText = State(initialValue: PaceText.field(existing.cooldownPaceSec))
+            _warmupByDistance = State(initialValue: existing.warmupKm != nil)
+            _warmupKmText = State(initialValue: existing.warmupKm.map { RunningPlanDefaults.plain($0) } ?? "")
+            _cooldownByDistance = State(initialValue: existing.cooldownKm != nil)
+            _cooldownKmText = State(initialValue: existing.cooldownKm.map { RunningPlanDefaults.plain($0) } ?? "")
             _mainPaceText = State(initialValue: PaceText.field(existing.mainPaceSec))
             _blocks = State(initialValue: (existing.blocks ?? []).map(BlockDraft.init))
         }
@@ -561,12 +569,12 @@ private struct PlannedRunEditSheet: View {
                     .listRowBackground(AppRowBackground())
 
                     Section {
-                        minutesField("Length", text: $warmupText)
+                        lengthField(byDistance: $warmupByDistance, minutes: $warmupText, km: $warmupKmText)
                         paceField("Pace", text: $warmupPaceText)
                     } header: {
                         Text("Warm-up")
                     } footer: {
-                        Text("0 minutes means no warm-up. Pace is optional, as minutes:seconds per km, e.g. 6:30.")
+                        Text("By time or distance. 0 means no warm-up. Pace is optional, as minutes:seconds per km, e.g. 6:30.")
                     }
                     .listRowBackground(AppRowBackground())
 
@@ -588,7 +596,7 @@ private struct PlannedRunEditSheet: View {
                     .listRowBackground(AppRowBackground())
 
                     Section {
-                        minutesField("Length", text: $cooldownText)
+                        lengthField(byDistance: $cooldownByDistance, minutes: $cooldownText, km: $cooldownKmText)
                         paceField("Pace", text: $cooldownPaceText)
                     } header: {
                         Text("Cool-down")
@@ -629,6 +637,35 @@ private struct PlannedRunEditSheet: View {
                 .frame(width: 70)
             Text("/km").foregroundStyle(.secondary)
         }
+    }
+
+    /// A warm-up or cool-down length: minutes or kilometres, whichever is picked.
+    private func lengthField(byDistance: Binding<Bool>, minutes: Binding<String>, km: Binding<String>) -> some View {
+        VStack(spacing: 8) {
+            Picker("Length by", selection: byDistance) {
+                Text("Time").tag(false)
+                Text("Distance").tag(true)
+            }
+            .pickerStyle(.segmented)
+            if byDistance.wrappedValue {
+                HStack {
+                    Text("Length")
+                    Spacer()
+                    TextField("1.5", text: km)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 70)
+                    Text("km").foregroundStyle(.secondary)
+                }
+            } else {
+                minutesField("Length", text: minutes)
+            }
+        }
+    }
+
+    /// Kilometres typed as "1.5" or "1,5", kept to a sensible range; nil if not a number.
+    private static func parsedKm(_ text: String) -> Double? {
+        Double(text.replacingOccurrences(of: ",", with: ".")).map { min(max($0, 0), 20) }
     }
 
     private func minutesField(_ label: String, text: Binding<String>) -> some View {
@@ -688,11 +725,17 @@ private struct PlannedRunEditSheet: View {
         let duration = runType == .rest ? nil : Int(durationText)
         let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         let isRest = runType == .rest
+        if runType != .rest, (warmupByDistance && Self.parsedKm(warmupKmText) == nil) || (cooldownByDistance && Self.parsedKm(cooldownKmText) == nil) {
+            errorMessage = "Enter the warm-up and cool-down distances in km, or switch them back to time."
+            return
+        }
         let segments = RunningPlanRepository.Segments(
-            warmupMin: isRest ? nil : Int(warmupText).map { min(max($0, 0), 60) },
+            warmupMin: isRest || warmupByDistance ? nil : Int(warmupText).map { min(max($0, 0), 60) },
             warmupPaceSec: isRest ? nil : PaceText.parse(warmupPaceText),
-            cooldownMin: isRest ? nil : Int(cooldownText).map { min(max($0, 0), 60) },
+            cooldownMin: isRest || cooldownByDistance ? nil : Int(cooldownText).map { min(max($0, 0), 60) },
             cooldownPaceSec: isRest ? nil : PaceText.parse(cooldownPaceText),
+            warmupKm: isRest || !warmupByDistance ? nil : Self.parsedKm(warmupKmText),
+            cooldownKm: isRest || !cooldownByDistance ? nil : Self.parsedKm(cooldownKmText),
             mainPaceSec: isRest ? nil : PaceText.parse(mainPaceText),
             blocks: isRest ? nil : (blocks.compactMap(\.block).isEmpty ? nil : blocks.compactMap(\.block))
         )
