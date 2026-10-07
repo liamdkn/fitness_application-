@@ -14,7 +14,7 @@ drafted for it), but Liam decided he doesn't want the data gone - he
 just doesn't want these "parentless" weeks cluttering the picker. This
 is a UI filter, not a data change. **The SQL cleanup script
 (`supabase/one_off/2026-09-18_delete_aug3_16_orphan_data.sql`) and its
-brief (`docs/delete-aug3-16-orphan-data-brief.md`) are superseded by
+brief (`delete-aug3-16-orphan-data-brief.md`) are superseded by
 this doc and should not be run/implemented.**
 
 ## Where it lives

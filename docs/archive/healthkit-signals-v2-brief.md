@@ -1,6 +1,6 @@
 # HealthKit Signals v2 — Resting Heart Rate/HRV, Wrist Temperature, Workout Sessions, Body Composition
 
-Four new HealthKit-derived signals to fold into the TDEE/weight-trend work already speced in `docs/adaptive-tdee-v2-brief.md` and `docs/off-plan-bump-exclusion-consistency-brief.md`. Confirmed Liam wears the Watch daily, so there's real history to pull from HealthKit's own retained data, not just going forward. Ranked by how much confidence they actually add, per the earlier conversation - not proposing everything as equally load-bearing.
+Four new HealthKit-derived signals to fold into the TDEE/weight-trend work already speced in `adaptive-tdee-v2-brief.md` and `off-plan-bump-exclusion-consistency-brief.md`. Confirmed Liam wears the Watch daily, so there's real history to pull from HealthKit's own retained data, not just going forward. Ranked by how much confidence they actually add, per the earlier conversation - not proposing everything as equally load-bearing.
 
 ## 0. Architectural note before building any of this
 

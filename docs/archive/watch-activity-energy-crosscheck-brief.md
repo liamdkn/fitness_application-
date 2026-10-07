@@ -1,6 +1,6 @@
 # Apple Watch Active Energy as a Cross-Check on the Maintenance Estimate
 
-New data point requested: bring in total calories from Apple Watch activity tracking, alongside the existing weight-trend-based maintenance estimate. This isn't just another number to show - used right, it's a second, independent way to sanity-check the number that was just found to look wrong (`docs/tdee-nutrition-source-bug-brief.md`), including for the more likely real cause once the meal-logging-source theory was ruled out: incomplete self-reported calorie logging.
+New data point requested: bring in total calories from Apple Watch activity tracking, alongside the existing weight-trend-based maintenance estimate. This isn't just another number to show - used right, it's a second, independent way to sanity-check the number that was just found to look wrong (`tdee-nutrition-source-bug-brief.md`), including for the more likely real cause once the meal-logging-source theory was ruled out: incomplete self-reported calorie logging.
 
 ## 1. Why this actually helps, not just "more data"
 
@@ -31,4 +31,4 @@ Apple Watch active-energy estimates aren't perfect either - they're algorithmic 
 
 ## Update (Sept 18, later) - confirmed direction is a blend, not just a flag
 
-Liam confirmed he wants the Watch activity signal actually blended into the number, not just used to flag a disagreement. The concern raised in Section 3 above still holds and shapes how - a naive 50/50 average would dilute a good weight-trend-based estimate with a noisier Watch estimate on every normal week, which is a net loss most of the time. The answer isn't "don't blend," it's **confidence-weighted blending** - full detail and the combined design (this plus the phase-length window change) is in `docs/adaptive-tdee-v2-brief.md`. This file stays as the record of why a flat blend was the wrong first instinct and what it needs to become instead.
+Liam confirmed he wants the Watch activity signal actually blended into the number, not just used to flag a disagreement. The concern raised in Section 3 above still holds and shapes how - a naive 50/50 average would dilute a good weight-trend-based estimate with a noisier Watch estimate on every normal week, which is a net loss most of the time. The answer isn't "don't blend," it's **confidence-weighted blending** - full detail and the combined design (this plus the phase-length window change) is in `adaptive-tdee-v2-brief.md`. This file stays as the record of why a flat blend was the wrong first instinct and what it needs to become instead.

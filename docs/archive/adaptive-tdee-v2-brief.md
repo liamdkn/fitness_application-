@@ -1,6 +1,6 @@
 # Adaptive TDEE v2 — Phase-Length Recency-Weighted Window + Confidence-Weighted Watch Blend
 
-Consolidated brief. Supersedes the window/blend parts of `docs/watch-activity-energy-crosscheck-brief.md` (which stays as the record of the discussion that got here - the HealthKit read/storage plan in that doc's Sections 2-3 is still accurate and unchanged). Triggered by the My Goals maintenance estimate reading ~1,844 kcal/day off a bad week of logging (`docs/tdee-nutrition-source-bug-brief.md`), which exposed two real gaps in `AdaptiveTDEEEngine`: no independent check on intake accuracy, and a fixed 21-day window too short to dilute one bad week.
+Consolidated brief. Supersedes the window/blend parts of `watch-activity-energy-crosscheck-brief.md` (which stays as the record of the discussion that got here - the HealthKit read/storage plan in that doc's Sections 2-3 is still accurate and unchanged). Triggered by the My Goals maintenance estimate reading ~1,844 kcal/day off a bad week of logging (`tdee-nutrition-source-bug-brief.md`), which exposed two real gaps in `AdaptiveTDEEEngine`: no independent check on intake accuracy, and a fixed 21-day window too short to dilute one bad week.
 
 ## 1. What's changing and why, in one paragraph each
 
@@ -33,8 +33,8 @@ Then a **confidence weight** for the trend-based estimate, `c ∈ [0, 1]` (1 = f
 
 Final estimate: `blendedTDEE = c * trendTDEE + (1 - c) * watchTDEE`. Proposing `c` starts high by default (e.g. floor around 0.7) so a normal, well-logged week barely moves from today's trend-only behavior - the Watch signal is there to pull the number back toward reality specifically when logging looks shaky, not to become an equal partner by default.
 
-**Show the blend's reasoning, not just its output** - ties back to the labeling principle from `docs/off-plan-bump-exclusion-consistency-brief.md`. When `c` is meaningfully below its ceiling, say so: "Blended with Watch activity data (your recent logging looks incomplete)" rather than presenting `blendedTDEE` as if it came from the trend method alone.
+**Show the blend's reasoning, not just its output** - ties back to the labeling principle from `off-plan-bump-exclusion-consistency-brief.md`. When `c` is meaningfully below its ceiling, say so: "Blended with Watch activity data (your recent logging looks incomplete)" rather than presenting `blendedTDEE` as if it came from the trend method alone.
 
 ## 4. Sequencing
 
-Build the window change first (Section 2) - it's the lower-risk, self-contained improvement and doesn't depend on new HealthKit data existing yet. The Watch blend (Section 3) depends on the HealthKit read/storage work from `docs/watch-activity-energy-crosscheck-brief.md` Sections 2-3 being in place first, and `c`'s exact weighting is the part most worth revisiting once there are a few weeks of real data to see how the two signals actually behave relative to each other.
+Build the window change first (Section 2) - it's the lower-risk, self-contained improvement and doesn't depend on new HealthKit data existing yet. The Watch blend (Section 3) depends on the HealthKit read/storage work from `watch-activity-energy-crosscheck-brief.md` Sections 2-3 being in place first, and `c`'s exact weighting is the part most worth revisiting once there are a few weeks of real data to see how the two signals actually behave relative to each other.

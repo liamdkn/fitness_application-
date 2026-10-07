@@ -1,7 +1,7 @@
 # Liam's running plan content — base building to half marathon, 2 days/week
 
 This is the actual plan content to seed into `running_plans`/`planned_runs`
-once the schema from `docs/running-plan-brief.md` is built - not an
+once the schema from `running-plan-brief.md` is built - not an
 engineering brief, the real week-by-week data. Designed around: 2 runs/week
 only, gym Mon/Tue/Thu/Fri (new schedule), ~6 weeks of running experience
 so far (per prior conversation, no target race date, not in a hurry),
@@ -101,5 +101,5 @@ is the final hard adaptation, not a missed training opportunity.
   distance doesn't matter yet) and filled in from Phase 2 onward.
 - Actual start date and exact week-7 transition point should flex based
   on how Phase 1 actually goes, not be locked to a calendar date now -
-  the adjustability from `docs/running-plan-brief.md` (editable rows,
+  the adjustability from `running-plan-brief.md` (editable rows,
   no rigid schedule) is what makes that possible.

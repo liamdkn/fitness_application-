@@ -30,7 +30,7 @@ alter table foods add constraint foods_source_check
   check (source in ('seed', 'off', 'nutritionix', 'user', 'ocr'));
 ```
 
-(`'ocr'` included here for `docs/nutrition-label-scan-brief.md`, the
+(`'ocr'` included here for `nutrition-label-scan-brief.md`, the
 companion feature - add both now rather than two migrations.)
 
 ## 2. Nutritionix integration

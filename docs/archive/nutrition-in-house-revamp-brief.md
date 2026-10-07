@@ -2,7 +2,7 @@
 
 Combines two things into one build for Claude Code: (1) today's request
 to give in-house meal logging its own dedicated screen with a new
-layout, and (2) yesterday's `docs/meal-plan-options-brief.md` (curated
+layout, and (2) yesterday's `meal-plan-options-brief.md` (curated
 X/Y/Z menu per slot with a "best fit today" suggestion) - Liam wants
 both handed over together since the new screen is where the menu
 picker lives anyway.
@@ -39,7 +39,7 @@ in this brief touches historical HealthKit-sourced rows.
 Today `NutritionEntryView.swift` (935 lines) serves both nutrition
 sources via inline `if nutritionSource == .inHouse` checks throughout
 - exactly the kind of dual-purpose bloat already flagged in the
-earlier `docs/v1-wrapup-and-v2-roadmap.md` audit for this same file.
+earlier `v1-wrapup-and-v2-roadmap.md` audit for this same file.
 Liam wants the split made real: when `.inHouse` is active, route to a
 whole new view (e.g. `MealLogHomeView.swift`) instead of branching
 inside `NutritionEntryView`. `NutritionEntryView` keeps serving the
@@ -97,7 +97,7 @@ there and forward-compatible, not asking for new UI now.
 
 ## 5. Meal plan menus (X / Y / Z) - carried over from yesterday
 
-Full design already written up in `docs/meal-plan-options-brief.md` -
+Full design already written up in `meal-plan-options-brief.md` -
 not repeating it here, just noting how it slots into this screen:
 the "Choose from Menu" action (Section 3 of that doc) lives in the
 same per-slot card/menu described above, and the "rotate through a
@@ -120,5 +120,5 @@ since the menu picker attaches to them.
 3. Wire "Log Meals" -> slot list -> tap-in to existing
    `MealLogSection` sheet flow, swap the Settings route so
    `.inHouse` goes to this new screen instead of `NutritionEntryView`.
-4. Meal plan menus (`docs/meal-plan-options-brief.md`) on top, once
+4. Meal plan menus (`meal-plan-options-brief.md`) on top, once
    the card layout above exists to hang "Choose from Menu" off of.

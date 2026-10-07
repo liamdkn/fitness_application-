@@ -86,7 +86,7 @@ lock. Nothing new needed here - the Mon/Tue/Thu/Fri gym + Wed/Sat run
 + Sun off structure is just how Liam uses the existing rotation and
 the running plan from earlier today, not an app feature by itself.
 
-**One correction to `docs/half-marathon-plan-content.md` from
+**One correction to `half-marathon-plan-content.md` from
 earlier**: it assumed Wednesday + Sunday as run days with Saturday as
 rest. This brief gives the real, authoritative schedule - Wednesday
 (easy) and **Saturday** (long run), with **Sunday** fully off, not

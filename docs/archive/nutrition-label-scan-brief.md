@@ -3,7 +3,7 @@
 ## The ask
 
 When a product isn't found through barcode lookup or the search
-fallback chain (`docs/food-search-verified-sources-brief.md`), let
+fallback chain (`food-search-verified-sources-brief.md`), let
 the user point the camera at the actual nutrition facts panel on the
 pack and have the app read the numbers off it automatically -
 Liam's framing: "like a credit card scan" - tied to the barcode

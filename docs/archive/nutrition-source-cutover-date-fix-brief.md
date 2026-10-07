@@ -23,7 +23,7 @@ Root cause: they read from genuinely different sources.
   switched to in-house logging by date X," which held until this
   week, when Liam started test-logging individual items via the
   in-house food search/barcode scan while investigating the food-
-  database gap (`docs/food-search-verified-sources-brief.md`) -
+  database gap (`food-search-verified-sources-brief.md`) -
   while his actual nutrition source is still Apple Health import.
   A single test item logged in-house on one day is enough to fully
   override that day's real, much higher `nutrition_logs` total in
@@ -41,12 +41,12 @@ an explicit fact, and gets it wrong the moment meal_entries rows
 exist for reasons other than "the user has fully switched."
 
 This isn't just a one-week glitch - it's the same underlying gap
-`docs/tdee-nutrition-source-bug-brief.md` flagged earlier (client-
+`tdee-nutrition-source-bug-brief.md` flagged earlier (client-
 side `NutritionRepository` not mirroring migration 0037's cutover
 logic) approached from the other direction: 0037's cutover logic
 itself isn't reliable either, since it has no real signal for when
 a cutover happened. Worth fixing now rather than after the in-house
-revamp (`docs/nutrition-in-house-revamp-brief.md`) ships, since
+revamp (`nutrition-in-house-revamp-brief.md`) ships, since
 that's exactly when this starts mattering for real, permanently,
 not just during testing.
 

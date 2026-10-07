@@ -56,7 +56,7 @@ Same pattern as the daily row, which already gets this right:
 This view is explicitly read-only today per its own doc comment
 ("nothing here is editable") - if "just viewed" should also mean
 "and can fix a mistake," that's the earlier-parked check-in-editing
-work from `docs/weekly-checkin-wrapped-brief.md` (history becoming
+work from `weekly-checkin-wrapped-brief.md` (history becoming
 editable), not this fix. This brief only stops the row from
 disappearing and shows the right completed state; turning
 `WeeklyCheckinDetailView` itself editable is a separate, bigger
