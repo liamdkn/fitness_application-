@@ -8,7 +8,7 @@ struct GoalsRepository {
     // there's no row yet, Postgres/PostgREST represents that as a composite
     // of all-null fields (not JSON `null`), so this decodes leniently and
     // maps an all-null result to nil rather than throwing.
-    private struct UserGoalRPCResult: Decodable {
+    private nonisolated struct UserGoalRPCResult: Decodable {
         let id: UUID?
         let effectiveFrom: String?
         let phaseStartedAt: String?
@@ -49,7 +49,7 @@ struct GoalsRepository {
             case strengthOptionalSessions = "strength_optional_sessions"
         }
 
-        var goal: UserGoal? {
+        @MainActor var goal: UserGoal? {
             guard
                 let id, let effectiveFrom, let phaseType, let durationWeeks,
                 let dailyCalorieTarget, let proteinGTarget

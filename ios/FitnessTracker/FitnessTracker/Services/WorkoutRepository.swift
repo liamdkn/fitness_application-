@@ -107,7 +107,7 @@ struct WorkoutRepository {
     // there's no match, Postgres/PostgREST represents that as a composite of
     // all-null fields (not JSON `null`), so this decodes leniently and maps
     // an all-null result to nil rather than throwing.
-    private struct RoutineDayRPCResult: Decodable {
+    private nonisolated struct RoutineDayRPCResult: Decodable {
         let id: UUID?
         let routineId: UUID?
         let position: Int?

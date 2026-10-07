@@ -49,9 +49,6 @@ final class BluetoothScale: NSObject {
     /// Messages received on the scale's weight channel since connecting.
     var weightChannelPackets = 0
     var status = ""
-    /// Characteristics that can be written to, by UUID - offered in the advanced
-    /// panel. Firmware-update characteristics are left out on purpose.
-    var writableIds: [String] = []
 
     /// Called with every weight reading (grams) and whether the scale calls it
     /// steady - moving readings included, so a pour's pauses can be told from its end.
@@ -126,7 +123,6 @@ final class BluetoothScale: NSObject {
         live = nil
         unit = nil
         writables.removeAll()
-        writableIds.removeAll()
         services.removeAll()
     }
 
@@ -153,74 +149,28 @@ final class BluetoothScale: NSObject {
         reconnectKnown()
     }
 
-    /// Sends bytes (as hex, "A5 01 FF") to one of the writable characteristics.
-    /// Some scales only start sending weight after a command from their own app.
-    func send(hex: String, to id: String) {
-        let cleaned = hex.filter { $0.isHexDigit }
-        guard let connected else {
-            append("Not sent: not connected to a scale.")
+    /// The characteristic the scale takes commands on.
+    private static let commandChannel = "0000FFB1-0000-1000-8000-00805F9B34FB"
+
+    private func write(_ data: Data) {
+        guard let connected, let characteristic = writables[Self.commandChannel] else {
+            append("Not sent: no command channel on this device.")
             return
-        }
-        guard let characteristic = writables[id] else {
-            append("Not sent: \(connectedName ?? "this device") has no \(String(id.prefix(8))) channel. It isn't the scale - disconnect and pick MY_SCALE.")
-            return
-        }
-        guard cleaned.count >= 2, cleaned.count % 2 == 0 else {
-            append("Not sent: needs whole bytes, e.g. A5 01")
-            return
-        }
-        var bytes: [UInt8] = []
-        var index = cleaned.startIndex
-        while index < cleaned.endIndex {
-            let next = cleaned.index(index, offsetBy: 2)
-            if let byte = UInt8(cleaned[index..<next], radix: 16) { bytes.append(byte) }
-            index = next
         }
         let type: CBCharacteristicWriteType = characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
-        connected.writeValue(Data(bytes), for: characteristic, type: type)
-        append("Sent to \(id): \(ScaleDecoding.hex(Data(bytes)))")
+        connected.writeValue(data, for: characteristic, type: type)
+        append("Sent: \(ScaleDecoding.hex(data))")
     }
 
-    /// The start-up commands the Fitdays app is documented to send a scale of
-    /// its family: "hello" (B0 30), then B0 31 and B0 39 - each a framed
-    /// `[seq][00][len][00][type][payload][checksum]` message to FFB1.
-    static let fitdaysStartCommands = ["00 00 03 00 B0 30 00 20", "08 00 03 00 B0 31 00 21", "09 00 03 00 B0 39 00 29"]
-
-    func sendFitdaysStart() {
-        Task {
-            for command in Self.fitdaysStartCommands {
-                send(hex: command, to: "0000FFB1-0000-1000-8000-00805F9B34FB")
-                try? await Task.sleep(nanoseconds: 400_000_000)
-            }
-        }
-    }
-
-    /// The handshake this family of kitchen scale expects after you subscribe to
-    /// its weight channel; without it the scale stays silent.
-    /// Asks for the weights the scale has stored (the documented read-history
-    /// command). A reply proves the weight channel works end to end.
-    func sendIcomonHistoryRequest() {
-        send(hex: ScaleDecoding.hex(ScaleDecoding.icomonCommand(payload: [0x00, 0x00], command: 0xD4)), to: "0000FFB1-0000-1000-8000-00805F9B34FB")
-    }
-
+    /// The reply this family of kitchen scale expects after you subscribe to its
+    /// weight channel (without it the scale stays silent), then the user-info
+    /// command that starts the weight stream.
     func sendIcomonHandshake() {
         handshakeSent = true
-        let channel = "0000FFB1-0000-1000-8000-00805F9B34FB"
-        send(hex: ScaleDecoding.hex(ScaleDecoding.icomonHandshake), to: channel)
-        // Then say who is weighing: the weight only starts streaming after this.
+        write(ScaleDecoding.icomonHandshake)
         Task {
             try? await Task.sleep(nanoseconds: 500_000_000)
-            send(hex: ScaleDecoding.hex(ScaleDecoding.icomonUserInfo), to: channel)
-        }
-    }
-
-    /// The whole ten-message start-up the Fitdays app is documented to send.
-    func sendFitdaysHandshake() {
-        Task {
-            for message in ScaleDecoding.fitdaysHandshake() {
-                send(hex: ScaleDecoding.hex(message), to: "0000FFB1-0000-1000-8000-00805F9B34FB")
-                try? await Task.sleep(nanoseconds: 350_000_000)
-            }
+            write(ScaleDecoding.icomonUserInfo)
         }
     }
 
@@ -331,7 +281,6 @@ extension BluetoothScale: CBPeripheralDelegate {
             self.status = "Listening. Put something on the scale."
             for characteristic in writable {
                 self.writables[characteristic.uuid.uuidString] = characteristic
-                if !self.writableIds.contains(characteristic.uuid.uuidString) { self.writableIds.append(characteristic.uuid.uuidString) }
             }
         }
         for characteristic in service.characteristics ?? [] {
@@ -413,13 +362,6 @@ extension BluetoothScale: CBPeripheralDelegate {
                 if weight.stable { decoded = weight.grams }
             }
             note += "]"
-        } else if uuid == CBUUID(string: "FFB2"), let frame = ScaleDecoding.fitdaysFrame(data) {
-            note = "  [type \(String(format: "%02X", frame.type)), checksum \(frame.checksumOK ? "ok" : "BAD")"
-            if let raw = frame.rawWeight {
-                note += ", weight field \(raw)"
-                decoded = Double(raw)
-            }
-            note += "]"
         }
         let finalDecoded = decoded
         let didAnnounce = announced
@@ -428,10 +370,11 @@ extension BluetoothScale: CBPeripheralDelegate {
         let steady = sampleStable
         let tareFrame = tareFlag
         let onWeightChannel = uuid == CBUUID(string: "FFB2")
+        let noteText = note
         Task { @MainActor in
             if onWeightChannel { self.weightChannelPackets += 1 }
             if didAnnounce, !self.handshakeSent { self.sendIcomonHandshake() }
-            self.append(line + note + (finalDecoded.map { "  = \($0) g" } ?? ""))
+            self.append(line + noteText + (finalDecoded.map { "  = \($0) g" } ?? ""))
             if let liveValue { self.live = liveValue }
             if let liveUnit { self.unit = liveUnit }
             if let decoded = finalDecoded { self.grams = decoded }

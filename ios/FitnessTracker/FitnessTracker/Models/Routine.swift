@@ -1,6 +1,6 @@
 import Foundation
 
-struct Routine: Codable, Identifiable, Hashable {
+nonisolated struct Routine: Codable, Identifiable, Hashable {
     let id: UUID
     let name: String
     let isActive: Bool
@@ -14,7 +14,7 @@ struct Routine: Codable, Identifiable, Hashable {
     }
 }
 
-struct RoutineDay: Codable, Identifiable, Hashable {
+nonisolated struct RoutineDay: Codable, Identifiable, Hashable {
     let id: UUID
     let routineId: UUID
     let position: Int

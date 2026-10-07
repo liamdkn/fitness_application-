@@ -124,7 +124,7 @@ struct SupplementsView: View {
         }
         if day.isOverridden { text += " \u{00b7} changed today" }
         if !day.supplement.reminderTimes.isEmpty {
-            text += " \u{00b7} " + day.supplement.reminderTimes.map(Self.clock).joined(separator: ", ")
+            text += " \u{00b7} " + day.supplement.reminderTimes.map { Self.clock($0) }.joined(separator: ", ")
         }
         return text
     }

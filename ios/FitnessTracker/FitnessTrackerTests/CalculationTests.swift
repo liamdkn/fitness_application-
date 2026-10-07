@@ -168,56 +168,6 @@ struct FoodAndRunFormattingTests {
     }
 }
 
-struct FitdaysFrameTests {
-    @Test func checksumMatchesTheDocumentedStartCommands() {
-        // B0 30 00 -> (0xB0 + 0x30 + 0x00) & 0x1F | 0x20 = 0x20
-        #expect(ScaleDecoding.fitdaysChecksum(type: 0xB0, payload: [0x30, 0x00]) == 0x20)
-        #expect(ScaleDecoding.fitdaysChecksum(type: 0xB0, payload: [0x31, 0x00]) == 0x21)
-        #expect(ScaleDecoding.fitdaysChecksum(type: 0xB0, payload: [0x39, 0x00]) == 0x29)
-    }
-
-    @Test func everyStartCommandIsAWellFormedFrame() {
-        for hex in BluetoothScale.fitdaysStartCommands {
-            let bytes = hex.split(separator: " ").compactMap { UInt8($0, radix: 16) }
-            let frame = ScaleDecoding.fitdaysFrame(Data(bytes))
-            #expect(frame?.checksumOK == true)
-        }
-    }
-
-    @Test func weightIsA24BitNumberAtByteSeven() {
-        // seq, 00, len, 00, type A2, two filler bytes, then 00 03 E8 (= 1000), checksum
-        let payload: [UInt8] = [0x01, 0x02, 0x00, 0x03, 0xE8]
-        let checksum = ScaleDecoding.fitdaysChecksum(type: 0xA2, payload: payload)
-        let frame = ScaleDecoding.fitdaysFrame(Data([0x05, 0x00, 0x05, 0x00, 0xA2] + payload + [checksum]))
-        #expect(frame?.rawWeight == 1000)
-        #expect(frame?.checksumOK == true)
-    }
-}
-
-struct FitdaysHandshakeTests {
-    @Test func buildsTheDocumentedHelloAndStatusMessagesExactly() {
-        let messages = ScaleDecoding.fitdaysHandshake()
-        #expect(messages.count == 10)
-        #expect(ScaleDecoding.hex(messages[0]) == "00 00 03 00 B0 30 00 20")
-        #expect(ScaleDecoding.hex(messages[8]) == "08 00 03 00 B0 31 00 21")
-        #expect(ScaleDecoding.hex(messages[9]) == "09 00 03 00 B0 39 00 29")
-    }
-
-    @Test func compactProfileMatchesTheDocumentedExample() {
-        // Documented write #2 with the user name "Dan": checksum 0x29.
-        let messages = ScaleDecoding.fitdaysHandshake(name: Array("Dan".utf8))
-        #expect(ScaleDecoding.hex(messages[2]) == "02 00 16 00 C1 01 01 B9 1C 16 A6 1C 25 1D 6A 0F 12 4D E8 BF 01 01 03 44 61 6E 29")
-    }
-
-    @Test func everyMessageHasAValidChecksumAndLength() {
-        for message in ScaleDecoding.fitdaysHandshake() {
-            let frame = ScaleDecoding.fitdaysFrame(message)
-            #expect(frame?.checksumOK == true)
-            #expect(Int(message[2]) + 5 == message.count)
-        }
-    }
-}
-
 struct IcomonKitchenScaleTests {
     @Test func handshakeMatchesTheDocumentedFrame() {
         #expect(ScaleDecoding.hex(ScaleDecoding.icomonHandshake) == "AC 42 00 02 00 A0 00 D1 73")

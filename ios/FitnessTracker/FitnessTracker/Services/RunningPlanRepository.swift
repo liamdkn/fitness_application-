@@ -157,8 +157,9 @@ struct RunningPlanRepository {
         targetDistanceKm: Double?,
         targetDurationMin: Int?,
         notes: String?,
-        segments: Segments = .none
+        segments: Segments? = nil
     ) async throws -> PlannedRun {
+        let segments = segments ?? Segments()
         let userId = try await client.auth.session.user.id
         let inserted: [PlannedRun] = try await client
             .from("planned_runs")
@@ -187,8 +188,9 @@ struct RunningPlanRepository {
         targetDistanceKm: Double?,
         targetDurationMin: Int?,
         notes: String?,
-        segments: Segments = .none
+        segments: Segments? = nil
     ) async throws -> PlannedRun {
+        let segments = segments ?? Segments()
         let updated: [PlannedRun] = try await client
             .from("planned_runs")
             .update(PlannedRunUpdate(

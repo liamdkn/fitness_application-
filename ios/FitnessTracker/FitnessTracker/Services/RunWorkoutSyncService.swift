@@ -1,6 +1,6 @@
 import Foundation
 import HealthKit
-import WorkoutKit
+@preconcurrency import WorkoutKit
 
 /// Converts scheduled runs in the iPhone plan into workouts shown in the
 /// system Workout app on Apple Watch. The source plan remains the app's

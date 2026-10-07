@@ -528,7 +528,7 @@ private struct PlannedRunEditSheet: View {
             _cooldownByDistance = State(initialValue: existing.cooldownKm != nil)
             _cooldownKmText = State(initialValue: existing.cooldownKm.map { RunningPlanDefaults.plain($0) } ?? "")
             _mainPaceText = State(initialValue: PaceText.field(existing.mainPaceSec))
-            _blocks = State(initialValue: (existing.blocks ?? []).map(BlockDraft.init))
+            _blocks = State(initialValue: (existing.blocks ?? []).map { BlockDraft($0) })
         }
     }
 

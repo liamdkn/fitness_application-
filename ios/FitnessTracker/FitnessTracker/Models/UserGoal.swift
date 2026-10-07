@@ -1,6 +1,6 @@
 import Foundation
 
-enum GoalPhaseType: String, Codable, CaseIterable, Identifiable {
+nonisolated enum GoalPhaseType: String, Codable, CaseIterable, Identifiable {
     case cut, maintain, bulk
 
     var id: String { rawValue }
