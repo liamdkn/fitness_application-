@@ -33,6 +33,10 @@ final class BluetoothScale: NSObject {
     var log: [LogLine] = []
     /// Latest weight in grams, when the scale uses the standard format.
     var grams: Double?
+    /// The weight on the scale right now, including while it is still settling -
+    /// for a display that follows the pour. `grams` and `onReading` only take
+    /// steady readings.
+    var live: Double?
     var isScanning = false
     /// Messages received on the scale's weight channel since connecting.
     var weightChannelPackets = 0
@@ -49,6 +53,9 @@ final class BluetoothScale: NSObject {
     private var connected: CBPeripheral?
     private var writables: [String: CBCharacteristic] = [:]
     private var handshakeSent = false
+    /// Set when the user disconnects on purpose, so it isn't reconnected behind their back.
+    private var manualDisconnect = false
+    private static let knownKey = "scale-known-id"
     private var handshakeTask: Task<Void, Never>?
     /// Last broadcast bytes seen per device, so only changes are logged.
     private var lastBroadcast: [UUID: Data] = [:]
@@ -78,19 +85,38 @@ final class BluetoothScale: NSObject {
         guard let peripheral = peripherals[device.id] else { return }
         stopScan()
         status = "Connecting to \(device.name)..."
+        manualDisconnect = false
         connected = peripheral
         peripheral.delegate = self
         central.connect(peripheral)
     }
 
     func disconnect() {
+        manualDisconnect = true
+        UserDefaults.standard.removeObject(forKey: Self.knownKey)
         if let connected { central.cancelPeripheralConnection(connected) }
         connected = nil
         connectedName = nil
         grams = nil
+        live = nil
         writables.removeAll()
         writableIds.removeAll()
         services.removeAll()
+    }
+
+    /// Reconnects to the scale used last time. The connection request stays
+    /// open, so it completes by itself when the scale wakes up - no scanning or
+    /// tapping needed. Does nothing if no scale has been set up, or one is connected.
+    func reconnectKnown() {
+        guard central.state == .poweredOn, connected == nil,
+              let text = UserDefaults.standard.string(forKey: Self.knownKey),
+              let id = UUID(uuidString: text),
+              let peripheral = central.retrievePeripherals(withIdentifiers: [id]).first else { return }
+        manualDisconnect = false
+        connected = peripheral
+        peripheral.delegate = self
+        status = "Waiting for the scale - wake it by pressing a button or putting something on."
+        central.connect(peripheral)
     }
 
     /// Sends bytes (as hex, "A5 01 FF") to one of the writable characteristics.
@@ -177,7 +203,10 @@ final class BluetoothScale: NSObject {
 
 extension BluetoothScale: CBCentralManagerDelegate {
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        Task { @MainActor in self.state = central.state }
+        Task { @MainActor in
+            self.state = central.state
+            if central.state == .poweredOn { self.reconnectKnown() }
+        }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
@@ -215,13 +244,26 @@ extension BluetoothScale: CBCentralManagerDelegate {
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        Task { @MainActor in self.status = "Couldn't connect: \(error?.localizedDescription ?? "unknown error")" }
+        Task { @MainActor in
+            self.status = "Couldn't connect: \(error?.localizedDescription ?? "unknown error")"
+            if !self.manualDisconnect { self.central.connect(peripheral) }
+        }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         Task { @MainActor in
             self.connectedName = nil
-            self.status = "Disconnected."
+            self.grams = nil
+            self.live = nil
+            if self.manualDisconnect {
+                self.status = "Disconnected."
+            } else {
+                // The scale went to sleep or out of range: keep a connection request
+                // open so it comes back by itself.
+                self.status = "Scale asleep - waiting for it to wake."
+                self.handshakeSent = false
+                self.central.connect(peripheral)
+            }
         }
     }
 }
@@ -271,8 +313,12 @@ extension BluetoothScale: CBPeripheralDelegate {
         let text = error.map { "Listening to \(id) FAILED: \($0.localizedDescription)" }
             ?? "Listening to \(id): \(characteristic.isNotifying ? "on" : "off")"
         let isWeightChannel = characteristic.uuid == CBUUID(string: "FFB2") && characteristic.isNotifying
+        let peripheralId = peripheral.identifier
         Task { @MainActor in
             self.append(text)
+            // Only a device with the weight channel is remembered, so a wrong tap
+            // in the list doesn't become the scale that auto-connects.
+            if isWeightChannel { UserDefaults.standard.set(peripheralId.uuidString, forKey: Self.knownKey) }
             // The scale normally announces itself once we listen; if it doesn't
             // within a few seconds, send the handshake anyway.
             if isWeightChannel, !self.handshakeSent {
@@ -302,6 +348,7 @@ extension BluetoothScale: CBPeripheralDelegate {
         var decoded = uuid == CBUUID(string: "2A9D") ? ScaleDecoding.standardWeightScale(data) : nil
         var note = ""
         var announced = false
+        var moving: Double?
         if uuid == CBUUID(string: "FFB2"), let icomon = ScaleDecoding.icomonFrame(data) {
             note = "  [type \(String(format: "%02X", icomon.type)), checksum \(icomon.checksumOK ? "ok" : "BAD")"
             if icomon.type == 0xA0 { announced = true; note += ", capabilities - replying" }
@@ -309,8 +356,9 @@ extension BluetoothScale: CBPeripheralDelegate {
                 note += ", \(weight.stable ? "steady" : "moving")\(weight.isTare ? ", tare" : "")"
                 if !weight.isMetric {
                     note += ", unit not grams - press UNIT on the scale"
-                } else if weight.stable {
-                    decoded = weight.grams
+                } else {
+                    moving = weight.grams
+                    if weight.stable { decoded = weight.grams }
                 }
             }
             note += "]"
@@ -324,11 +372,13 @@ extension BluetoothScale: CBPeripheralDelegate {
         }
         let finalDecoded = decoded
         let didAnnounce = announced
+        let liveValue = moving
         let onWeightChannel = uuid == CBUUID(string: "FFB2")
         Task { @MainActor in
             if onWeightChannel { self.weightChannelPackets += 1 }
             if didAnnounce, !self.handshakeSent { self.sendIcomonHandshake() }
             self.append(line + note + (finalDecoded.map { "  = \($0) g" } ?? ""))
+            if let liveValue { self.live = liveValue }
             if let decoded = finalDecoded { self.grams = decoded; self.onReading?(decoded) }
             guard finalDecoded == nil else { return }
         }

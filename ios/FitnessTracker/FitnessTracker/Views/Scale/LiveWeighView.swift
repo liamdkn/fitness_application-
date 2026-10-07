@@ -6,6 +6,14 @@ import SwiftUI
 /// pick the next and carry on without tapping the scale. The amount added is
 /// the change on the scale, so there's no need to tare between ingredients.
 struct LiveWeighView: View {
+    /// One ingredient of a meal being assembled, with the amount to weigh.
+    struct PlannedItem: Identifiable {
+        let id = UUID()
+        let food: Food
+        let targetGrams: Double
+        var weighedGrams: Double?
+    }
+
     let mealSlotName: String
     /// Logs a food at a number of servings (grams / serving size).
     let onLog: (Food, Double) -> Void
@@ -19,6 +27,11 @@ struct LiveWeighView: View {
     @State private var added: [(food: Food, grams: Double)] = []
     @State private var message: String?
     @State private var liveGrams: Double = 0
+    /// Assembly mode: the ingredients of a saved meal, weighed in order.
+    @State private var plan: [PlannedItem] = []
+    @State private var showingSavedMeals = false
+    private let savedMealsRepository = SavedMealsRepository()
+    private let foodRepository = FoodRepository()
     @AppStorage("scale-speak") private var speak = true
     private let synthesizer = AVSpeechSynthesizer()
 
@@ -27,7 +40,7 @@ struct LiveWeighView: View {
             List {
                 Section {
                     VStack(spacing: 4) {
-                        Text("\(AmountLabel.trimmed(liveGrams)) g")
+                        Text("\(AmountLabel.trimmed(scale.live ?? liveGrams)) g")
                             .font(.system(size: 54, weight: .bold, design: .rounded))
                             .monospacedDigit()
                             .contentTransition(.numericText())
@@ -42,6 +55,36 @@ struct LiveWeighView: View {
                     }
                 }
                 .listRowBackground(AppRowBackground())
+
+                if !plan.isEmpty {
+                    Section {
+                        ForEach(Array(plan.enumerated()), id: \.element.id) { index, item in
+                            HStack {
+                                Image(systemName: item.weighedGrams != nil ? "checkmark.circle.fill" : (index == planIndex ? "circle.inset.filled" : "circle"))
+                                    .foregroundStyle(item.weighedGrams != nil ? AppColor.success : (index == planIndex ? AppColor.accent : .secondary))
+                                Text(item.food.name)
+                                    .fontWeight(index == planIndex ? .semibold : .regular)
+                                Spacer()
+                                if let weighed = item.weighedGrams {
+                                    Text("\(AmountLabel.trimmed(weighed)) g")
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text("\(AmountLabel.trimmed(item.targetGrams)) g").foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        if planIndex < plan.count {
+                            Button("Skip \(plan[planIndex].food.name)") { skipPlanned() }
+                        }
+                    } header: {
+                        Text("Building the meal")
+                    } footer: {
+                        Text(planIndex < plan.count
+                             ? "Pour \(plan[planIndex].food.name) - aim for \(AmountLabel.trimmed(plan[planIndex].targetGrams)) g. It moves to the next ingredient when the weight settles."
+                             : "Every ingredient is in.")
+                    }
+                    .listRowBackground(AppRowBackground())
+                }
 
                 Section {
                     Button {
@@ -83,6 +126,7 @@ struct LiveWeighView: View {
                 }
 
                 Section {
+                    Button(plan.isEmpty ? "Build a saved meal" : "Pick a different saved meal") { showingSavedMeals = true }
                     Toggle("Say it out loud", isOn: $speak)
                     Button("Start counting from zero") {
                         engine.rebase(to: 0)
@@ -118,7 +162,14 @@ struct LiveWeighView: View {
                     FoodDatabaseView(onSelect: { food in choose(food) })
                 }
             }
+            .sheet(isPresented: $showingSavedMeals) {
+                SavedMealPickerView(mealSlotName: mealSlotName) { items in
+                    Task { await loadPlan(items) }
+                }
+            }
+            .sensoryFeedback(.success, trigger: added.count)
             .onAppear {
+                scale.reconnectKnown()
                 scale.onReading = { grams in receive(grams) }
                 if let grams = scale.grams { liveGrams = grams }
             }
@@ -147,6 +198,46 @@ struct LiveWeighView: View {
         }
     }
 
+    /// First ingredient of the plan that hasn't been weighed or skipped.
+    private var planIndex: Int {
+        plan.firstIndex { $0.weighedGrams == nil } ?? plan.count
+    }
+
+    private func loadPlan(_ items: [SavedMealItem]) async {
+        do {
+            let foods = try await foodRepository.fetchByIds(items.compactMap(\.foodId))
+            var planned: [PlannedItem] = []
+            var skipped = 0
+            for item in items {
+                guard let id = item.foodId, let food = foods.first(where: { $0.id == id }) else { skipped += 1; continue }
+                let unit = food.servingUnit.lowercased()
+                guard unit == "g" || unit == "ml", food.servingSize > 0 else { skipped += 1; continue }
+                planned.append(PlannedItem(food: food, targetGrams: item.quantity * food.servingSize))
+            }
+            plan = planned
+            currentFood = nil
+            engine.rebase(to: scale.live ?? liveGrams)
+            message = skipped > 0 ? "\(skipped) item\(skipped == 1 ? "" : "s") can't be weighed (recipes or foods not counted in grams) - log those by hand." : nil
+            announceNext()
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    private func announceNext() {
+        guard planIndex < plan.count else { return }
+        let next = plan[planIndex]
+        currentFood = next.food
+        if speak { say("Next: \(next.food.name), \(AmountLabel.trimmed(next.targetGrams)) grams") }
+    }
+
+    private func skipPlanned() {
+        guard planIndex < plan.count else { return }
+        // A zero marks it done without logging anything.
+        plan[planIndex].weighedGrams = 0
+        announceNext()
+    }
+
     private func choose(_ food: Food) {
         currentFood = food
         if let grams = pendingGrams {
@@ -167,6 +258,10 @@ struct LiveWeighView: View {
         if speak { say("\(AmountLabel.trimmed(grams)) grams of \(food.name) added") }
         // Ready for the next ingredient.
         currentFood = nil
+        if let index = plan.firstIndex(where: { $0.weighedGrams == nil && $0.food.id == food.id }) {
+            plan[index].weighedGrams = grams
+            announceNext()
+        }
     }
 
     private func say(_ text: String) {
