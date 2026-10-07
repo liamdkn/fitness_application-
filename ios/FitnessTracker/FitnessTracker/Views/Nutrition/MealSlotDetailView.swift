@@ -194,15 +194,9 @@ struct MealSlotDetailView: View {
                 Spacer(minLength: 0)
             }
             let sodium = group?.totalSodiumMg ?? 0
-            let caffeine = group?.totalCaffeineMg ?? 0
-            if sodium > 0 || caffeine > 0 {
+            if sodium > 0 {
                 HStack(spacing: 18) {
-                    if sodium > 0 {
-                        Label("\(Int(sodium.rounded())) mg sodium", systemImage: "drop.triangle")
-                    }
-                    if caffeine > 0 {
-                        Label("\(Int(caffeine.rounded())) mg caffeine", systemImage: "cup.and.saucer")
-                    }
+                    Label("\(Int(sodium.rounded())) mg sodium", systemImage: "drop.triangle")
                     Spacer(minLength: 0)
                 }
                 .font(.caption)

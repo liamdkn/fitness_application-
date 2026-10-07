@@ -26,7 +26,7 @@ struct MealLogHomeView: View {
     /// next week's budget).
     @State private var weekTreats: [PlannedTreat] = []
     @StateObject private var viewModel = MealLogViewModel()
-    /// Sodium and caffeine limits for the bars under the macro cards.
+    /// Sodium limit for the bar under the macro cards (caffeine lives in Liquids).
     @State private var preferences: UserPreferences?
     /// Weekday types from the active split, and the latest weight (for the
     /// per-kg preworkout carb target).
@@ -111,11 +111,9 @@ struct MealLogHomeView: View {
                         MacroProgressCard(label: "Fat", value: totals.fatG, target: adjustedFatTarget, color: AppColor.fat)
                     }
 
-                    SodiumCaffeineRow(
+                    SodiumRow(
                         sodiumMg: totals.sodiumMg,
-                        sodiumLimitMg: preferences?.sodiumLimitMg ?? 2300,
-                        caffeineMg: totals.caffeineMg,
-                        caffeineLimitMg: preferences?.caffeineLimitMg ?? 400
+                        sodiumLimitMg: preferences?.sodiumLimitMg ?? 2300
                     )
 
                     FibreRow(
@@ -480,8 +478,6 @@ private struct MealSlotSummaryContent: View {
 
 }
 
-/// Sodium against its daily limit, and today's caffeine. (Sodium only counts
-/// foods that have a figure on record.)
 private struct FibreRow: View {
     let fibreG: Double
     let goalG: Int
@@ -507,17 +503,13 @@ private struct FibreRow: View {
     }
 }
 
-private struct SodiumCaffeineRow: View {
+/// Sodium against its daily limit. (Only counts foods that have a figure on record.)
+private struct SodiumRow: View {
     let sodiumMg: Double
     let sodiumLimitMg: Int
-    let caffeineMg: Double
-    let caffeineLimitMg: Int
 
     var body: some View {
-        HStack(spacing: 12) {
-            metric("Sodium", value: sodiumMg, limit: Double(sodiumLimitMg), color: AppColor.sodium)
-            metric("Caffeine", value: caffeineMg, limit: Double(caffeineLimitMg), color: AppColor.caffeine)
-        }
+        metric("Sodium", value: sodiumMg, limit: Double(sodiumLimitMg), color: AppColor.sodium)
     }
 
     private func metric(_ label: String, value: Double, limit: Double, color: Color) -> some View {
