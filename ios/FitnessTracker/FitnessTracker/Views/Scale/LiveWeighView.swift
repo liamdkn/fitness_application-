@@ -1,4 +1,3 @@
-import AVFoundation
 import SwiftUI
 
 /// Weigh ingredients one after another into a meal: pick what you're adding,
@@ -30,10 +29,11 @@ struct LiveWeighView: View {
     /// Assembly mode: the ingredients of a saved meal, weighed in order.
     @State private var plan: [PlannedItem] = []
     @State private var showingSavedMeals = false
-    private let savedMealsRepository = SavedMealsRepository()
     private let foodRepository = FoodRepository()
-    @AppStorage("scale-speak") private var speak = true
-    private let synthesizer = AVSpeechSynthesizer()
+    /// Weighing out of a container: the amount that comes off is what's logged.
+    @State private var scoopMode = false
+    /// 0...1 fill of the press-and-hold "Confirm & Next" button.
+    @State private var holdProgress: Double = 0
 
     var body: some View {
         NavigationStack {
@@ -66,21 +66,22 @@ struct LiveWeighView: View {
                                     .fontWeight(index == planIndex ? .semibold : .regular)
                                 Spacer()
                                 if let weighed = item.weighedGrams {
-                                    Text("\(AmountLabel.trimmed(weighed)) g")
+                                    Text("\(AmountLabel.trimmed(weighed)) \(item.food.servingUnit)")
                                         .foregroundStyle(.secondary)
                                 } else {
-                                    Text("\(AmountLabel.trimmed(item.targetGrams)) g").foregroundStyle(.secondary)
+                                    Text("\(AmountLabel.trimmed(item.targetGrams)) \(item.food.servingUnit)").foregroundStyle(.secondary)
                                 }
                             }
                         }
                         if planIndex < plan.count {
                             Button("Skip \(plan[planIndex].food.name)") { skipPlanned() }
+                            HoldToConfirmButton(title: "Confirm & Next", progress: $holdProgress) { confirmAndAdvance() }
                         }
                     } header: {
                         Text("Building the meal")
                     } footer: {
                         Text(planIndex < plan.count
-                             ? "Pour \(plan[planIndex].food.name) - aim for \(AmountLabel.trimmed(plan[planIndex].targetGrams)) g. It moves to the next ingredient when the weight settles."
+                             ? "Pour \(plan[planIndex].food.name) - aim for \(AmountLabel.trimmed(plan[planIndex].targetGrams)) \(plan[planIndex].food.servingUnit). It moves to the next ingredient when the weight settles. For a tiny amount that doesn't register, hold Confirm & Next."
                              : "Every ingredient is in.")
                     }
                     .listRowBackground(AppRowBackground())
@@ -97,17 +98,24 @@ struct LiveWeighView: View {
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                         }
                     }
+                    Toggle("Scooping from a container", isOn: $scoopMode)
                     if let pendingGrams {
                         Text("\(AmountLabel.trimmed(pendingGrams)) g on the scale is waiting - choose what it is.")
                             .font(.caption)
                             .foregroundStyle(AppColor.warning)
+                        Button("Skip this amount") {
+                            self.pendingGrams = nil
+                            message = "Skipped \(AmountLabel.trimmed(pendingGrams)) g - not logged."
+                        }
                     }
                 } header: {
                     Text("Adding now")
                 } footer: {
-                    Text(currentFood == nil
-                         ? "Pick the ingredient, then pour. It's logged when the weight settles."
-                         : "Pour in \(currentFood?.name ?? "it"). It's logged when the weight settles.")
+                    Text(scoopMode
+                         ? "Leave the container on the scale and spoon some out. The amount that comes off is logged when the weight settles."
+                         : currentFood == nil
+                             ? "Pick the ingredient, then pour. It's logged when the weight settles."
+                             : "Pour in \(currentFood?.name ?? "it"). It's logged when the weight settles.")
                 }
                 .listRowBackground(AppRowBackground())
 
@@ -119,7 +127,7 @@ struct LiveWeighView: View {
                 if !added.isEmpty {
                     Section("Added to \(mealSlotName)") {
                         ForEach(Array(added.enumerated()), id: \.offset) { _, item in
-                            LabeledContent(item.food.name, value: "\(AmountLabel.trimmed(item.grams)) g")
+                            LabeledContent(item.food.name, value: "\(AmountLabel.trimmed(item.grams)) \(item.food.servingUnit)")
                         }
                     }
                     .listRowBackground(AppRowBackground())
@@ -127,27 +135,12 @@ struct LiveWeighView: View {
 
                 Section {
                     Button(plan.isEmpty ? "Build a saved meal" : "Pick a different saved meal") { showingSavedMeals = true }
-                    Toggle("Say it out loud", isOn: $speak)
-                    Button("Start counting from zero") {
+                    Button("Tare") {
                         engine.rebase(to: 0)
-                        message = "Counting again from zero."
+                        message = "Tared."
                     }
                 }
                 .listRowBackground(AppRowBackground())
-
-                #if DEBUG
-                Section("Practice (no scale)") {
-                    HStack {
-                        ForEach([10.0, 50.0, 100.0], id: \.self) { grams in
-                            Button("+\(Int(grams)) g") { simulate(adding: grams) }
-                                .buttonStyle(.bordered)
-                        }
-                        Button("Clear") { simulate(to: 0) }
-                            .buttonStyle(.bordered)
-                    }
-                }
-                .listRowBackground(AppRowBackground())
-                #endif
             }
             .appScreen()
             .navigationTitle("Weigh Ingredients")
@@ -168,6 +161,13 @@ struct LiveWeighView: View {
                 }
             }
             .sensoryFeedback(.success, trigger: added.count)
+            .onChange(of: scoopMode) { _, on in
+                // Whatever is on the scale now (the full tub) is the new starting
+                // point, so switching mode never logs the container itself.
+                engine.rebase(to: scale.live ?? liveGrams)
+                pendingGrams = nil
+                message = on ? "Scoop mode on - counting what comes off." : "Back to pouring in."
+            }
             .onAppear {
                 scale.reconnectKnown()
                 scale.onReading = { grams in receive(grams) }
@@ -184,17 +184,30 @@ struct LiveWeighView: View {
         guard let event = engine.ingest(grams: grams, at: Date()) else { return }
         switch event {
         case .added(let amount):
-            if let food = currentFood {
-                log(food, grams: amount)
+            if scoopMode {
+                message = "Weight went up, not down - ignored."
             } else {
-                pendingGrams = amount
-                message = "\(AmountLabel.trimmed(amount)) g added - choose what it is."
+                claim(amount, verb: "added")
             }
         case .removed(let amount):
-            message = "\(AmountLabel.trimmed(amount)) g taken off - not logged."
+            if scoopMode {
+                claim(amount, verb: "scooped out")
+            } else {
+                message = "\(AmountLabel.trimmed(amount)) g taken off - not logged."
+            }
         case .reset:
             message = "Scale cleared. Counting from zero."
             pendingGrams = nil
+        }
+    }
+
+    /// A settled change: logged against the chosen food, or held until one is chosen.
+    private func claim(_ amount: Double, verb: String) {
+        if let food = currentFood {
+            log(food, grams: amount)
+        } else {
+            pendingGrams = amount
+            message = "\(AmountLabel.trimmed(amount)) g \(verb) - choose what it is."
         }
     }
 
@@ -228,7 +241,26 @@ struct LiveWeighView: View {
         guard planIndex < plan.count else { return }
         let next = plan[planIndex]
         currentFood = next.food
-        if speak { say("Next: \(next.food.name), \(AmountLabel.trimmed(next.targetGrams)) grams") }
+    }
+
+    /// The hold is the confirmation: take whatever is on the scale beyond what's
+    /// already counted - however small, even nothing - as this ingredient, skipping
+    /// the settle and minimum-change checks, and move on.
+    private func confirmAndAdvance() {
+        guard planIndex < plan.count else { return }
+        let item = plan[planIndex]
+        let current = scale.live ?? liveGrams
+        let delta = max(0, ((current - engine.committed) * 10).rounded() / 10)
+        pendingGrams = nil
+        if delta > 0 {
+            log(item.food, grams: delta)
+        } else {
+            // Confirmed as negligible: counted as zero, nothing to log.
+            plan[planIndex].weighedGrams = 0
+            message = "Confirmed - no \(item.food.name) counted."
+            announceNext()
+        }
+        engine.rebase(to: current)
     }
 
     private func skipPlanned() {
@@ -254,8 +286,7 @@ struct LiveWeighView: View {
         }
         onLog(food, grams / food.servingSize)
         added.append((food, grams))
-        message = "\(AmountLabel.trimmed(grams)) g \(food.name) added"
-        if speak { say("\(AmountLabel.trimmed(grams)) grams of \(food.name) added") }
+        message = "\(AmountLabel.trimmed(grams)) \(food.servingUnit) \(food.name) added"
         // Ready for the next ingredient.
         currentFood = nil
         if let index = plan.firstIndex(where: { $0.weighedGrams == nil && $0.food.id == food.id }) {
@@ -263,26 +294,43 @@ struct LiveWeighView: View {
             announceNext()
         }
     }
+}
 
-    private func say(_ text: String) {
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        synthesizer.speak(utterance)
-    }
+/// A press-and-hold button: the fill tracks the hold and the action only fires
+/// after the full three seconds, so it can't be set off by a stray tap.
+private struct HoldToConfirmButton: View {
+    let title: String
+    @Binding var progress: Double
+    let action: () -> Void
 
-    #if DEBUG
-    /// Feeds readings the way a real scale would: a steady stream.
-    private func simulate(adding grams: Double) { simulate(to: liveGrams + grams) }
+    @State private var fired = 0
 
-    private func simulate(to target: Double) {
-        let start = Date()
-        Task {
-            for step in 0..<12 {
-                try? await Task.sleep(nanoseconds: 120_000_000)
-                receive(target)
-                _ = (start, step)
+    var body: some View {
+        Text(title)
+            .foregroundStyle(AppColor.accent)
+            .frame(maxWidth: .infinity, minHeight: 32)
+            .background(alignment: .leading) {
+                GeometryReader { proxy in
+                    Rectangle()
+                        .fill(AppColor.accent.opacity(0.25))
+                        .frame(width: proxy.size.width * progress)
+                }
             }
-        }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 3, maximumDistance: 40, perform: {
+                fired += 1
+                action()
+                progress = 0
+            }, onPressingChanged: { pressing in
+                if pressing {
+                    withAnimation(.linear(duration: 3)) { progress = 1 }
+                } else {
+                    withAnimation(.easeOut(duration: 0.2)) { progress = 0 }
+                }
+            })
+            .sensoryFeedback(.success, trigger: fired)
+            .accessibilityLabel(title)
+            .accessibilityHint("Press and hold for three seconds")
     }
-    #endif
 }
