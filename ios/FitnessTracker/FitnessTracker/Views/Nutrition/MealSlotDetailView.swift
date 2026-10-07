@@ -13,7 +13,6 @@ struct MealSlotDetailView: View {
     var preworkoutCarbTargetG: Double?
 
     @State private var addingFood = false
-    @State private var addingMealPrep = false
     @State private var addingSavedMeal = false
     @State private var copyingMeal = false
     @State private var weighing = false
@@ -95,6 +94,16 @@ struct MealSlotDetailView: View {
                     }
                 }
 
+                if !entries.isEmpty {
+                    Button {
+                        isSavingMeal = true
+                    } label: {
+                        Label("Save this as a meal", systemImage: "bookmark")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.appPrimaryCompact)
+                }
+
                 if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
                         .font(.footnote)
@@ -116,15 +125,16 @@ struct MealSlotDetailView: View {
                 carbsRemainingG: preworkoutCarbTargetG.flatMap { slot.isPreworkout ? max($0 - (group?.totalCarbsG ?? 0), 0) : nil }
             )
         }
-        .sheet(isPresented: $addingMealPrep) {
-            MealPrepPickerView(slot: slot, date: date) { summary, quantity in
-                Task { await viewModel.logRecipe(summary.recipe, quantity: quantity, mealSlotId: slot.id, date: date) }
-            }
-        }
         .sheet(isPresented: $addingSavedMeal) {
-            SavedMealPickerView(mealSlotName: slot.name) { items in
-                Task { await viewModel.applySavedMeal(items, mealSlotId: slot.id, date: date) }
-            }
+            SavedMealPickerView(
+                mealSlotName: slot.name,
+                onApply: { items in
+                    Task { await viewModel.applySavedMeal(items, mealSlotId: slot.id, date: date) }
+                },
+                stock: .init(slot: slot, date: date) { summary, quantity in
+                    Task { await viewModel.logRecipe(summary.recipe, quantity: quantity, mealSlotId: slot.id, date: date) }
+                }
+            )
         }
         .sheet(isPresented: $weighing) {
             LiveWeighView(mealSlotName: slot.name) { food, servings in
@@ -224,13 +234,9 @@ struct MealSlotDetailView: View {
     private var optionsRow: some View {
         HStack(spacing: 10) {
             optionButton("Add Food", icon: "plus") { addingFood = true }
-            optionButton("Recipes", icon: "takeoutbag.and.cup.and.straw") { addingMealPrep = true }
             optionButton("Saved", icon: "list.bullet.rectangle") { addingSavedMeal = true }
             optionButton("Copy", icon: "doc.on.doc") { copyingMeal = true }
             optionButton("Scale", icon: "scalemass") { weighing = true }
-            if !entries.isEmpty {
-                optionButton("Save Meal", icon: "bookmark") { isSavingMeal = true }
-            }
         }
     }
 

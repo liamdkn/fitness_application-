@@ -6,13 +6,24 @@ import SwiftUI
 /// here the way there is for a single food or recipe. Meals are listed
 /// under their category ("Overnight oats"), uncategorised ones last.
 struct SavedMealPickerView: View {
+    /// Where "recipes in stock" can be logged to. When given, the batches you've
+    /// made are listed at the top, above the saved meals.
+    struct StockContext {
+        let slot: MealSlot
+        let date: Date
+        let onLog: (MealPrepSummary, Double) -> Void
+    }
+
     let mealSlotName: String
     let onApply: ([SavedMealItem]) -> Void
+    var stock: StockContext?
 
     @Environment(\.dismiss) private var dismiss
     @State private var savedMeals: [SavedMeal] = []
     @State private var errorMessage: String?
     @State private var recategorizing: SavedMeal?
+    @State private var stockItems: [MealPrepSummary] = []
+    @State private var pendingPrep: MealPrepSummary?
     private let repository = SavedMealsRepository()
 
     /// Category sections alphabetical, "Other" (no category) at the bottom;
@@ -33,6 +44,27 @@ struct SavedMealPickerView: View {
             List {
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(AppColor.error)
+                }
+                if stock != nil {
+                    Section {
+                        if stockItems.isEmpty {
+                            Text("Nothing in stock - make a batch from Recipes in the Meals menu.")
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(stockItems) { summary in
+                            Button {
+                                pendingPrep = summary
+                            } label: {
+                                MealPrepRow(summary: summary)
+                                    .foregroundStyle(.primary)
+                            }
+                        }
+                    } header: {
+                        Text("Recipes in stock")
+                    } footer: {
+                        if !savedMeals.isEmpty { Text("Or choose a saved meal below.") }
+                    }
+                    .listRowBackground(AppRowBackground())
                 }
                 if savedMeals.isEmpty {
                     Text("No saved meals yet. Log a meal to \(mealSlotName), then use \"Save This Meal\" to keep it for next time.")
@@ -72,7 +104,7 @@ struct SavedMealPickerView: View {
                 }
             }
             .appScreen()
-            .navigationTitle("Saved Meals")
+            .navigationTitle(stock == nil ? "Saved Meals" : "Saved & In Stock")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
@@ -80,6 +112,14 @@ struct SavedMealPickerView: View {
                 }
             }
             .task { await load() }
+            .sheet(item: $pendingPrep) { summary in
+                if let stock {
+                    LogPrepPortionView(summary: summary, fixedSlot: stock.slot, fixedDate: stock.date) { quantity, _, _ in
+                        stock.onLog(summary, quantity)
+                        dismiss()
+                    }
+                }
+            }
             .sheet(item: $recategorizing) { savedMeal in
                 ChangeCategorySheet(savedMeal: savedMeal, existingCategories: existingCategories) {
                     Task { await load() }
@@ -94,6 +134,11 @@ struct SavedMealPickerView: View {
 
     private func load() async {
         do {
+            if stock != nil {
+                stockItems = try await MealPrepRepository().fetchSummaries()
+                    .filter { !$0.isFinished }
+                    .sorted { $0.prep.eatBy < $1.prep.eatBy }
+            }
             savedMeals = try await repository.fetchAll()
         } catch {
             errorMessage = error.localizedDescription

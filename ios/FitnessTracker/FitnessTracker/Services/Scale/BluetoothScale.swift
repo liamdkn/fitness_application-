@@ -34,9 +34,17 @@ final class BluetoothScale: NSObject {
     /// Latest weight in grams, when the scale uses the standard format.
     var grams: Double?
     /// The weight on the scale right now, including while it is still settling -
-    /// for a display that follows the pour. `grams` and `onReading` only take
+    /// for a display that follows the pour. `grams` and `onSample`'s steady flag only take
     /// steady readings.
     var live: Double?
+    /// The unit the scale itself is displaying (see `ScaleDecoding.unitName`).
+    /// The weight is mass whatever this says; it matters for ml and milk modes.
+    var unit: Int?
+    /// The scale paired with this phone, kept until it's unpaired. Identified by
+    /// the iPhone's own id for the device, so it survives restarts.
+    var pairedName: String?
+    private(set) var pairedId: UUID?
+    var isPaired: Bool { pairedId != nil }
     var isScanning = false
     /// Messages received on the scale's weight channel since connecting.
     var weightChannelPackets = 0
@@ -45,8 +53,17 @@ final class BluetoothScale: NSObject {
     /// panel. Firmware-update characteristics are left out on purpose.
     var writableIds: [String] = []
 
-    /// Called with each decoded reading (grams).
-    var onReading: ((Double) -> Void)?
+    /// Called with every weight reading (grams) and whether the scale calls it
+    /// steady - moving readings included, so a pour's pauses can be told from its end.
+    var onSample: ((Double, Bool) -> Void)?
+    /// Called when TARE is pressed on the scale, with the weight on it just before
+    /// it zeroed - the app uses that press as "that's the amount, log it".
+    var onTare: ((Double) -> Void)?
+    /// How many TARE presses have been seen since connecting (shown in settings,
+    /// to check the scale's button is being noticed).
+    var tarePresses = 0
+    private var massBeforeTare: Double?
+    private var inTare = false
 
     private var central: CBCentralManager!
     private var peripherals: [UUID: CBPeripheral] = [:]
@@ -56,6 +73,7 @@ final class BluetoothScale: NSObject {
     /// Set when the user disconnects on purpose, so it isn't reconnected behind their back.
     private var manualDisconnect = false
     private static let knownKey = "scale-known-id"
+    private static let knownNameKey = "scale-known-name"
     private var handshakeTask: Task<Void, Never>?
     /// Last broadcast bytes seen per device, so only changes are logged.
     private var lastBroadcast: [UUID: Data] = [:]
@@ -64,6 +82,8 @@ final class BluetoothScale: NSObject {
 
     override init() {
         super.init()
+        pairedId = UserDefaults.standard.string(forKey: Self.knownKey).flatMap(UUID.init(uuidString:))
+        pairedName = UserDefaults.standard.string(forKey: Self.knownNameKey)
         central = CBCentralManager(delegate: self, queue: nil)
     }
 
@@ -91,14 +111,20 @@ final class BluetoothScale: NSObject {
         central.connect(peripheral)
     }
 
-    func disconnect() {
+    /// Forgets the paired scale and drops the connection - for when something is
+    /// wrong, or the scale is being replaced. Pairing again is a scan and a tap.
+    func unpair() {
         manualDisconnect = true
         UserDefaults.standard.removeObject(forKey: Self.knownKey)
+        UserDefaults.standard.removeObject(forKey: Self.knownNameKey)
+        pairedId = nil
+        pairedName = nil
         if let connected { central.cancelPeripheralConnection(connected) }
         connected = nil
         connectedName = nil
         grams = nil
         live = nil
+        unit = nil
         writables.removeAll()
         writableIds.removeAll()
         services.removeAll()
@@ -109,14 +135,22 @@ final class BluetoothScale: NSObject {
     /// tapping needed. Does nothing if no scale has been set up, or one is connected.
     func reconnectKnown() {
         guard central.state == .poweredOn, connected == nil,
-              let text = UserDefaults.standard.string(forKey: Self.knownKey),
-              let id = UUID(uuidString: text),
+              let id = pairedId,
               let peripheral = central.retrievePeripherals(withIdentifiers: [id]).first else { return }
         manualDisconnect = false
         connected = peripheral
         peripheral.delegate = self
         status = "Waiting for the scale - wake it by pressing a button or putting something on."
         central.connect(peripheral)
+    }
+
+    /// Drops whatever connection attempt is open and starts a fresh one - for a
+    /// paired scale that seems stuck.
+    func reconnectNow() {
+        if let connected { central.cancelPeripheralConnection(connected) }
+        connected = nil
+        connectedName = nil
+        reconnectKnown()
     }
 
     /// Sends bytes (as hex, "A5 01 FF") to one of the writable characteristics.
@@ -235,6 +269,9 @@ extension BluetoothScale: CBCentralManagerDelegate {
         Task { @MainActor in
             self.handshakeSent = false
             self.weightChannelPackets = 0
+            self.tarePresses = 0
+            self.inTare = false
+            self.massBeforeTare = nil
             self.handshakeTask?.cancel()
             self.connectedName = peripheral.name ?? "Scale"
             self.status = "Connected. Looking at what it offers..."
@@ -255,6 +292,7 @@ extension BluetoothScale: CBCentralManagerDelegate {
             self.connectedName = nil
             self.grams = nil
             self.live = nil
+            self.unit = nil
             if self.manualDisconnect {
                 self.status = "Disconnected."
             } else {
@@ -314,11 +352,19 @@ extension BluetoothScale: CBPeripheralDelegate {
             ?? "Listening to \(id): \(characteristic.isNotifying ? "on" : "off")"
         let isWeightChannel = characteristic.uuid == CBUUID(string: "FFB2") && characteristic.isNotifying
         let peripheralId = peripheral.identifier
+        let peripheralName = peripheral.name
         Task { @MainActor in
             self.append(text)
             // Only a device with the weight channel is remembered, so a wrong tap
             // in the list doesn't become the scale that auto-connects.
-            if isWeightChannel { UserDefaults.standard.set(peripheralId.uuidString, forKey: Self.knownKey) }
+            if isWeightChannel {
+                UserDefaults.standard.set(peripheralId.uuidString, forKey: Self.knownKey)
+                self.pairedId = peripheralId
+                if let name = peripheralName {
+                    UserDefaults.standard.set(name, forKey: Self.knownNameKey)
+                    self.pairedName = name
+                }
+            }
             // The scale normally announces itself once we listen; if it doesn't
             // within a few seconds, send the handshake anyway.
             if isWeightChannel, !self.handshakeSent {
@@ -349,17 +395,22 @@ extension BluetoothScale: CBPeripheralDelegate {
         var note = ""
         var announced = false
         var moving: Double?
+        var unitCode: Int?
+        var sampleStable = true
+        var tareFlag = false
         if uuid == CBUUID(string: "FFB2"), let icomon = ScaleDecoding.icomonFrame(data) {
             note = "  [type \(String(format: "%02X", icomon.type)), checksum \(icomon.checksumOK ? "ok" : "BAD")"
             if icomon.type == 0xA0 { announced = true; note += ", capabilities - replying" }
             if let weight = ScaleDecoding.icomonWeight(icomon) {
                 note += ", \(weight.stable ? "steady" : "moving")\(weight.isTare ? ", tare" : "")"
-                if !weight.isMetric {
-                    note += ", unit not grams - press UNIT on the scale"
-                } else {
-                    moving = weight.grams
-                    if weight.stable { decoded = weight.grams }
-                }
+                // The weight is mass in every display unit, so g, ml, milk, oz and lb:oz
+                // all read the same here; only the unit label differs.
+                note += ", shows \(ScaleDecoding.unitName(Int(weight.unit)))"
+                moving = weight.grams
+                unitCode = Int(weight.unit)
+                sampleStable = weight.stable
+                tareFlag = weight.isTare
+                if weight.stable { decoded = weight.grams }
             }
             note += "]"
         } else if uuid == CBUUID(string: "FFB2"), let frame = ScaleDecoding.fitdaysFrame(data) {
@@ -373,13 +424,33 @@ extension BluetoothScale: CBPeripheralDelegate {
         let finalDecoded = decoded
         let didAnnounce = announced
         let liveValue = moving
+        let liveUnit = unitCode
+        let steady = sampleStable
+        let tareFrame = tareFlag
         let onWeightChannel = uuid == CBUUID(string: "FFB2")
         Task { @MainActor in
             if onWeightChannel { self.weightChannelPackets += 1 }
             if didAnnounce, !self.handshakeSent { self.sendIcomonHandshake() }
             self.append(line + note + (finalDecoded.map { "  = \($0) g" } ?? ""))
             if let liveValue { self.live = liveValue }
-            if let decoded = finalDecoded { self.grams = decoded; self.onReading?(decoded) }
+            if let liveUnit { self.unit = liveUnit }
+            if let decoded = finalDecoded { self.grams = decoded }
+            if let liveValue {
+                if tareFrame {
+                    // First flagged frame = the press. The weight before it is the amount.
+                    if !self.inTare {
+                        self.inTare = true
+                        self.tarePresses += 1
+                        self.onTare?(self.massBeforeTare ?? 0)
+                    }
+                } else {
+                    self.inTare = false
+                    self.massBeforeTare = liveValue
+                }
+                self.onSample?(liveValue, steady)
+            } else if let decoded = finalDecoded {
+                self.onSample?(decoded, true)
+            }
             guard finalDecoded == nil else { return }
         }
     }

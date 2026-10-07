@@ -160,62 +160,7 @@ struct FoodAndRunFormattingTests {
     }
 }
 
-struct LiveWeighEngineTests {
-    /// Feeds a steady reading for a while, like a scale holding still.
-    private func hold(_ engine: inout LiveWeighEngine, _ grams: Double, from start: Date, seconds: Double = 1.5) -> (events: [LiveWeighEngine.Event], end: Date) {
-        var events: [LiveWeighEngine.Event] = []
-        var time = start
-        let end = start.addingTimeInterval(seconds)
-        while time <= end {
-            if let event = engine.ingest(grams: grams, at: time) { events.append(event) }
-            time = time.addingTimeInterval(0.1)
-        }
-        return (events, end)
-    }
-
-    @Test func reportsEachPourOnceWhenItSettles() {
-        var engine = LiveWeighEngine()
-        var t = Date(timeIntervalSince1970: 1_000_000)
-        // Bowl, then 50 g of oats, then 10 g of chia on top.
-        var step = hold(&engine, 0, from: t); t = step.end.addingTimeInterval(0.1)
-        step = hold(&engine, 50, from: t)
-        #expect(step.events == [.added(grams: 50)])
-        t = step.end.addingTimeInterval(0.1)
-        step = hold(&engine, 60, from: t)
-        #expect(step.events == [.added(grams: 10)])
-    }
-
-    @Test func nothingIsReportedWhileTheWeightIsStillChanging() {
-        var engine = LiveWeighEngine()
-        var t = Date(timeIntervalSince1970: 1_000_000)
-        var events: [LiveWeighEngine.Event] = []
-        for grams in stride(from: 0.0, through: 40.0, by: 4.0) {
-            if let event = engine.ingest(grams: grams, at: t) { events.append(event) }
-            t = t.addingTimeInterval(0.1)
-        }
-        #expect(events.isEmpty)
-    }
-
-    @Test func liftingTheBowlResetsTheCount() {
-        var engine = LiveWeighEngine()
-        var t = Date(timeIntervalSince1970: 1_000_000)
-        var step = hold(&engine, 50, from: t); t = step.end.addingTimeInterval(0.1)
-        step = hold(&engine, 0, from: t)
-        #expect(step.events == [.reset])
-        #expect(engine.committed == 0)
-        t = step.end.addingTimeInterval(0.1)
-        step = hold(&engine, 30, from: t)
-        #expect(step.events == [.added(grams: 30)])
-    }
-
-    @Test func tinyDriftIsNotAnIngredient() {
-        var engine = LiveWeighEngine()
-        var t = Date(timeIntervalSince1970: 1_000_000)
-        var step = hold(&engine, 50, from: t); t = step.end.addingTimeInterval(0.1)
-        step = hold(&engine, 50.4, from: t)
-        #expect(step.events.isEmpty)
-    }
-
+@Suite struct ScaleUnitAndGoalTests {
     @Test func standardScalePacketsDecodeToGrams() {
         // flags 0 (kg), raw 0x0064 = 100 x 0.005 kg = 0.5 kg = 500 g
         #expect(ScaleDecoding.standardWeightScale(Data([0x00, 0x64, 0x00])) == 500)
@@ -318,4 +263,37 @@ struct IcomonKitchenScaleTests {
         let parsed = ScaleDecoding.icomonFrame(ScaleDecoding.icomonCommand(payload: payload, command: 0xA6))
         #expect(parsed.flatMap(ScaleDecoding.icomonWeight)?.stable == false)
     }
+
+    @Test func foodInMillilitresFollowsTheScalesMilkSetting() {
+        #expect(abs((ScaleDecoding.amount(forGrams: 103, foodUnit: "ml", scaleUnit: 5) ?? 0) - 100) < 0.0001)
+        #expect(ScaleDecoding.amount(forGrams: 100, foodUnit: "ml", scaleUnit: 1) == 100)
+        #expect(ScaleDecoding.amount(forGrams: 100, foodUnit: "ml", scaleUnit: 0) == 100)
+    }
+
+    @Test func foodInGramsIsAlwaysTheMass() {
+        #expect(ScaleDecoding.amount(forGrams: 50, foodUnit: "g", scaleUnit: 5) == 50)
+        #expect(ScaleDecoding.amount(forGrams: 50, foodUnit: "g", scaleUnit: 3) == 50)
+        #expect(ScaleDecoding.amount(forGrams: 50, foodUnit: "slice", scaleUnit: 0) == nil)
+    }
+
+    @Test func unitNamesMatchTheScalesCycle() {
+        #expect(ScaleDecoding.unitName(0) == "g")
+        #expect(ScaleDecoding.unitName(5) == "ml (milk)")
+        #expect(ScaleDecoding.unitName(2) == "lb:oz")
+    }
+
+    @Test func goalStatusUsesAToleranceBandAroundTheTarget() {
+        // 50 g: the band is about 48.5 ... 51.5
+        #expect(GoalWeigh.status(amount: 50.7, target: 50) == .onTarget)
+        #expect(GoalWeigh.status(amount: 48.6, target: 50) == .onTarget)
+        #expect(GoalWeigh.status(amount: 51.4, target: 50) == .onTarget)
+        #expect(GoalWeigh.status(amount: 40, target: 50) == .under(remaining: 10))
+        #expect(GoalWeigh.status(amount: 55, target: 50) == .over(by: 5))
+    }
+
+    @Test func smallTargetsKeepAOneGramBand() {
+        #expect(GoalWeigh.tolerance(for: 10) == 1.0)
+        #expect(abs(GoalWeigh.tolerance(for: 200) - 6.0) < 0.0001)
+    }
 }
+

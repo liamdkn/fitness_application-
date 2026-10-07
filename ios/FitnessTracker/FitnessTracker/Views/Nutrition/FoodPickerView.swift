@@ -372,6 +372,13 @@ struct LogFoodQuantityView: View {
     @State private var quantityText = "1"
     @State private var inputMode: QuantityInputMode = .servings
     private let mealEntryRepository = MealEntryRepository()
+    /// The kitchen scale, when one is connected: its reading is the starting amount.
+    @State private var scale = BluetoothScale.shared
+    /// True while the amount is following the scale; typing in the field takes over.
+    @State private var followingScale = false
+    @FocusState private var amountFocused: Bool
+    /// Set when the mode is switched by filling from the scale, whose text is already in the new mode.
+    @State private var skipConversion = false
 
     init(food: Food, mealSlotName: String, carbsRemainingG: Double? = nil, onConfirm: @escaping (Food, Double) -> Void) {
         _food = State(initialValue: food)
@@ -383,6 +390,14 @@ struct LogFoodQuantityView: View {
     /// Keyed per-food so switching foods never leaks one food's preferred
     /// mode onto another - a food you always weigh in grams and a food you
     /// always log as "2 slices" can each keep their own default.
+    /// What's on the scale, in this food's unit (g or ml), when a scale is connected
+    /// and holding something. `nil` for foods counted in anything else.
+    private var scaleAmount: Double? {
+        guard scale.connectedName != nil, let mass = scale.live, mass >= 1,
+              let amount = ScaleDecoding.amount(forGrams: mass, foodUnit: food.servingUnit, scaleUnit: scale.unit) else { return nil }
+        return (amount * 10).rounded() / 10
+    }
+
     private var inputModeDefaultsKey: String { "foodQuantityInputMode.\(food.id.uuidString)" }
 
     private var quantity: Double? {
@@ -411,7 +426,7 @@ struct LogFoodQuantityView: View {
                     }
                     .pickerStyle(.segmented)
                     .onChange(of: inputMode) { oldMode, newMode in
-                        convertQuantityText(from: oldMode, to: newMode)
+                        if skipConversion { skipConversion = false } else { convertQuantityText(from: oldMode, to: newMode) }
                         UserDefaults.standard.set(newMode == .amount, forKey: inputModeDefaultsKey)
                     }
                     HStack {
@@ -421,8 +436,16 @@ struct LogFoodQuantityView: View {
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 70)
+                            .focused($amountFocused)
                         Text(inputMode == .servings ? "\u{00d7} \(food.servingLabel)" : food.servingUnit)
                             .foregroundStyle(.secondary)
+                    }
+                    if let onScale = scaleAmount {
+                        Button {
+                            useScale()
+                        } label: {
+                            Label("Use the scale: \(formattedQuantity(onScale)) \(food.servingUnit)", systemImage: "scalemass")
+                        }
                     }
                 }
                 .listRowBackground(AppRowBackground())
@@ -495,6 +518,15 @@ struct LogFoodQuantityView: View {
             }
             .task {
                 await loadDefaults()
+                if scaleAmount != nil { useScale() }
+            }
+            .onChange(of: scale.live) {
+                if followingScale, let amount = scaleAmount, inputMode == .amount {
+                    quantityText = formattedQuantity(amount)
+                }
+            }
+            .onChange(of: amountFocused) { _, focused in
+                if focused { followingScale = false }
             }
             .fullScreenCover(isPresented: $editingFood) {
                 AddCustomFoodView(onCreated: { updated in food = updated }, reviewing: food)
@@ -512,6 +544,18 @@ struct LogFoodQuantityView: View {
         inputMode = UserDefaults.standard.bool(forKey: inputModeDefaultsKey) ? .amount : .servings
         guard let lastQuantity = try? await mealEntryRepository.fetchLastQuantity(foodId: food.id) else { return }
         quantityText = formattedQuantity(inputMode == .amount ? lastQuantity * food.servingSize : lastQuantity)
+    }
+
+    /// Fills the amount from the scale and keeps following it until the field is edited.
+    /// The user still has to press Add.
+    private func useScale() {
+        guard let amount = scaleAmount else { return }
+        if inputMode != .amount {
+            skipConversion = true
+            inputMode = .amount
+        }
+        quantityText = formattedQuantity(amount)
+        followingScale = true
     }
 
     private func convertQuantityText(from oldMode: QuantityInputMode, to newMode: QuantityInputMode) {

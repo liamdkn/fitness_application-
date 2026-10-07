@@ -28,6 +28,8 @@ struct CopyMealView: View {
     @State private var meals: [PastMeal] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    /// Items already copied one by one, so each shows a tick instead of a plus.
+    @State private var copiedIds: Set<UUID> = []
 
     /// How far back to look.
     private static let lookbackDays = 14
@@ -69,6 +71,17 @@ struct CopyMealView: View {
                                     .font(.subheadline)
                                     .foregroundStyle(Color.secondary)
                                     .monospacedDigit()
+                                // Just this one food, without leaving - add several, one by one.
+                                Button {
+                                    onCopy([item.entry])
+                                    copiedIds.insert(item.entry.id)
+                                } label: {
+                                    Image(systemName: copiedIds.contains(item.entry.id) ? "checkmark.circle.fill" : "plus.circle")
+                                        .font(.title3)
+                                        .foregroundStyle(copiedIds.contains(item.entry.id) ? AppColor.success : AppColor.accent)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Add \(item.title)")
                             }
                         }
                         Button {

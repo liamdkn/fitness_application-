@@ -151,6 +151,41 @@ nonisolated enum ScaleDecoding {
         )
     }
 
+    /// The scale's display units, as the UNIT button cycles them. The weight on
+    /// the wire is always mass (milligrams) whatever is displayed; the unit only
+    /// says how the scale itself shows it.
+    static func unitName(_ code: Int) -> String {
+        switch code {
+        case 0: "g"
+        case 1: "ml"
+        case 2: "lb:oz"
+        case 3: "oz"
+        case 4: "mg"
+        case 5: "ml (milk)"
+        case 6: "fl oz"
+        case 7: "fl oz (milk)"
+        default: "unit \(code)"
+        }
+    }
+
+    /// Grams in one millilitre for the scale's current unit: milk modes use milk's
+    /// density, everything else water's.
+    static func gramsPerMillilitre(scaleUnit code: Int?) -> Double {
+        code == 5 || code == 7 ? 1.03 : 1.0
+    }
+
+    /// What to record for `grams` of mass on the scale, in the unit the food is
+    /// counted in: grams for a food in g, millilitres for one in ml (using the
+    /// scale's milk setting when it is on, so "ml milk" reads the same here as
+    /// on the scale). `nil` when the food isn't counted by weight or volume.
+    static func amount(forGrams grams: Double, foodUnit: String, scaleUnit: Int?) -> Double? {
+        switch foodUnit.lowercased() {
+        case "g": grams
+        case "ml": grams / gramsPerMillilitre(scaleUnit: scaleUnit)
+        default: nil
+        }
+    }
+
     /// Hex dump for the setup screen: "0A 1F 00".
     static func hex(_ data: Data) -> String {
         data.map { String(format: "%02X", $0) }.joined(separator: " ")
